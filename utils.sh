@@ -26,3 +26,7 @@ function body {
 function hl {
     $@ --help | less
 }
+
+function over {
+    zenity --info --text="return code is $?" --title="done"
+}
