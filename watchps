@@ -1,0 +1,3 @@
+#!/bin/bash
+
+watch -n1 'ps -a | grep -v ps | grep -v watch | grep -v grep | grep -v sh'

@@ -1,0 +1,10 @@
+# put this in the $HOME/.gitconfig file
+[alias]
+	logg = log --graph
+	log1 = log --oneline
+	log1g = log --oneline --graph
+	logg1 = log --graph --oneline
+	last = log -1
+	loggp = log --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset) %s'
+[core]
+	excludesfile = /home/gmoshkin/.gitignore
