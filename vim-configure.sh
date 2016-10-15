@@ -1,0 +1,1 @@
+./configure --with-features=huge  --enable-pythoninterp=yes --enable-python3interp=yes --enable-cscope --enable-fontset --enable-rubyinterp=yes --enable-perlinterp=yes  --enable-luainterp=yes --enable-multibyte --enable-gui=yes --with-x=yes --with-python3-config-dir=/usr/lib/python3.5/config-3.5m-x86_64-linux-gnb/
