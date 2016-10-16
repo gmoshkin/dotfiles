@@ -30,3 +30,13 @@ function hl {
 function over {
     zenity --info --text="return code is $?" --title="done"
 }
+
+backup_original () {
+    if [ ! -f "$1.original" ]; then
+        if [ -f "$1" ]; then
+            cp "$1" "$1.original"
+        else
+            touch "$1.original"
+        fi
+    fi
+}
