@@ -7,4 +7,4 @@
 	last = log -1
 	loggp = log --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset) %s'
 [core]
-	excludesfile = /home/gmoshkin/.gitignore
+	excludesfile = ~/.gitignore
