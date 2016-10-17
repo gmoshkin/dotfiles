@@ -5,5 +5,5 @@ guess what that is
 $ cd dotfiles
 $ ./deploy_bashrc.sh
 $ ./deploy_gitconfig.sh
-$ ln -s tmux.conf ~/.tmux.conf
+$ ./deploy_tmux_conf.sh
 ```
