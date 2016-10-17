@@ -1,3 +1,5 @@
 #!/bin/bash
 
-ln -s "$(dirname $0)/tmux.conf" ~/.tmux.conf
+dir="$(dirname $0)"
+path="$(readlink -f $dir)"
+ln -s "$path/tmux.conf" ~/.tmux.conf
