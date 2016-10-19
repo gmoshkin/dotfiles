@@ -178,4 +178,6 @@
 	# Home partition pattern
 	export TMUX_POWERLINE_SEG_STORAGE_HOME_PATTERN="home"
 	# Can be "NONE" if not needed.
+	# Delimiter character
+	export TMUX_POWERLINE_SEG_STORAGE_DELIMITER=""
 # }
