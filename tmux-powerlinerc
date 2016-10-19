@@ -173,7 +173,7 @@
 	export TMUX_POWERLINE_SEG_STORAGE_BOOT_PATTERN="boot"
 	# Can be "NONE" if not needed.
 	# Root partition pattern
-	export TMUX_POWERLINE_SEG_STORAGE_ROOT_PATTERN="sdb1"
+	export TMUX_POWERLINE_SEG_STORAGE_ROOT_PATTERN="ROOT"
 	# Can be "NONE" if not needed.
 	# Home partition pattern
 	export TMUX_POWERLINE_SEG_STORAGE_HOME_PATTERN="home"
