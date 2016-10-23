@@ -1,0 +1,3 @@
+# Run crontab with this file as a parameter
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+@daily vim +PluginUpdate +quitall
