@@ -176,8 +176,14 @@
 	export TMUX_POWERLINE_SEG_STORAGE_ROOT_PATTERN="ROOT"
 	# Can be "NONE" if not needed.
 	# Home partition pattern
-	export TMUX_POWERLINE_SEG_STORAGE_HOME_PATTERN="home"
+	export TMUX_POWERLINE_SEG_STORAGE_HOME_PATTERN="space"
 	# Can be "NONE" if not needed.
 	# Delimiter character
 	export TMUX_POWERLINE_SEG_STORAGE_DELIMITER=""
+	# Boot symbol
+	export TMUX_POWERLINE_SEG_STORAGE_BOOT_SYMBOL="👢"
+	# Root symbol
+	export TMUX_POWERLINE_SEG_STORAGE_ROOT_SYMBOL="√"
+	# Home symbol
+	export TMUX_POWERLINE_SEG_STORAGE_HOME_SYMBOL="🏠"
 # }
