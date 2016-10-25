@@ -1,1 +1,2 @@
-[ ] Fix tmux-powerline
+* Add scalability to tmux-powerline
+* Fix tmuxlayout.sh
