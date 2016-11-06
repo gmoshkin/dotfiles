@@ -3,7 +3,9 @@
 source utils.sh
 
 backup_original ~/.gitconfig
-backup_original ~/.gitignore
 
 cat ~/.gitconfig.original ./gitconfig > ~/.gitconfig
-cat ~/.gitignore.original ./gitignore > ~/.gitignore
+
+dir="$(dirname $0)"
+path="$(readlink -f $dir)"
+ln -s "$path/gitignore" ~/.gitignore
