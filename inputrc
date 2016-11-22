@@ -1,0 +1,11 @@
+set colored-stats On
+set expand-tilde On
+set horizontal-scroll-mode On
+set print-completions-horizontally On
+set skip-completed-text On
+# <F6>
+"\e[17~": dump-variables
+# <F7>
+"\e[18~": dump-functions
+# <F8>
+"\e[19~": dump-macros
