@@ -40,3 +40,14 @@ backup_original () {
         fi
     fi
 }
+
+function T {
+    if [ -n "$TMUX" ]; then
+        return
+    fi
+    if tmux list-sessions &> /dev/null; then
+        tmux attach
+    else
+        tmux new
+    fi
+}
