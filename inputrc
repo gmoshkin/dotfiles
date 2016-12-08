@@ -1,6 +1,6 @@
 set colored-stats On
 set expand-tilde On
-set horizontal-scroll-mode On
+set horizontal-scroll-mode Off
 set print-completions-horizontally On
 set skip-completed-text On
 # <F6>
