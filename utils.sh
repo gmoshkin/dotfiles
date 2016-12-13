@@ -54,6 +54,28 @@ function T {
     fi
 }
 
+function V {
+    if [ -f "$VIMSERV" ]; then
+        vim --remote $@
+        if [ -n "$TMUX" ]; then
+            window=$(cat "$VIMSERV" | cut -d'.' -f 1)
+            pane=$(cat "$VIMSERV" | cut -d'.' -f 2)
+            tmux select-window -t $window
+            tmux select-pane -t $pane
+        fi
+    else
+        touch "$VIMSERV"
+        if [ -n "$TMUX" ]; then
+            window=$(tmux display-message -p '#{window_index}')
+            pane=$(tmux display-message -p '#{pane_index}')
+            echo "$window.$pane" > "$VIMSERV"
+        fi
+        # vim +'au VimLeave * !rm '$VIMSERV --servername VIM $@
+        vim --servername VIM $@
+        rm "$VIMSERV"
+    fi
+}
+
 function columns {
     if [ -n "$TMUX" ]; then
         echo $(tmux display-message -p '#{pane_width}')
