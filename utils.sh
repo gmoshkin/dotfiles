@@ -70,18 +70,31 @@ function separator {
 function fancy_prompt {
     local P
     sep='$(separator $(columns) $(whoami) $(hostname) $(pwd) $(date +"%a_%d_%b_%Y_%H:%M"))'
-    P+='\[\033[00m\]╭('
-    P+='\[\033[32m\]$(whoami)@'
-    P+='\[\033[33m\]$(hostname)'
-    P+='\[\033[00m\]:'
-    P+='\[\033[34m\]$(pwd)'
-    P+='\[\033[00m\])'
-    P+='\[\033[30m\]'$sep
-    P+='\[\033[00m\]('
-    P+='\[\033[32m\]$(date +"%a %d %b %Y %H:%M")'
-    P+='\[\033[00m\])'
+
+    SEPCLR='\[\033[30m\]'
+    DOLLARCLR='\[\033[92m\]'
+    COLONCLR='\[\033[30m\]'
+    RESETCLR='\[\033[00m\]'
+    UNAMECLR='\[\033[32m\]'
+    HNAMECLR='\[\033[33m\]'
+    DATECLR='\[\033[32m\]'
+    CWDCLR='\[\033[34m\]'
+
+    P+=$SEPCLR'╭'
+    P+=$SEPCLR'('
+    P+=$UNAMECLR'$(whoami)@'
+    P+=$HNAMECLR'$(hostname)'
+    P+=$COLONCLR':'
+    P+=$CWDCLR'$(pwd)'
+    P+=$SEPCLR')'
+    P+=$SEPCLR$sep
+    P+=$SEPCLR'('
+    P+=$DATECLR'$(date +"%a %d %b %Y %H:%M")'
+    P+=$SEPCLR')'
     P+='\n'
-    P+='\[\033[00m\]╰\$'
+    P+=$SEPCLR'╰'
+    P+=$DOLLARCLR'\$'
+    P+=$RESETCLR
     echo -e $P
 }
 
