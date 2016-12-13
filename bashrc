@@ -3,7 +3,8 @@ stty -ixon
 
 # color_prompt
 case "$TERM" in
-    *color) PS1="$(simple_prompt) ";;
+    *color) PS1="$(fancy_prompt) ";;
+    # *color) PS1="$(simple_prompt) ";;
 esac
 
 

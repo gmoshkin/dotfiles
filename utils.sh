@@ -54,41 +54,17 @@ function T {
     fi
 }
 
-function pane_width {
-    echo $(tmux display-message -p '#{pane_width}')
-}
-
-function line {
-    # ┌┐┍┑┎┒┏┓╭╮
-    # └┘┕┙┖┚┗┛╰╯
-    # ┬─┬
-    # ├┼┤
-    # ┴│┴
-    # ⑉
-    echo $(echo 'print "\xe2\x94\x80"*('$1'-2)' | python)
+function columns {
+    if [ -n "$TMUX" ]; then
+        echo $(tmux display-message -p '#{pane_width}')
+    else
+        echo $(tput cols)
+    fi
 }
 
 function fancy_prompt {
     local P
-    P+="╭─("
-    # P+="╭$(line $(pane_width))╮\n"
-    P+='${debian_chroot:+($debian_chroot)}'
-    P+='\['$CLRFGGREEN'\]'
-    P+="$(whoami)@"
-    P+='\['$CLRFGYELLOW'\]'
-    P+="$(hostname)"
-    P+='\['$CLRRESET'\]'
-    P+=':'
-    P+='\['$CLRFGBLUE'\]'
-    P+="$(pwd)"
-    P+='\['$CLRRESET'\]'
-    P+=")───────────────────────────────────────────────("
-    P+="$(date +'%a %d %b %Y %H:%M')"
-    P+=")"
-    P+='\n'
-    P+='╰─'
-    # display a dollar symbol in blue color at newline
-    P+='\[\033[00m\]\$'
+    P+='$($DOTFILES/prompt.py $(columns) $(whoami) $(hostname) $(pwd) $(date +"%a %d %b %Y %H:%M"))'
     echo -e $P
 }
 
