@@ -62,9 +62,26 @@ function columns {
     fi
 }
 
+function separator {
+    width=$(( $1 - ${#2} - ${#3} - ${#4} - ${#5} - 7 ))
+    echo 'print "\xe2\x94\x80" * '$width | python
+}
+
 function fancy_prompt {
     local P
-    P+='$($DOTFILES/prompt.py $(columns) $(whoami) $(hostname) $(pwd) $(date +"%a %d %b %Y %H:%M"))'
+    sep='$(separator $(columns) $(whoami) $(hostname) $(pwd) $(date +"%a_%d_%b_%Y_%H:%M"))'
+    P+='\[\033[00m\]╭('
+    P+='\[\033[32m\]$(whoami)@'
+    P+='\[\033[33m\]$(hostname)'
+    P+='\[\033[00m\]:'
+    P+='\[\033[34m\]$(pwd)'
+    P+='\[\033[00m\])'
+    P+='\[\033[00m\]'$sep
+    P+='\[\033[00m\]('
+    P+='\[\033[32m\]$(date +"%a %d %b %Y %H:%M")'
+    P+='\[\033[00m\])'
+    P+='\n'
+    P+='\[\033[00m\]╰\$'
     echo -e $P
 }
 
@@ -79,7 +96,7 @@ function simple_prompt {
     P+='\[\033[00m\]:'
     # display working directory in blue color
     P+='\[\033[34m\]\w'
-    # display a dollar symbol in blue color
+    # display a dollar symbol in default color
     P+='\[\033[00m\]\$'
-    echo -e $P
+    echo $P
 }
