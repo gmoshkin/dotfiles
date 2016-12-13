@@ -3,12 +3,12 @@ stty -ixon
 
 # color_prompt
 case "$TERM" in
-    *color) PS1='${debian_chroot:+($debian_chroot)}\[\033[32m\]\u@\[\033[33m\]\h\[\033[00m\]:\[\033[34m\]\w\[\033[00m\]\$ ';;
+    *color) PS1="$(simple_prompt) ";;
 esac
 
 
 # tmux pwd fix
-PS1="$PS1"'$([ -n "$TMUX" ] && tmux setenv TMUXPWD_$(tmux display -p "#D" | tr -d %) "$PWD")'
+# PS1='$([ -n "$TMUX" ] && tmux setenv TMUXPWD_$(tmux display -p "#D" | tr -d %) "$PWD")'"$PS1"
 
 # Emacs style key-bindings
 # gsettings set org.gnome.desktop.interface gtk-key-theme "Emacs"

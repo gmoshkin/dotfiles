@@ -1,3 +1,5 @@
+source $DOTFILES/colors.sh
+
 function appendToPath {
     if [[ "$PATH" != *"$1"* ]]; then
         export PATH="${PATH}:$1"
@@ -50,4 +52,58 @@ function T {
     else
         tmux new
     fi
+}
+
+function pane_width {
+    echo $(tmux display-message -p '#{pane_width}')
+}
+
+function line {
+    # ┌┐┍┑┎┒┏┓╭╮
+    # └┘┕┙┖┚┗┛╰╯
+    # ┬─┬
+    # ├┼┤
+    # ┴│┴
+    # ⑉
+    echo $(echo 'print "\xe2\x94\x80"*('$1'-2)' | python)
+}
+
+function fancy_prompt {
+    local P
+    P+="╭─("
+    # P+="╭$(line $(pane_width))╮\n"
+    P+='${debian_chroot:+($debian_chroot)}'
+    P+='\['$CLRFGGREEN'\]'
+    P+="$(whoami)@"
+    P+='\['$CLRFGYELLOW'\]'
+    P+="$(hostname)"
+    P+='\['$CLRRESET'\]'
+    P+=':'
+    P+='\['$CLRFGBLUE'\]'
+    P+="$(pwd)"
+    P+='\['$CLRRESET'\]'
+    P+=")───────────────────────────────────────────────("
+    P+="$(date +'%a %d %b %Y %H:%M')"
+    P+=")"
+    P+='\n'
+    P+='╰─'
+    # display a dollar symbol in blue color at newline
+    P+='\[\033[00m\]\$'
+    echo -e $P
+}
+
+function simple_prompt {
+    local P
+    P+='${debian_chroot:+($debian_chroot)}'
+    # display username in green color
+    P+='\[\033[32m\]\u'
+    # display hostname in yellow color
+    P+='@\[\033[33m\]\h'
+    # display a colon in default color
+    P+='\[\033[00m\]:'
+    # display working directory in blue color
+    P+='\[\033[34m\]\w'
+    # display a dollar symbol in blue color
+    P+='\[\033[00m\]\$'
+    echo -e $P
 }
