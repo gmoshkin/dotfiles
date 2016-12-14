@@ -17,6 +17,9 @@ esac
 export EDITOR="$(which vim)"
 export GDBHISTFILE="$HOME/.gdb_history"
 
+export DOTVIM="$HOME/.vim"
+export VIMSERV="/tmp/vim-serv-tmp"
+
 alias watch='watch --color -n 1'
 alias cput='xsel --clipboard'
 alias cget='cat | xsel --clipboard'
