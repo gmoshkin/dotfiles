@@ -77,7 +77,9 @@ function V {
 }
 
 function columns {
-    tmux_cols=$(tmux display-message -p '#{pane_width}')
+    if [ -n "$TMUX" ]; then
+        tmux_cols=$(tmux display-message -p '#{pane_width}')
+    fi
     tput_cols=$(tput cols)
     echo "$tput_cols"
 }
