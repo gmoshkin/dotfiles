@@ -1,3 +1,5 @@
 # Run crontab with this file as a parameter
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+SHELL=/bin/bash
 @daily vim +PluginUpdate +quitall
+0 */3 * * * ~/dotfiles/ctrlp_cache.sh

@@ -135,3 +135,41 @@ function simple_prompt {
     P+='\[\033[00m\]\$'
     echo $P
 }
+
+function cut_dir {
+    sed 's/^\.\/\?//'
+}
+
+function sort_len {
+    awk '{ print length, $0  }' | sort -n | cut -d' ' -f2-
+}
+
+function find_all {
+    ignore_names=(
+        '*.swp'
+        '*.png'
+        '*.jpg'
+        '*.gif'
+        '*.zip'
+        '*.rar'
+        '*.tar.gz'
+        '*.exe'
+        '.*'
+    )
+    ignore_dirs=(
+        '*/.git'
+    )
+    ignore=""
+    for d in "${ignore_dirs[@]}"; do
+        ignore="$ignore -o -path '${d}'"
+    done
+    for n in "${ignore_names[@]}"; do
+        ignore="$ignore -o -name '${n}'"
+    done
+    # remove the leading '-o'
+    ignore=$(echo "$ignore" | cut -d' ' -f3-)
+    # echo "$ignore"
+    # echo find . -mindepth 1 \( $ignore \) -prune -o -type f -print
+    # echo "find . -mindepth 1 \( $ignore \) -prune -o -type f -print"
+    eval "find . -mindepth 1 \( $ignore \) -prune -o -type f -print | cut_dir | sort_len"
+}

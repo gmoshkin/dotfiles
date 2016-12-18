@@ -17,7 +17,7 @@ esac
 export EDITOR="$(which vim)"
 export GDBHISTFILE="$HOME/.gdb_history"
 
-export DOTVIM="$HOME/.vim"
+export VIMFILES="$HOME/.vim"
 export VIMSERV="/tmp/vim-serv-tmp"
 
 alias watch='watch --color -n 1'
