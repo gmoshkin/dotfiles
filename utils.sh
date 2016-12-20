@@ -146,14 +146,22 @@ function sort_len {
 
 function find_all {
     ignore_names=(
+        '*.tar.gz'
+        '*.class'
         '*.swp'
         '*.png'
         '*.jpg'
         '*.gif'
         '*.zip'
         '*.rar'
-        '*.tar.gz'
         '*.exe'
+        '*.jar'
+        '*.war'
+        '*.pyc'
+        '*.so'
+        '*.db'
+        '*.o'
+        '*.d'
         '.*'
     )
     ignore_dirs=(
