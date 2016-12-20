@@ -144,6 +144,25 @@ function sort_len {
     awk '{ print length, $0  }' | sort -n | cut -d' ' -f2-
 }
 
+function debug {
+    >&2 echo "$@"
+}
+
+function read_local_ignore {
+    local IGNOREFILE=".ctrlpignore"
+    if [ ! -f "$IGNOREFILE" ]; then
+        return
+    fi
+    local local_dirs
+    IFS=$'\r\n' GLOBIGNORE='*' command eval 'local_dirs=($(cat $IGNOREFILE))'
+    local ignore
+    ignore=""
+    for d in "${local_dirs[@]}"; do
+        ignore="$ignore -o -path '${d}'"
+    done
+    echo "$ignore"
+}
+
 function find_all {
     ignore_names=(
         '*.tar.gz'
@@ -171,6 +190,7 @@ function find_all {
     for d in "${ignore_dirs[@]}"; do
         ignore="$ignore -o -path '${d}'"
     done
+    ignore="$ignore $(read_local_ignore)"
     for n in "${ignore_names[@]}"; do
         ignore="$ignore -o -name '${n}'"
     done
