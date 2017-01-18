@@ -29,3 +29,5 @@ alias O='xdg-open'
 if type "thefuck" > /dev/null; then
     eval $(thefuck -a)
 fi
+
+eval `dircolors ~/.dir_colors/dircolors`
