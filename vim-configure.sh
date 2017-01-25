@@ -7,8 +7,8 @@ FEATURES=(
 
 GUI="--enable-gui=yes --with-x=yes"
 INTERPS=(
-    "python3"
-    # "python"
+    # "python3"
+    "python"
     "ruby"
     "perl"
     "lua"
@@ -26,5 +26,7 @@ for feature in ${FEATURES[@]}; do
     ENABLEFEATURES="${ENABLEFEATURES} --enable-${feature}"
 done
 
+PREFIX="--prefix=$HOME/.local"
+
 rm -f src/auto/config.cache
-./configure $FEATURE $ENABLEFEATURES $ENABLEINTERPS $GUI $PYTHON3CONF
+./configure $PREFIX $FEATURE $ENABLEFEATURES $ENABLEINTERPS $GUI $PYTHON2CONF
