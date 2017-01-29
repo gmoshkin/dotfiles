@@ -26,7 +26,7 @@ alias cget='cat | xsel --clipboard'
 alias O='xdg-open'
 
 # check if `thefuck` is installed and make an alias for it
-if type "thefuck" > /dev/null; then
+if type "thefuck" &> /dev/null; then
     eval $(thefuck -a)
 fi
 
