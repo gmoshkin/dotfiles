@@ -4,3 +4,6 @@
 [submodule "tmux-powerline"]
 	path = tmux-powerline
 	url = git@github.com:gmoshkin/tmux-powerline.git
+[submodule "fonts"]
+	path = fonts
+	url = git@github.com:powerline/fonts.git
