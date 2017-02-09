@@ -8,6 +8,7 @@ FEATURES=(
 GUI="--enable-gui=yes --with-x=yes" # requires libsm-dev, libxt-dev, libx11-dev
 INTERPS=(
     # "python3"
+    # "mzscheme"
     "python" # requires libpython-dev
     "ruby" # requires ruby-dev
     "perl" # requires libperl-dev
@@ -26,7 +27,9 @@ for feature in ${FEATURES[@]}; do
     ENABLEFEATURES="${ENABLEFEATURES} --enable-${feature}"
 done
 
+LUAJIT="--with-luajit" # requires lib-luajit-5.1-dev
+
 PREFIX="--prefix=$HOME/.local"
 
 rm -f src/auto/config.cache
-./configure $PREFIX $FEATURE $ENABLEFEATURES $ENABLEINTERPS $GUI $PYTHON2CONF
+./configure $PREFIX $FEATURE $ENABLEFEATURES $ENABLEINTERPS $GUI $PYTHON2CONF $LUAJIT
