@@ -5,13 +5,13 @@ FEATURES=(
     "multibyte"
 )
 
-GUI="--enable-gui=yes --with-x=yes"
+GUI="--enable-gui=yes --with-x=yes" # requires libsm-dev, libxt-dev, libx11-dev
 INTERPS=(
     # "python3"
-    "python"
-    "ruby"
-    "perl"
-    "lua"
+    "python" # requires libpython-dev
+    "ruby" # requires ruby-dev
+    "perl" # requires libperl-dev
+    "lua" # ???
 )
 PYTHON2CONF="--with-python-config-dir=/usr/lib/python2.7/config-x86_64-linux-gnu"
 PYTHON3CONF="--with-python3-config-dir=/usr/lib/python3.5/config-3.5m-x86_64-linux-gnu"
