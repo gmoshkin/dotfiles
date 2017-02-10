@@ -1,4 +1,7 @@
 # put this in the $HOME/.gitconfig file
+[user]
+	email = louielouie314@gmail.com
+	name = Georgy Moshkin
 [alias]
 	logg = log --graph
 	log1 = log --oneline
@@ -8,3 +11,5 @@
 	loggp = log --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset) %s'
 [core]
 	excludesfile = ~/.gitignore
+[push]
+	default = simple
