@@ -25,11 +25,11 @@ function T {
     if [ -n "$TMUX" ]; then
         return
     fi
-    if tmux list-sessions &> /dev/null; then
+    if [ -z "$1" ] && tmux list-sessions &> /dev/null; then
         tmux attach
     else
         # default amount of panes if it's big enough
-        tmux new
+        tmux new -s "${1:-0}"
     fi
 }
 
