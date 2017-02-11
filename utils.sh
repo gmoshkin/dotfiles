@@ -12,68 +12,6 @@ function prependToPath {
     fi
 }
 
-# TODO: put this in another file maybe
-function cathex {
-    cat $1 | hexdump -C
-}
-
-# TODO: put this in another file maybe
-function body {
-    length=$3
-    if [ -z "$3" ]; then
-        echo '!'
-        length="10"
-    fi
-    head -$(($2 + $length)) $1 | tail -$length
-}
-
-# TODO: put this in another file maybe
-function hl {
-    $@ --help | less
-}
-
-# TODO: put this in another file maybe
-function over {
-    zenity --info --text="return code is $?" --title="done"
-}
-
-# TODO: put this in another file maybe
-function T {
-    if [ -n "$TMUX" ]; then
-        return
-    fi
-    if tmux list-sessions &> /dev/null; then
-        tmux attach
-    else
-        # TODO: check the size of the window and split the screen in the
-        # default amount of panes if it's big enough
-        tmux new
-    fi
-}
-
-# TODO: put this in another file maybe
-function V {
-    if [ -f "$VIMSERV" ]; then
-        vim --remote $@
-        if [ -n "$TMUX" ]; then
-            window=$(cat "$VIMSERV" | cut -d'.' -f 1)
-            pane=$(cat "$VIMSERV" | cut -d'.' -f 2)
-            tmux select-window -t $window
-            tmux select-pane -t $pane
-        fi
-    else
-        touch "$VIMSERV"
-        if [ -n "$TMUX" ]; then
-            window=$(tmux display-message -p '#{window_index}')
-            pane=$(tmux display-message -p '#{pane_index}')
-            echo "$window.$pane" > "$VIMSERV"
-        fi
-        # vim +'au VimLeave * !rm '$VIMSERV --servername VIM $@
-        vim --servername VIM $@
-        rm "$VIMSERV"
-    fi
-}
-
 function columns {
     if [ -n "$TMUX" ]; then
         tmux_cols=$(tmux display-message -p '#{pane_width}')
