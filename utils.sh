@@ -12,10 +12,12 @@ function prependToPath {
     fi
 }
 
+# TODO: put this in another file maybe
 function cathex {
     cat $1 | hexdump -C
 }
 
+# TODO: put this in another file maybe
 function body {
     length=$3
     if [ -z "$3" ]; then
@@ -25,24 +27,17 @@ function body {
     head -$(($2 + $length)) $1 | tail -$length
 }
 
+# TODO: put this in another file maybe
 function hl {
     $@ --help | less
 }
 
+# TODO: put this in another file maybe
 function over {
     zenity --info --text="return code is $?" --title="done"
 }
 
-backup_original () {
-    if [ ! -f "$1.original" ]; then
-        if [ -f "$1" ]; then
-            cp "$1" "$1.original"
-        else
-            touch "$1.original"
-        fi
-    fi
-}
-
+# TODO: put this in another file maybe
 function T {
     if [ -n "$TMUX" ]; then
         return
@@ -50,10 +45,13 @@ function T {
     if tmux list-sessions &> /dev/null; then
         tmux attach
     else
+        # TODO: check the size of the window and split the screen in the
+        # default amount of panes if it's big enough
         tmux new
     fi
 }
 
+# TODO: put this in another file maybe
 function V {
     if [ -f "$VIMSERV" ]; then
         vim --remote $@
@@ -90,6 +88,8 @@ function separator {
 }
 
 function fancy_prompt {
+    # doesn't work if cwd path is too long
+    # doesn't work if cwd path contains spaces
     local P
     sep='$(separator $(columns) $(whoami) $(hostname) $(pwd) $(date +"%a_%d_%b_%Y_%H:%M"))'
 
