@@ -25,11 +25,15 @@ function T {
     if [ -n "$TMUX" ]; then
         return
     fi
-    if [ -z "$1" ] && tmux list-sessions &> /dev/null; then
-        tmux attach
+    if [ "$1" = "-l" ]; then
+        tmux list-sessions
+        return
+    fi
+    session="${1:-0}"
+    if tmux list-sessions | cut -d: -f1 | grep "$session" &> /dev/null; then
+        tmux attach -t "$session"
     else
-        # default amount of panes if it's big enough
-        tmux new -s "${1:-0}"
+        tmux new -s "$session"
     fi
 }
 
