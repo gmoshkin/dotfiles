@@ -34,3 +34,5 @@ if type "thefuck" &> /dev/null; then
 fi
 
 eval `dircolors ~/.dir_colors/dircolors`
+
+source "$DOTFILES/commands.sh"
