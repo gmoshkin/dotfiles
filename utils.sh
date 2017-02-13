@@ -84,6 +84,15 @@ function simple_prompt {
     echo $P
 }
 
+function python_prompt {
+    local P
+    P+=$RESETCLR
+    P+='$(~/dotfiles/prompt.py "$(columns)" "$(whoami)" "$(hostname)" "$(pwd)" "$(date +'"'%a %d %b %Y %H:%M'"')")'
+    P+=$RESETCLR
+
+    echo -e $P
+}
+
 function cut_dir {
     sed 's/^\.\/\?//'
 }

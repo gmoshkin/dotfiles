@@ -1,11 +1,18 @@
 # disable c-s binding (stop/start output control)
 stty -ixon
 
+PROMPT=${PROMPT:-fancy}
 # color_prompt
-case "$TERM" in
-    *color) PS1="$(fancy_prompt) ";;
-    # *color) PS1="$(simple_prompt) ";;
-esac
+if [[ "$TERM" == *color ]]; then
+    case "$PROMPT" in
+        "python")
+            PS1="$(python_prompt) ";;
+        "fancy")
+            PS1="$(fancy_prompt) ";;
+        *)
+            PS1="$(simple_prompt) ";;
+    esac
+fi
 
 
 # tmux pwd fix
