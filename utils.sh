@@ -25,11 +25,21 @@ function separator {
     echo 'print "\xe2\x94\x80" * '$width | python
 }
 
+function get_pwd {
+    if [[ "$PWD" == "$HOME"* ]]; then
+        echo ${PWD/$HOME/'~'}
+    elif [[ "$PWD" == "$SPACE"* ]]; then
+        echo ${PWD/$SPACE/'⌂'}
+    else
+        echo $PWD
+    fi
+}
+
 function fancy_prompt {
     # doesn't work if cwd path is too long
     # doesn't work if cwd path contains spaces
     local P
-    sep='$(separator $(columns) $(whoami) $(hostname) $(pwd) $(date +"%a_%d_%b_%Y_%H:%M"))'
+    sep='$(separator $(columns) $(whoami) $(hostname) $(get_pwd) $(date +"%a_%d_%b_%Y_%H:%M"))'
 
     SEPCLR='\[\033[30m\]'
     DOLLARCLR='\[\033[92m\]'
@@ -45,7 +55,7 @@ function fancy_prompt {
     P+=$UNAMECLR'$(whoami)@'
     P+=$HNAMECLR'$(hostname)'
     P+=$COLONCLR':'
-    P+=$CWDCLR'$(pwd)'
+    P+=$CWDCLR'$(get_pwd)'
     P+=$SEPCLR')'
     P+=$SEPCLR$sep
     P+=$SEPCLR'('
