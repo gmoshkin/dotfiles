@@ -94,7 +94,18 @@ todeploy=(
     inputrc
 )
 
-for f in ${todeploy[@]}; do
-    echo "Deploying ${f}"
-    "deploy_$f"
-done
+if [ -n "$1" ]; then
+    for f in ${todeploy[@]}; do
+        if [ "$1" = "$f" ]; then
+            echo "Deploying ${f}"
+            "deploy_$f"
+            exit
+        fi
+    done
+    echo "Unknown module '$1'"
+else
+    for f in ${todeploy[@]}; do
+        echo "Deploying ${f}"
+        "deploy_$f"
+    done
+fi
