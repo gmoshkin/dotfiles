@@ -18,7 +18,7 @@ function hl {
 }
 
 function over {
-    zenity --info --text="return code is $?" --title="done"
+    zenity --info --text="return code is $?" --title="done" 2> /dev/null
 }
 
 function T {
