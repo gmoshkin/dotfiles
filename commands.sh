@@ -18,7 +18,9 @@ function hl {
 }
 
 function over {
-    zenity --info --text="return code is $?" --title="done" 2> /dev/null
+    local retcode="$?"
+    echo "retcode is $retcode"
+    zenity --info --text="return code is $retcode" --title="done" 2> /dev/null
 }
 
 function T {
