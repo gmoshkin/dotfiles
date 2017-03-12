@@ -40,23 +40,30 @@ function T {
 }
 
 function V {
-    if [ -f "$VIMSERV" ]; then
-        vim --remote $@
+    local session
+    if [ -n "$TMUX" ]; then
+        session=$(tmux display-message -p '#{session_name}')
+    else
+        session="none"
+    fi
+    local vimservfile="${VIMSERV}_${session}"
+    local vimservname="VIM_${session}"
+    if [ -f "$vimservfile" ]; then
+        vim --servername $vimservname --remote $@
         if [ -n "$TMUX" ]; then
-            window=$(cat "$VIMSERV" | cut -d'.' -f 1)
-            pane=$(cat "$VIMSERV" | cut -d'.' -f 2)
+            local window=$(cat "$vimservfile" | cut -d'.' -f 1)
+            local pane=$(cat "$vimservfile" | cut -d'.' -f 2)
             tmux select-window -t $window
             tmux select-pane -t $pane
         fi
     else
-        touch "$VIMSERV"
+        touch "$vimservfile"
         if [ -n "$TMUX" ]; then
-            window=$(tmux display-message -p '#{window_index}')
-            pane=$(tmux display-message -p '#{pane_index}')
-            echo "$window.$pane" > "$VIMSERV"
+            local window=$(tmux display-message -p '#{window_index}')
+            local pane=$(tmux display-message -p '#{pane_index}')
+            echo "$window.$pane" > "$vimservfile"
         fi
-        # vim +'au VimLeave * !rm '$VIMSERV --servername VIM $@
-        vim --servername VIM $@
-        rm "$VIMSERV"
+        vim --servername $vimservname $@
+        rm "$vimservfile"
     fi
 }
