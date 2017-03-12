@@ -24,11 +24,11 @@ function over {
 }
 
 function T {
-    if [ -n "$TMUX" ]; then
-        return
-    fi
     if [ "$1" = "-l" ]; then
         tmux list-sessions
+        return
+    fi
+    if [ -n "$TMUX" ]; then
         return
     fi
     session="${1:-0}"
