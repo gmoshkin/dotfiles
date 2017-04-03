@@ -67,3 +67,7 @@ function V {
         rm "$vimservfile"
     fi
 }
+
+function weather {
+    curl "http://wttr.in/${1:-Moscow}"
+}
