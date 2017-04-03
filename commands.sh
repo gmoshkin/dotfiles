@@ -71,3 +71,26 @@ function V {
 function weather {
     curl "http://wttr.in/${1:-Moscow}"
 }
+
+function volume {
+    local DEFAULT_OFS="5"
+    local argument="$1"
+    local ABSOLUTE='^[0-9]+$'
+    local RELATIVE='^[+-][0-9]+$'
+    local DEFAULT='[-+]'
+    local new
+    local current=$(amixer get Master | grep '%' | cut -d' ' -f5)
+    if [[ "${argument}" =~ ${ABSOLUTE} ]]; then
+        new=${argument}
+        amixer -q set Master ${new}
+    elif [[ "${argument}" =~ ${RELATIVE} ]]; then
+        new=$(eval 'echo $(('"${current}${argument}"'))')
+        amixer -q set Master ${new}
+    elif [[ "${argument}" =~ ${DEFAULT} ]]; then
+        local offset="${argument}${DEFAULT_OFS}"
+        new=$(eval 'echo $(('"${current}${offset}"'))')
+        amixer -q set Master ${new}
+    else
+        echo "${current}"
+    fi
+}
