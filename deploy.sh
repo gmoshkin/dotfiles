@@ -83,7 +83,21 @@ function deploy_inputrc {
     link "inputrc"
 }
 
-todeploy=(
+function print_help {
+    cat << EOF
+Usage:
+    $0 <options> [module]
+
+    Perform actions required for the deployment of the given module
+
+options:
+    -h | --help:        print this shit
+    -l | --list:        list all modules available for deploying
+    -a | --all:         deploy all modules available for deploying
+EOF
+}
+
+modules=(
     bashrc
     gitconfig
     dircolors
@@ -94,18 +108,35 @@ todeploy=(
     inputrc
 )
 
-if [ -n "$1" ]; then
-    for f in ${todeploy[@]}; do
+function deploy_all {
+    for f in ${modules[@]}; do
+        echo "Deploying ${f}"
+        "deploy_$f"
+    done
+}
+
+function deploy_one {
+    for f in ${modules[@]}; do
         if [ "$1" = "$f" ]; then
             echo "Deploying ${f}"
             "deploy_$f"
             exit
         fi
     done
-    echo "Unknown module '$1'"
-else
-    for f in ${todeploy[@]}; do
-        echo "Deploying ${f}"
-        "deploy_$f"
-    done
-fi
+    echo "Unknown module '$1', please seek help"
+}
+
+case "$1" in
+    "-l" | "--list" )
+        echo ${modules[@]}
+        ;;
+    "" | "-h" | "--help" )
+        print_help
+        ;;
+    "-a" | "--all" )
+        deploy_all
+        ;;
+    * )
+        deploy_one "$1"
+        ;;
+esac
