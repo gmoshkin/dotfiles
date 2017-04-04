@@ -83,6 +83,10 @@ function deploy_inputrc {
     link "inputrc"
 }
 
+function deploy_rtorrent {
+    link "rtorrent.rc"
+}
+
 function print_help {
     cat << EOF
 Usage:
@@ -106,6 +110,7 @@ modules=(
     gtkrc
     tmux_conf
     inputrc
+    rtorrent
 )
 
 function deploy_all {
