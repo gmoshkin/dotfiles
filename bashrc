@@ -1,6 +1,8 @@
 # disable c-s binding (stop/start output control)
 stty -ixon
 
+source "$DOTFILES/utils.sh"
+
 PROMPT=${PROMPT:-fancy}
 # color_prompt
 if [[ "$TERM" == *color ]]; then
