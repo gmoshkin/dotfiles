@@ -27,6 +27,9 @@ function link {
         if [ ! -d "$2" ]; then
             echo "'$2' doesn't exist, creating it"
             mkdir -p "$2"
+            if [ ! -d "$2" ]; then
+                echo "Warning: failed to create '$2'!"
+            fi
         fi
     else
         linkname="$HOME/.$1"
@@ -60,7 +63,7 @@ function deploy_gitconfig {
 }
 
 function deploy_dircolors {
-    link "dircolors" "~/.dir_colors"
+    link "dircolors" ~/.dir_colors
 }
 
 function deploy_gdbinit {
