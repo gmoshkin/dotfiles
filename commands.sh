@@ -94,3 +94,7 @@ function volume {
         echo "${current}"
     fi
 }
+
+function bool {
+    $@ && echo 'True' || echo 'False'
+}
