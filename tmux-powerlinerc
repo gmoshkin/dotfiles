@@ -192,3 +192,9 @@
 	#export TMUX_POWERLINE_SEG_STORAGE_HOME_SYMBOL="🏠"
 	export TMUX_POWERLINE_SEG_STORAGE_HOME_SYMBOL="⌂"
 # }
+
+# local tmux-powerlinerc {
+	if [ -f ~/.tmux-powerlinerc ]; then
+		source ~/.tmux-powerlinerc
+	fi
+# }
