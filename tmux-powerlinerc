@@ -101,12 +101,12 @@
 	# Music player to use. Can be any of {audacious, banshee, cmus, itunes,
 	# lastfm, mocp, mpd, mpd_simple, pithos, rdio, rhythmbox, spotify,
 	# spotify_wine}.
-	export TMUX_POWERLINE_SEG_NOW_PLAYING_MUSIC_PLAYER="rhythmbox"
+	export TMUX_POWERLINE_SEG_NOW_PLAYING_MUSIC_PLAYER="cmus"
 	export TMUX_POWERLINE_SEG_NOW_PLAYING_LASTFM_USERNAME="louielouie314"
 	# Maximum output length.
 	export TMUX_POWERLINE_SEG_NOW_PLAYING_MAX_LEN="40"
 	# How to handle too long strings. Can be {trim, roll}.
-	export TMUX_POWERLINE_SEG_NOW_PLAYING_TRIM_METHOD="trim"
+	export TMUX_POWERLINE_SEG_NOW_PLAYING_TRIM_METHOD="roll"
 	# Charcters per second to roll if rolling trim method is used.
 	export TMUX_POWERLINE_SEG_NOW_PLAYING_ROLL_SPEED="2"
 
