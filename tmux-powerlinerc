@@ -191,6 +191,12 @@
 	# Home symbol
 	#export TMUX_POWERLINE_SEG_STORAGE_HOME_SYMBOL="🏠"
 	export TMUX_POWERLINE_SEG_STORAGE_HOME_SYMBOL="⌂"
+	# Boot threshold
+	export TMUX_POWERLINE_SEG_STORAGE_BOOT_THRESHOLD="50M"
+	# Root threshold
+	export TMUX_POWERLINE_SEG_STORAGE_ROOT_THRESHOLD="0.1"
+	# Home threshold
+	export TMUX_POWERLINE_SEG_STORAGE_HOME_THRESHOLD="0.1"
 # }
 
 # local tmux-powerlinerc {
