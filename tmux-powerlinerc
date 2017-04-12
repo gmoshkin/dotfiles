@@ -104,11 +104,11 @@
 	export TMUX_POWERLINE_SEG_NOW_PLAYING_MUSIC_PLAYER="cmus"
 	export TMUX_POWERLINE_SEG_NOW_PLAYING_LASTFM_USERNAME="louielouie314"
 	# Maximum output length.
-	export TMUX_POWERLINE_SEG_NOW_PLAYING_MAX_LEN="40"
+	export TMUX_POWERLINE_SEG_NOW_PLAYING_MAX_LEN="30"
 	# How to handle too long strings. Can be {trim, roll}.
 	export TMUX_POWERLINE_SEG_NOW_PLAYING_TRIM_METHOD="roll"
 	# Charcters per second to roll if rolling trim method is used.
-	export TMUX_POWERLINE_SEG_NOW_PLAYING_ROLL_SPEED="2"
+	export TMUX_POWERLINE_SEG_NOW_PLAYING_ROLL_SPEED="1"
 
 	# Hostname for MPD server in the format "[password@]host"
 	export TMUX_POWERLINE_SEG_NOW_PLAYING_MPD_HOST="localhost"
