@@ -2,3 +2,6 @@
 *.swo
 *.pyc
 *__pycache__
+cscope.*
+.gdbinit
+.ctrlpignore
