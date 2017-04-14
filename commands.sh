@@ -49,7 +49,7 @@ function V {
     local vimservfile="${VIMSERV}_${session}"
     local vimservname="VIM_${session}"
     if [ -f "$vimservfile" ]; then
-        vim --servername $vimservname --remote $@
+        vim --servername $vimservname --remote "$@"
         if [ -n "$TMUX" ]; then
             local window=$(cat "$vimservfile" | cut -d'.' -f 1)
             local pane=$(cat "$vimservfile" | cut -d'.' -f 2)
@@ -63,7 +63,7 @@ function V {
             local pane=$(tmux display-message -p '#{pane_index}')
             echo "$window.$pane" > "$vimservfile"
         fi
-        vim --servername $vimservname $@
+        vim --servername $vimservname "$@"
         rm "$vimservfile"
     fi
 }
