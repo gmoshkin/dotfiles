@@ -90,6 +90,10 @@ function deploy_rtorrent {
     link "rtorrent.rc"
 }
 
+function deploy_openbox {
+    link "lubuntu-rc.xml" ~/.config/openbox
+}
+
 function print_help {
     cat << EOF
 Usage:
@@ -114,6 +118,7 @@ modules=(
     tmux_conf
     inputrc
     rtorrent
+    openbox
 )
 
 function deploy_all {
