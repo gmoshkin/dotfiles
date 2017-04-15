@@ -498,7 +498,30 @@
         <!-- Launch scrot when Print is pressed -->
         <keybind key="Print">
             <action name="Execute">
-                <command>lxsession-default screenshot</command>
+                <command>
+                    scrot ~/Pictures/Scrot/'%Y-%m-%d-%H-%M-%S_$wx$h_scrot.png'
+                </command>
+            </action>
+        </keybind>
+        <keybind key="S-Print">
+            <action name="Execute">
+                <command>
+                    scrot -s ~/Pictures/Scrot/'%Y-%m-%d-%H-%M-%S_$wx$h_scrot.png'
+                </command>
+            </action>
+        </keybind>
+        <keybind key="C-Print">
+            <action name="Execute">
+                <command>
+                    scrot /tmp/%s_scrot.png --exec 'xclip -selection clipboard -t image/png $f'
+                </command>
+            </action>
+        </keybind>
+        <keybind key="C-S-Print">
+            <action name="Execute">
+                <command>
+                    scrot -s /tmp/%s_scrot.png --exec 'xclip -selection clipboard -t image/png $f'
+                </command>
             </action>
         </keybind>
         <!-- Launch logout when push on the shutdown button -->
