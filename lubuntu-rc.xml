@@ -600,6 +600,12 @@
         </context>
         <context name="Titlebar">
             <mousebind button="Left" action="Drag">
+                <action name="if">
+                    <maximized>yes</maximized>
+                    <then>
+                        <action name="ToggleMaximize"/>
+                    </then>
+                </action>
                 <action name="Move"/>
             </mousebind>
             <mousebind button="Left" action="DoubleClick">
