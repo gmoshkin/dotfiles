@@ -42,7 +42,7 @@
         <!-- 'Active' - where the active window is -->
     </placement>
     <theme>
-        <name>1977-Blue</name>
+        <name>mine</name>
         <titleLayout>CMDL</titleLayout>
         <!-- available characters are NDSLIMC, each can occur at most once. -->
         <!-- N: window icon -->
