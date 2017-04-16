@@ -94,6 +94,14 @@ function deploy_openbox {
     link "lubuntu-rc.xml" ~/.config/openbox
 }
 
+function deploy_lubuntu_autostart {
+    local autostart=~/.config/lxsession/Lubuntu/autostart
+    if [ ! -f $autostart ]; then
+        mkdir -p $(dirname $autostart)
+    fi
+    echo ~/dotfiles/scripts/lubuntu-autostart.sh >> $autostart
+}
+
 function print_help {
     cat << EOF
 Usage:
@@ -119,6 +127,7 @@ modules=(
     inputrc
     rtorrent
     openbox
+    lubuntu_autostart
 )
 
 function deploy_all {
