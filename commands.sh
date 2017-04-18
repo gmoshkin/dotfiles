@@ -98,3 +98,13 @@ function volume {
 function bool {
     $@ && echo 'True' || echo 'False'
 }
+
+function integram {
+    if [ -z "$INTEGRAM_TOKEN" ]; then
+        echo "Please set the INTEGRAM_TOKEN variable"
+        return -1
+    fi
+    message="$@"
+    data='payload={"text":"'"$message"'"}'
+    curl -s -d "$data" "https://integram.org/$INTEGRAM_TOKEN"
+}
