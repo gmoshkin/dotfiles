@@ -7,6 +7,7 @@
 # Change the following URL to your choice of online stream
 STREAMING_ADDRESS=http://eradioportal.com/monsterRx.asx
 STREAMING_ADDRESS=http://23.92.61.218:80
+STREAMING_ADDRESS=http://streaming.streamonomy.com/keepfree60s
 
 # Mute the speakers.  You don't want to be rudely awakened
 # by a sudden rush of sound from the speakers now, do you?
