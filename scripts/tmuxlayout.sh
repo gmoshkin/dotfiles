@@ -1,45 +1,41 @@
 #!/bin/bash
 
-function set-window-name {
-    if [ -n "$1" ]; then
-        tmux rename-window $1
-        return 0
-    fi
-    return -1
+function get-width {
+    echo "$(tmux display -p '#{window_width}')"
 }
 
-function split-and-select {
-    tmux split-window $1 $2 $3
-    tmux select-pane '+'
+function main-top {
+    tmux\
+        split-window -v -p 35 -t .{bottom-right} \;\
+        split-window -h -p 67 -t .{bottom-right} \;\
+        split-window -h -p 50 -t .{bottom-right}
 }
 
-function one-three {
-    set-window-name $1
-    tmux split-window -v -p 30 \; split-window -h -p 67
-    # tmux split-window -h -p 67 -t '+'
-    # split-and-select -h -p 50
+function main-left {
+    tmux\
+        split-window -h -p 50 -t .{bottom-right} \;\
+        split-window -v -p 50 -t .{bottom-right}
 }
 
-function v-three {
-    set-window-name $1
-    tmux split-window -h -p 67
-    tmux split-window -h -p 50
-}
-
-function next-window {
-    tmux new-window
-    tmux select-window -t ':$'
-    if [ -n "$1" ]; then
-        "$1" "$2"
+function dots-layout {
+    if [ "$(get-width)" -gt 240 ]; then
+        main-top
+    else
+        main-left
     fi
 }
 
-# set-window-name "single-pane"
-
-# tmux new-window
-# tmux select-window -t ':$'
-one-three "vim-window"
-
-# tmux new-window
-# tmux select-window -t ':$'
-# v-three "three-panes"
+case "$1" in
+    dots )
+        dots-layout
+        ;;
+    main-top )
+        main-top
+        ;;
+    main-left )
+        main-left
+        ;;
+    * )
+        echo 'unknown parameter'
+        ;;
+esac
