@@ -102,6 +102,10 @@ function deploy_lubuntu_autostart {
     echo ~/dotfiles/scripts/lubuntu-autostart.sh >> $autostart
 }
 
+function deploy_zathurarc {
+    link zathurarc ~/.config/zathura/
+}
+
 function print_help {
     cat << EOF
 Usage:
@@ -128,6 +132,7 @@ modules=(
     rtorrent
     openbox
     lubuntu_autostart
+    zathurarc
 )
 
 function deploy_all {
