@@ -17,7 +17,7 @@ function main-left {
         split-window -v -p 50 -t .{bottom-right}
 }
 
-function dots-layout {
+function scalable-layout {
     if [ "$(get-width)" -gt 240 ]; then
         main-top
     else
@@ -26,8 +26,11 @@ function dots-layout {
 }
 
 case "$1" in
+    scalable )
+        scalable-layout
+        ;;
     dots )
-        dots-layout
+        scalable-layout
         ;;
     main-top )
         main-top
