@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+source ~/dotfiles/tmux-powerlinerc
+
+if [ "$(cat /tmp/tmux-powerline_$USER/cmus_mode.txt 2>/dev/null)" == "remote" ]; then
+    ssh "$TMUX_POWERLINE_SEG_NOW_PLAYING_CMUS_REMOTE_HOST" cmus-remote "$@"
+else
+    cmus-remote "$@"
+fi

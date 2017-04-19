@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+CMUS_MODE_FILE="/tmp/tmux-powerline_$USER/cmus_mode.txt"
+
+function get_mode {
+    cat "$CMUS_MODE_FILE" 2>/dev/null
+}
+
+function set_mode {
+    echo "$1" > "$CMUS_MODE_FILE"
+}
+
+case "$1" in
+    remote | settings | now_playing )
+        MODE="$1"
+        ;;
+    * )
+        echo "Unknown mode '$1'"
+        exit -1
+        ;;
+esac
+
+if [ "$(get_mode)" == "$MODE" ]; then
+    set_mode now_playing
+else
+    set_mode "$MODE"
+fi
