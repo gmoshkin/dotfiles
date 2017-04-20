@@ -2,8 +2,14 @@
 
 source ~/dotfiles/tmux-powerlinerc
 
-if [ "$(cat /tmp/tmux-powerline_$USER/cmus_mode.txt 2>/dev/null)" == "remote" ]; then
-    ssh "$TMUX_POWERLINE_SEG_NOW_PLAYING_CMUS_REMOTE_HOST" cmus-remote "$@"
+if [ "$1" == volume ]; then
+    COMMAND="~/dotfiles/scripts/volume.sh $2"
 else
-    cmus-remote "$@"
+    COMMAND="cmus-remote $@"
+fi
+
+if [ "$(cat /tmp/tmux-powerline_$USER/cmus_mode.txt 2>/dev/null)" == "remote" ]; then
+    ssh "$TMUX_POWERLINE_SEG_NOW_PLAYING_CMUS_REMOTE_HOST" "$COMMAND"
+else
+    echo $COMMAND | bash
 fi
