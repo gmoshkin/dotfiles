@@ -104,7 +104,16 @@ function integram {
         echo "Please set the INTEGRAM_TOKEN variable"
         return -1
     fi
-    message="$@"
+    local message=""
+    if [ "$1" == - ]; then
+        while read -r line; do
+            quoted=$(echo $line | sed 's/"/\\"/g')
+            echo $quoted'\n'
+            message+=$quoted'\n'
+        done
+    else
+        message="$@"
+    fi
     data='payload={"text":"'"$message"'"}'
     curl -s -d "$data" "https://integram.org/$INTEGRAM_TOKEN"
 }
