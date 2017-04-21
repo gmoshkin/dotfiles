@@ -1,7 +1,8 @@
 # Run crontab with this file as a parameter
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 SHELL=/bin/bash
-@daily vim +PluginUpdate +quitall
+@daily vim -e +PluginUpdate +VundleLog +'write! /tmp/vim-vundle.log' +quitall &
 0 */3 * * * ~/dotfiles/ctrlp_cache.sh
+0 9,21 * * * ~/dotfiles/scripts/update_dotfiles.sh
 # 0 9 * * * /usr/bin/mpg123 ~/Music/'Alice Coltrane - Journey In Satchidananda.mp3'
 # 45 8 * * 1-6 ~/dotfiles/scripts/alarm.sh
