@@ -11,5 +11,7 @@ fi
 if [ "$(cat /tmp/tmux-powerline_$USER/cmus_mode.txt 2>/dev/null)" == "remote" ]; then
     ssh "$TMUX_POWERLINE_SEG_NOW_PLAYING_CMUS_REMOTE_HOST" "$COMMAND"
 else
-    echo $COMMAND | bash
+    if ! echo $COMMAND | bash 2> /dev/null; then
+        echo "cmus-remote is not running"
+    fi
 fi
