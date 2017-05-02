@@ -117,3 +117,9 @@ function integram {
     data='payload={"text":"'"$message"'"}'
     curl -s -d "$data" "https://integram.org/$INTEGRAM_TOKEN"
 }
+
+function tover {
+    local retcode="$?"
+    over &
+    integram "Return code is $?" &
+}
