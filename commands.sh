@@ -123,3 +123,7 @@ function tover {
     over &
     integram "Return code is $?" &
 }
+
+function whatthecommit {
+    curl -s http://whatthecommit.com/index.txt
+}
