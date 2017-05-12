@@ -18,9 +18,14 @@ function hl {
 }
 
 function over {
-    local retcode="$?"
-    echo "retcode is $retcode"
-    zenity --info --text="return code is $retcode" --title="done" 2> /dev/null
+    local message
+    if [ -n "$1" ]; then
+        message="$1"
+    else
+        message="retcode is $?"
+        echo $message
+    fi
+    zenity --info --text="$message" --title="done" 2> /dev/null
 }
 
 function T {
@@ -119,9 +124,14 @@ function integram {
 }
 
 function tover {
-    local retcode="$?"
-    over &
-    integram "Return code is $?" &
+    local message
+    if [ -n "$1" ]; then
+        message="$1"
+    else
+        message="Return code is $?"
+    fi
+    over "$message" &
+    integram "$message" &
 }
 
 function whatthecommit {
