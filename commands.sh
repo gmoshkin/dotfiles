@@ -17,14 +17,26 @@ function hl {
     $@ --help | less
 }
 
+function __retcode_message {
+    retcode="$?"
+    if [ -n "$1" ]; then
+        retcode="$1"
+    fi
+    if [ "$retcode" = 0 ]; then
+        status="SUCCESS"
+    else
+        status="FAIL"
+    fi
+    message="Process ${status} (${retcode})"
+    echo $message
+}
+
 function over {
-    local message
+    local message=$(__retcode_message)
     if [ -n "$1" ]; then
         message="$1"
-    else
-        message="retcode is $?"
-        echo $message
     fi
+    echo $message
     zenity --info --text="$message" --title="done" 2> /dev/null
 }
 
@@ -124,11 +136,9 @@ function integram {
 }
 
 function tover {
-    local message
+    local message=$(__retcode_message)
     if [ -n "$1" ]; then
         message="$1"
-    else
-        message="Return code is $?"
     fi
     over "$message" &
     integram "$message" &
