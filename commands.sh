@@ -147,3 +147,7 @@ function tover {
 function whatthecommit {
     curl -s http://whatthecommit.com/index.txt
 }
+
+function Os {
+    xdg-open "$1" 2>/dev/null
+}
