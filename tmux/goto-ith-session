@@ -1,0 +1,5 @@
+#!/bin/bash
+
+index=$1
+session=$(tmux list-sessions | awk -F : '(FNR - 1 == '$index') { print $1 }')
+tmux switch-client -t $session
