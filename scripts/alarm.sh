@@ -25,11 +25,15 @@ case "$1" in
 esac
 # sleep 10  # A 10-second wait should be enough time to fill up the buffer.
 
-# Gradually turn the volume up in 5% increments every 2 seconds
-for STEP in `seq 0 2 50`
+# Gradually turn the volume up in small increments every some seconds
+start_vol=0
+vol_step=2
+end_vol=60
+step_duration=1
+for STEP in `seq $start_vol $vol_step $end_vol`
 do
     amixer -q set Master $STEP%
-    sleep 1
+    sleep $step_duration
 done
 
 # EOF
