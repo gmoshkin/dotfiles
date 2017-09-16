@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # Turn your computer into a digital radio alarm clock.
 # Use cron to schedule the script to trigger at the designated
@@ -13,18 +13,32 @@ STREAMING_ADDRESS=http://streaming.streamonomy.com/keepfree60s
 # by a sudden rush of sound from the speakers now, do you?
 amixer -q set Master 0
 
+function try_cmus {
+    if ! cmus-remote -C format_print &>/dev/null; then
+        echo no
+        return 1
+    fi
+    echo yes
+    cmus-remote -C "set shuffle"
+    cmus-remote -C "set aaa_mode=all"
+    cmus-remote --play
+    return 0
+}
+
 # Let's use VLC to stream content.
+export DISPLAY=:0
 case "$1" in
     "local" )
         cd /media/gmoshkin/56BE0E36BE0E0EE5/Users/mgn/Music
         DISPLAY=:0 mpg321 -@ shuffled -Z &
         ;;
     "radio" | * )
-        DISPLAY=:0 cvlc $STREAMING_ADDRESS &
+        try_cmus || cvlc $STREAMING_ADDRESS &
         ;;
 esac
 # sleep 10  # A 10-second wait should be enough time to fill up the buffer.
 
+echo volume
 # Gradually turn the volume up in small increments every some seconds
 start_vol=0
 vol_step=2
