@@ -13,15 +13,25 @@ STREAMING_ADDRESS=http://streaming.streamonomy.com/keepfree60s
 # by a sudden rush of sound from the speakers now, do you?
 amixer -q set Master 0
 
+# Not sure if this is persistent, but this is what $XDG_RUNTIME_DIR/cmus-socket
+# is at the time of me running it
+CMUS_SOCKET="/run/user/1000/cmus-socket"
+CMUS_REMOTE="cmus-remote --server $CMUS_SOCKET"
+export USER=gmoshkin
+
+function start_cmus {
+    $CMUS_REMOTE -C "set shuffle" &> /tmp/cmus.out
+    $CMUS_REMOTE -C "set aaa_mode=all" &>> /tmp/cmus.out
+    $CMUS_REMOTE --play &>> /tmp/cmus.out
+}
+
 function try_cmus {
-    if ! cmus-remote -C format_print &>/dev/null; then
+    if ! $CMUS_REMOTE -C format_print &>/dev/null; then
         echo no
         return 1
     fi
     echo yes
-    cmus-remote -C "set shuffle"
-    cmus-remote -C "set aaa_mode=all"
-    cmus-remote --play
+    start_cmus
     return 0
 }
 
@@ -31,6 +41,9 @@ case "$1" in
     "local" )
         cd /media/gmoshkin/56BE0E36BE0E0EE5/Users/mgn/Music
         DISPLAY=:0 mpg321 -@ shuffled -Z &
+        ;;
+    "cmus" )
+        start_cmus &
         ;;
     "radio" | * )
         try_cmus || cvlc $STREAMING_ADDRESS &
