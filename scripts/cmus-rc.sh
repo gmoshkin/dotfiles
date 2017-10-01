@@ -62,40 +62,42 @@ parse_aaa_mode() {
     '
 }
 
-source ~/.cmus-vars
-alias cmus-remote="cmus-remote --server $CMUS_ADDR --passwd $CMUS_PWD"
+cmus_remote() {
+    source ~/.cmus-vars
+    cmus-remote --server $CMUS_ADDR --passwd $CMUS_PWD $@
+}
 
 set_aaa_mode() {
     mode="$1"
-    cmus-remote -C "set aaa_mode=$1"
-    cmus-remote -Q | parse_aaa_mode
+    cmus_remote -C "set aaa_mode=$1"
+    cmus_remote -Q | parse_aaa_mode
 }
 
 case "$1" in
     next )
-        cmus-remote -n
+        cmus_remote -n
         ;;
     prev )
-        cmus-remote -p
+        cmus_remote -p
         ;;
     pause )
-        cmus-remote -u
+        cmus_remote -u
         ;;
     parse )
         parse_artist_title
         ;;
     shuffle )
-        cmus-remote --shuffle
-        cmus-remote -Q | parse_setting shuffle
+        cmus_remote --shuffle
+        cmus_remote -Q | parse_setting shuffle
         ;;
     repeat-cur )
-        cmus-remote -C "toggle repeat_current"
-        cmus-remote -Q | parse_setting repeat_current
+        cmus_remote -C "toggle repeat_current"
+        cmus_remote -Q | parse_setting repeat_current
         ;;
     artist | album | all )
         set_aaa_mode $1
         ;;
     now )
-        cmus-remote -Q | parse_artist_title
+        cmus_remote -Q | parse_artist_title
         ;;
 esac
