@@ -51,3 +51,7 @@ fi
 eval `dircolors ~/.dir_colors/dircolors`
 
 source "$DOTFILES/commands.sh"
+
+if [ -f ~/.cmus-vars ]; then
+    source ~/.cmus-vars
+fi
