@@ -802,8 +802,8 @@
             <iconic>no</iconic>
             <skip_pager>no</skip_pager>
             <skip_taskbar>no</skip_taskbar>
-            <fullscreen>yes</fullscreen>
-            <maximized>yes</maximized>
+            <fullscreen>no</fullscreen>
+            <maximized>no</maximized>
         </application>
     </applications>
 </openbox_config>
