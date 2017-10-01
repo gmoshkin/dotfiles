@@ -16,7 +16,7 @@ amixer -q set Master 0
 # Not sure if this is persistent, but this is what $XDG_RUNTIME_DIR/cmus-socket
 # is at the time of me running it
 CMUS_SOCKET="/run/user/1000/cmus-socket"
-CMUS_REMOTE="cmus-remote --server $CMUS_SOCKET"
+CMUS_REMOTE="cmus-remote --server $CMUS_ADDR --passwd $CMUS_PWD"
 export USER=gmoshkin
 
 function start_cmus {
