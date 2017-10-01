@@ -2,16 +2,32 @@
 
 source ~/dotfiles/tmux-powerlinerc
 
+ERR=/tmp/cmus-remote.err
+
+mode="$(cat /tmp/tmux-powerline_$USER/cmus_mode.txt 2>/dev/null)"
+cmus_addr=${CMUS_ADDR:-${TMUX_POWERLINE_SEG_NOW_PLAYING_CMUS_REMOTE_HOST:-}}
+
 if [ "$1" == volume ]; then
     COMMAND="~/dotfiles/scripts/volume.sh $2"
+    case $mode in
+        remote )
+            if [ -n "$cmus_addr" ]; then
+                ssh "$cmus_addr" "$COMMAND" 2> $ERR || echo cmus-remote: $(cat $ERR)
+            else
+                echo "cmus-remote: CMUS_ADDR is not set"
+            fi
+            ;;
+        * )
+            eval $COMMAND | bash 2> /dev/null
+                echo "cmus-remote is not running"
+            ;;
+    esac
 else
-    COMMAND="cmus-remote $@"
-fi
-
-if [ "$(cat /tmp/tmux-powerline_$USER/cmus_mode.txt 2>/dev/null)" == "remote" ]; then
-    ssh "$TMUX_POWERLINE_SEG_NOW_PLAYING_CMUS_REMOTE_HOST" "$COMMAND"
-else
-    if ! echo $COMMAND | bash 2> /dev/null; then
-        echo "cmus-remote is not running"
+    if [ -n "$CMUS_PWD" ]; then
+        cmus_addr=${cmus_addr:-0.0.0.0}
+        COMMAND="cmus-remote --server $cmus_addr --passwd $CMUS_PWD $@"
+    else
+        COMMAND="cmus-remote $@"
     fi
+    eval $COMMAND | bash 2> /dev/null || echo "cmus-remote is not running"
 fi
