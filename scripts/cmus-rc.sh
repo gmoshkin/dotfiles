@@ -62,6 +62,9 @@ parse_aaa_mode() {
     '
 }
 
+source ~/.cmus-vars
+alias cmus-remote="cmus-remote --server $CMUS_ADDR --passwd $CMUS_PWD"
+
 set_aaa_mode() {
     mode="$1"
     cmus-remote -C "set aaa_mode=$1"
