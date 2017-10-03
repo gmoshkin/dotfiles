@@ -151,3 +151,9 @@ function whatthecommit {
 function Os {
     xdg-open "$1" 2>/dev/null
 }
+
+function M {
+    vim "+M $@"
+}
+
+complete -F _man M
