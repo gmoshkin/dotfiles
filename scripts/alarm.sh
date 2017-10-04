@@ -55,7 +55,7 @@ echo volume
 # Gradually turn the volume up in small increments every some seconds
 start_vol=0
 vol_step=2
-end_vol=60
+end_vol=78
 step_duration=1
 for STEP in `seq $start_vol $vol_step $end_vol`
 do
