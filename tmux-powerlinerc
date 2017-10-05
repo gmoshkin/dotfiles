@@ -124,6 +124,8 @@
 	# Fancy char to display before now playing track
 	export TMUX_POWERLINE_SEG_NOW_PLAYING_NOTE_CHAR="♫"
 
+	# Timeout for cmus-remote
+	export TMUX_POWERLINE_SEG_NOW_PLAYING_CMUS_TIMEOUT="0.1s"
 	export TMUX_POWERLINE_SEG_NOW_PLAYING_CMUS_REMOTE_UPDATE_PERIOD="10"
 	export TMUX_POWERLINE_SEG_NOW_PLAYING_CMUS_REMOTE_HOST="localhost"
 # }
