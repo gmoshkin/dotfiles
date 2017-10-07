@@ -7,3 +7,6 @@
 [submodule "fonts"]
 	path = fonts
 	url = git@github.com:powerline/fonts.git
+[submodule "bash-it"]
+	path = bash-it
+	url = git@github.com:Bash-it/bash-it.git

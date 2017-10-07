@@ -55,3 +55,5 @@ source "$DOTFILES/commands.sh"
 if [ -f ~/.cmus-vars ]; then
     source ~/.cmus-vars
 fi
+
+source "$DOTFILES/bash-it/completion/available/tmux.completion.bash"
