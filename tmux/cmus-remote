@@ -24,10 +24,16 @@ if [ "$1" == volume ]; then
     esac
 else
     if [ -n "$CMUS_PWD" ]; then
-        cmus_addr=${cmus_addr:-0.0.0.0}
-        COMMAND="cmus-remote --server $cmus_addr --passwd $CMUS_PWD $@"
+        cmus_remote="cmus-remote --server ${cmus_addr:-0.0.0.0} --passwd ${CMUS_PWD}"
     else
-        COMMAND="cmus-remote $@"
+        cmus_remote="cmus-remote"
     fi
-    eval $COMMAND | bash 2> /dev/null || echo "cmus-remote is not running"
+    if [ "$1" == add-to-playlist ]; then
+        COMMAND="${cmus_remote} -C 'view 1' ;\
+                 ${cmus_remote} -C 'win-sel-cur' ;\
+                 ${cmus_remote} -C 'win-add-p'"
+    else
+        COMMAND="${cmus_remote} $@"
+    fi
+    eval $COMMAND | bash 2>&1
 fi
