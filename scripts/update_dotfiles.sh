@@ -9,8 +9,15 @@ function update_repo {
 
     if [ "$their_commits" -gt 0 ]; then
         echo "new commits on origin, pulling..."
-        git stash && git pull --rebase origin master && git stash pop
-        if git status | grep 'both modified'; then
+        mod=$(git status --porcelain --ignore-submodules=all | grep '^\s*M ' | wc -l)
+        if [ "$mod" = 0 ]; then
+            git stash
+        fi
+        git pull --rebase origin master
+        if [ "$mod" = 0 ]; then
+            git stash pop
+        fi
+        if git status --porcelain | grep '^UU'; then
             source ~/dotfiles/commands.sh && integram "merge conflict in $(pwd)"
         fi
     fi
