@@ -33,7 +33,11 @@ echo "updating dotfiles..."
 update_repo
 
 echo "updating submodules..."
-git submodule foreach 'git pull origin master'
+# if any new submodules were added we have to init them and check them out
+# and fetch the latest version of the remote branch while we're at it
+git submodule update --init --remote
+# update just detached all the heads so we'll go ahead a reattach 'em back
+git submodule foreach 'git checkout -B master'
 
 cd ~/.vim
 echo "updating vimfiles..."
