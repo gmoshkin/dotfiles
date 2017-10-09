@@ -190,7 +190,7 @@
 	# Delimiter character
 	export TMUX_POWERLINE_SEG_STORAGE_DELIMITER=""
 	# Boot symbol
-	export TMUX_POWERLINE_SEG_STORAGE_BOOT_SYMBOL="👢"
+	export TMUX_POWERLINE_SEG_STORAGE_BOOT_SYMBOL="𝕓"
 	# Root symbol
 	export TMUX_POWERLINE_SEG_STORAGE_ROOT_SYMBOL="√"
 	# Home symbol
