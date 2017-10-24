@@ -135,6 +135,26 @@ function integram {
     curl -s -d "$data" "https://integram.org/$INTEGRAM_TOKEN"
 }
 
+function eda {
+    # FIXME: get rid of duplicate code pls
+    if [ -z "$EDA_INTEGRAM_TOKEN" ]; then
+        echo "Please set the EDA_INTEGRAM_TOKEN variable"
+        return -1
+    fi
+    local message=""
+    if [ "$1" == - ]; then
+        while read -r line; do
+            quoted=$(echo $line | sed 's/"/\\"/g')
+            echo $quoted'\n'
+            message+=$quoted'\n'
+        done
+    else
+        message="$@"
+    fi
+    data='payload={"text":"'"$message"'"}'
+    curl -s -d "$data" "https://integram.org/$EDA_INTEGRAM_TOKEN"
+}
+
 function tover {
     local message=$(__retcode_message)
     if [ -n "$1" ]; then
