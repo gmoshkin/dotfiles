@@ -20,6 +20,9 @@ function backup_original {
 }
 
 function link {
+    # $1 -- src file
+    # $2 -- dst directory (optional)
+    # $3 -- dst filename (optional)
     filename="$1"
     path="${CWD}/$1"
     if [ -n "$2" ]; then
@@ -30,6 +33,9 @@ function link {
             if [ ! -d "$2" ]; then
                 echo "Warning: failed to create '$2'!"
             fi
+        fi
+        if [ -n "$3" ]; then
+            linkname="$2/$3"
         fi
     else
         linkname="$HOME/.$1"
@@ -94,6 +100,10 @@ function deploy_openbox {
     link "lubuntu-rc.xml" ~/.config/openbox
 }
 
+function deploy_i3 {
+    link "i3.config" ~/.config/i3 "config"
+}
+
 function deploy_lubuntu_autostart {
     local autostart=~/.config/lxsession/Lubuntu/autostart
     if [ ! -f $autostart ]; then
@@ -133,6 +143,7 @@ modules=(
     openbox
     lubuntu_autostart
     zathurarc
+    i3
 )
 
 function deploy_all {
