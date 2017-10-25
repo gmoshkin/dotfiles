@@ -104,6 +104,10 @@ function deploy_i3 {
     link "i3.config" ~/.config/i3 "config"
 }
 
+function deploy_xmodmap {
+    link "Xmodmap"
+}
+
 function deploy_lubuntu_autostart {
     local autostart=~/.config/lxsession/Lubuntu/autostart
     if [ ! -f $autostart ]; then
@@ -144,6 +148,7 @@ modules=(
     lubuntu_autostart
     zathurarc
     i3
+    xmodmap
 )
 
 function deploy_all {
