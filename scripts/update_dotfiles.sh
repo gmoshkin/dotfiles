@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+function __log {
+    echo '*** '$@
+}
+
 function update_repo {
     git fetch origin master
 
@@ -8,31 +12,39 @@ function update_repo {
     their_commits=${commits_count/#*	/}
 
     if [ "$their_commits" -gt 0 ]; then
-        echo "new commits on origin, pulling..."
+        __log "new commits on origin, pulling..."
         mod=$(git status --porcelain --ignore-submodules=all | grep '^\s*M ' | wc -l)
-        if [ "$mod" = 0 ]; then
+        if [ "$mod" -gt 0 ]; then
+            __log "stashing first..."
             git stash
         fi
+        __log "pulling..."
         git pull --rebase origin master
-        if [ "$mod" = 0 ]; then
+        if [ "$mod" -gt 0 ]; then
+            __log "now popping the stash..."
             git stash pop
         fi
         if git status --porcelain | grep '^UU'; then
+            __log "conflicts after pop in $(pwd)"
             source ~/dotfiles/commands.sh && integram "merge conflict in $(pwd)"
+        else
+            __log "successfully pulled"
         fi
+        __log "done pulling"
     fi
 
     if [ "$our_commits" -gt 0 ]; then
-        echo "new commits locally, pushing..."
+        __log "new commits locally, pushing..."
         git push
+        __log "done pushing"
     fi
 }
 
 cd ~/dotfiles
-echo "updating dotfiles..."
+__log "updating dotfiles..."
 update_repo
 
-echo "updating submodules..."
+__log "updating submodules..."
 # if any new submodules were added we have to init them and check them out
 # and fetch the latest version of the remote branch while we're at it
 git submodule update --init --remote
@@ -40,5 +52,5 @@ git submodule update --init --remote
 git submodule foreach 'git checkout -B master'
 
 cd ~/.vim
-echo "updating vimfiles..."
+__log "updating vimfiles..."
 update_repo
