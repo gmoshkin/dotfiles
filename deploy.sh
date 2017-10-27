@@ -103,6 +103,7 @@ function deploy_openbox {
 function deploy_i3 {
     link "i3.config" ~/.config/i3 "config"
     link "i3status.conf"
+    link "i3blocks.conf"
 }
 
 function deploy_xmodmap {
