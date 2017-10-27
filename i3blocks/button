@@ -1,0 +1,9 @@
+#!/bin/bash
+
+button_file=/tmp/i3.button
+
+[ -f $button_file ] || echo 0 > $button_file
+
+[ -n "$BLOCK_BUTTON" ] && echo $(( 1 - $(cat $button_file) )) > $button_file
+
+[ "$(cat $button_file)" == 0 ] && echo   || echo 

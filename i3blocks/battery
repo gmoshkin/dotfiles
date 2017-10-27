@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+
+from subprocess import check_output
+from os import environ
+from sys import exit
+from re import search
+
+color_low = '#dc322f'
+color_plugged = '#859900'
+color = None
+glyph = ''
+glyphs = [ (90, ''), (60, ''), (30, ''), (10, ''), (0, '') ]
+charging_glyph = ''
+plugged_glyph = ''
+
+acpi_out = check_output('acpi -b'.split()).splitlines()
+bat_number = environ.get('BLOCK_INSTANCE', 0)
+for l in acpi_out:
+    bat_stat = str(l)
+    if 'Battery {}'.format(bat_number) in bat_stat:
+        break
+else:
+    exit(1)
+
+m = search(r': (\w+), (\d+)%(?:, (\d\d:\d\d))?', bat_stat)
+if not m:
+    exit(2)
+
+status = m.group(1)
+percentage = int(m.group(2))
+remaining = m.group(3)
+
+if status == 'Charging':
+    glyph = charging_glyph
+    color = color_plugged
+elif status == 'Unknown' and percentage == 100:
+    glyph = plugged_glyph
+    color = color_plugged
+else:
+    for min_val, g in glyphs:
+        if percentage >= min_val:
+            glyph = g
+            break
+    else:
+        color = color_low
+
+short_out = '{g} {p}%'.format(g=glyph, p=percentage)
+if remaining:
+    print('{short} ({r})'.format(short=short_out, r=remaining))
+else:
+    print(short_out)
+print(short_out)
+
+if color:
+    print(color)
