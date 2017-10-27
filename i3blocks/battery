@@ -9,7 +9,8 @@ color_low = '#dc322f'
 color_plugged = '#859900'
 color = None
 glyph = ''
-glyphs = [ (90, ''), (60, ''), (30, ''), (10, ''), (0, '') ]
+glyphs = [ (90, ''), (60, ''), (30, ''), (10, '') ]
+glyph_low = ''
 charging_glyph = ''
 plugged_glyph = ''
 
@@ -43,6 +44,7 @@ else:
             break
     else:
         color = color_low
+        glyph = glyph_low
 
 short_out = '{g} {p}%'.format(g=glyph, p=percentage)
 if remaining:
