@@ -117,9 +117,17 @@ function bool {
 }
 
 function integram {
-    if [ -z "$INTEGRAM_TOKEN" ]; then
-        echo "Please set the INTEGRAM_TOKEN variable"
-        return -1
+    local token=""
+    if [ "$1" == -t -o "$1" == --token ]; then
+        token="$2"
+        shift; shift
+    else
+        if [ -z "$INTEGRAM_TOKEN" ]; then
+            echo "Please set the INTEGRAM_TOKEN variable"
+            return -1
+        else
+            token="$INTEGRAM_TOKEN"
+        fi
     fi
     local message=""
     if [ "$1" == - ]; then
@@ -132,27 +140,11 @@ function integram {
         message="$@"
     fi
     data='payload={"text":"'"$message"'"}'
-    curl -s -d "$data" "https://integram.org/$INTEGRAM_TOKEN"
+    curl -s -d "$data" "https://integram.org/$token"
 }
 
 function eda {
-    # FIXME: get rid of duplicate code pls
-    if [ -z "$EDA_INTEGRAM_TOKEN" ]; then
-        echo "Please set the EDA_INTEGRAM_TOKEN variable"
-        return -1
-    fi
-    local message=""
-    if [ "$1" == - ]; then
-        while read -r line; do
-            quoted=$(echo $line | sed 's/"/\\"/g')
-            echo $quoted'\n'
-            message+=$quoted'\n'
-        done
-    else
-        message="$@"
-    fi
-    data='payload={"text":"'"$message"'"}'
-    curl -s -d "$data" "https://integram.org/$EDA_INTEGRAM_TOKEN"
+    integram --token $EDA_INTEGRAM_TOKEN $@
 }
 
 function tover {
