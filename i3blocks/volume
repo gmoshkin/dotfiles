@@ -4,10 +4,11 @@ from subprocess import check_output, call
 from os import environ
 from re import match
 
-color_muted = '#657b83'
+color_muted = '#586e75'
+color_normal = '#93a1a1'
 glyphs = [ (50, ''), (20, ''), (0, '') ]
 glyph_muted = ''
-color = None
+color = color_normal
 
 default_step = 5
 
