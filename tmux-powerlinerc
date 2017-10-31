@@ -190,11 +190,11 @@
 	# Delimiter character
 	export TMUX_POWERLINE_SEG_STORAGE_DELIMITER=""
 	# Boot symbol
-	export TMUX_POWERLINE_SEG_STORAGE_BOOT_SYMBOL=" "
+	export TMUX_POWERLINE_SEG_STORAGE_BOOT_SYMBOL="𝕓"
 	# Root symbol
-	export TMUX_POWERLINE_SEG_STORAGE_ROOT_SYMBOL=" "
+	export TMUX_POWERLINE_SEG_STORAGE_ROOT_SYMBOL="√"
 	# Home symbol
-	export TMUX_POWERLINE_SEG_STORAGE_HOME_SYMBOL=" "
+	export TMUX_POWERLINE_SEG_STORAGE_HOME_SYMBOL="⌂"
 	# Boot threshold
 	export TMUX_POWERLINE_SEG_STORAGE_BOOT_THRESHOLD="99M"
 	# Root threshold
@@ -206,5 +206,8 @@
 # local tmux-powerlinerc {
 	if [ -f ~/.tmux-powerlinerc ]; then
 		source ~/.tmux-powerlinerc
+		# for some reason my laptop's font has pretty symbols for these characters
+		#    
+		# how do I get them on all of my computers?
 	fi
 # }
