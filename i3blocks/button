@@ -6,4 +6,10 @@ button_file=/tmp/i3.button
 
 [ -n "$BLOCK_BUTTON" ] && echo $(( 1 - $(cat $button_file) )) > $button_file
 
-[ "$(cat $button_file)" == 0 ] && echo   || echo 
+if [ "$(cat $button_file)" == 0 ]; then
+    echo 
+    echo 
+else
+    echo 
+    echo 
+fi
