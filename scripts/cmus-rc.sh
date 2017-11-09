@@ -100,4 +100,6 @@ case "$1" in
     now )
         cmus_remote -Q | parse_artist_title
         ;;
+    * )
+        cmus_remote -C $@
 esac
