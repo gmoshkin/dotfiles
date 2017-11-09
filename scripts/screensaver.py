@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 
 import termbox
-from random import randint, random
+from random import randint, random, choice
 from math import pi, sin, cos
 from itertools import zip_longest
 from argparse import ArgumentParser
+from collections import defaultdict
 
 def parse_args():
     arg_parser = ArgumentParser(description='TODO')
@@ -159,6 +160,7 @@ class App:
         else:
             self.get_event = lambda: tb.poll_event()
         self.quit_keys = [ termbox.KEY_ESC ]
+        self.key_callbacks = defaultdict(lambda: [])
 
     def handle_resize(self, w, h):
         self.width = w
@@ -168,6 +170,12 @@ class App:
         for k in self.quit_keys:
             if ch == k or k == key:
                 self.run_app = False
+        for k in [ch, key]:
+            for cb in self.key_callbacks[k]:
+                cb()
+
+    def add_key_callback(self, key, callback):
+        self.key_callbacks[key].append(callback)
 
     def handle_mouse(self, x, y):
         pass
@@ -238,10 +246,21 @@ def random_rect_edge_point(w, h):
 
 def random_circle(w, h):
     c = randint(0, w - 1), randint(0, h - 1)
-    r = randint(7, min(w, h) // 2)
+    r = randint(min(w, h) // 5, min(w, h) // 2)
     return c, r
 
 class LinesScreenSaver(App):
+    colors = [
+        termbox.BLACK,
+        termbox.RED,
+        termbox.GREEN,
+        termbox.YELLOW,
+        termbox.BLUE,
+        termbox.MAGENTA,
+        termbox.CYAN,
+        termbox.WHITE,
+    ]
+    circles_count = 7
     def __init__(self, tb, circle1=((20, 20), 15), circle2=((45, 50), 25),
                  color1=termbox.RED, color2=termbox.BLUE):
         super().__init__(tb, fps=1)
@@ -256,28 +275,51 @@ class LinesScreenSaver(App):
         self.circle = ((self.width // 2, self.height // 2),
                         int(.45 * min(self.width, self.height)))
         self.color = random_color()
+        self.curr_colors = list(self.colors)
+        self.refresh()
+        self.add_key_callback('R', self.refresh)
+        self.add_key_callback('C', self.clear)
+
+    def clear(self):
+        self.lines = []
+
+    def random_color(self):
+        if not self.curr_colors:
+            self.curr_colors = list(self.colors)
+        color = choice(self.curr_colors)
+        self.curr_colors.remove(color)
+        return color
+
+    def refresh(self):
+        self.curr_color = self.random_color()
+        self.circles = [ random_circle(self.width, self.height)
+                        for _ in range(self.circles_count) ]
 
     def update(self):
-        if len(self.lines) % 60 == 0:
-            self.circle = random_circle(self.width, self.height)
-            self.color = random_color()
-        start = random_circle_point(*self.circle)
-        end = random_circle_point(*self.circle)
+        # if len(self.lines) % 20 == 0:
+        #     self.circle = random_circle(self.width, self.height)
+        #     self.color = random_color()
+        if len(self.lines) % 120 == 0:
+            self.refresh()
+        circle = choice(self.circles)
+        start = random_circle_point(*circle)
+        end = random_circle_point(*circle)
         # start = random_rect_edge_point(self.width, self.height)
         # end = random_rect_edge_point(self.width, self.height)
         # color = random_color()
         # if is_inside(self.circle2, start) and is_inside(self.circle1, end):
             # color = self.color2
-        self.lines.append((start, end, self.color))
+        self.lines.append((start, end, self.curr_color))
         # self.lines.append((self.circle[0],
         #                    (self.circle[0][0] + self.circle[1],
         #                     self.circle[0][1]), color))
 
     def display(self):
+        self.screen.clear()
         for l in self.lines:
             draw_line(self.screen, *l)
         self.screen.display(self.tb)
-        put_text(self.tb, (0, 0), '{}'.format(self.circle))
+        put_text(self.tb, (0, 0), '{}'.format(len(self.lines)))
 
 def random_dots(t):
     t.clear()
