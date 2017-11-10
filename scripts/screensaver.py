@@ -3,15 +3,28 @@
 
 import termbox
 from random import randint, random, choice
-from math import pi, sin, cos
+from math import pi, sin, cos, ceil
 from itertools import zip_longest
 from argparse import ArgumentParser
 from collections import defaultdict
+from PIL import Image
+from time import sleep
+from datetime import datetime
+# from pyinotify import (
+#     ProcessEvent, WatchManager, ThreadedNotifier, IN_MODIFY, IN_DELETE, IN_CREATE
+# )
+from os import path
 
 def parse_args():
     arg_parser = ArgumentParser(description='TODO')
     arg_parser.add_argument('mode')
-    return arg_parser.parse_args().mode
+    arg_parser.add_argument('args', nargs='*')
+    args = arg_parser.parse_args()
+    return args.mode, args.args
+
+def grouper(iterable, n, fillvalue=None):
+    args = [iter(iterable)] * n
+    return zip_longest(*args, fillvalue=fillvalue)
 
 class PixelScreen:
     bottom_half = 0x2584  # '▄'
@@ -30,10 +43,6 @@ class PixelScreen:
             self.cells[y][x] = color
 
     def display(self, tb):
-        def grouper(iterable, n, fillvalue=None):
-            args = [iter(iterable)] * n
-            return zip_longest(*args, fillvalue=fillvalue)
-
         for y, line_group in enumerate(grouper(self.cells, 2, [])):
             if y > tb.height():
                 break
@@ -149,6 +158,45 @@ def put_text(tb, position, text, fg=termbox.DEFAULT, bg=termbox.DEFAULT):
     for i, c in enumerate(text):
         tb.change_cell(x + i, y, ord(c), fg, bg)
 
+class StubTB:
+    quit_event = (termbox.EVENT_KEY, 'q', None, None, None, None, None, None)
+    def __init__(self):
+        self.events = [
+            # (kind, ch, key,  mod, w, h, x, y)
+            (termbox.EVENT_RESIZE, None, None, None, 50, 50, None, None),
+            (termbox.EVENT_KEY, 'j', None, None, None, None, None, None),
+            self.quit_event,
+        ]
+
+    def width(self):
+        return 100
+
+    def height(self):
+        return 60
+
+    def peek_event(self, timeout=0):
+        sleep(timeout / 1000)
+        self.poll_event()
+
+    def poll_event(self):
+        if self.events:
+            return self.events.pop()
+        else:
+            return self.quit_event
+
+    def select_output_mode(self, mode):
+        pass
+
+    def change_cell(self, x, y, ch, fg, bg):
+        print('tb.change_cell({}, {}, {}, {}, {})'.format(x, y, ch, fg, bg))
+        pass
+
+    def clear(self):
+        pass
+
+    def present(self):
+        pass
+
 class App:
 
     def __init__(self, tb, fps=0):
@@ -249,7 +297,133 @@ def random_circle(w, h):
     r = randint(min(w, h) // 5, min(w, h) // 2)
     return c, r
 
-class LinesScreenSaver(App):
+class PixelScreenApp(App):
+
+    def __init__(self, tb, fps=0, clear=True):
+        super().__init__(tb, fps)
+        self.do_clear = clear
+        self.height *=  2
+        self.screen = PixelScreen(self.width, self.height)
+        self.quit_keys.append('q')
+        self.tb.select_output_mode(termbox.OUTPUT_256)
+
+    def handle_resize(self, w, h):
+        self.width, self.height = w, 2 * h
+        self.screen.resize(self.width, self.height)
+
+    def display_before(self):
+        pass
+
+    def display_after(self):
+        pass
+
+    def display(self):
+        if self.do_clear:
+            self.screen.clear()
+        self.display_before()
+        self.screen.display(self.tb)
+        self.display_after()
+
+
+def channel2cterm(x):
+    ctermRatio = 256 / 6
+    return int(x / ctermRatio)
+
+def rgb2term(rgb):
+    r = channel2cterm(rgb[0])
+    g = channel2cterm(rgb[1])
+    b = channel2cterm(rgb[2])
+    return int(16 + 36 * r + 6 * g + b)
+
+def rgba2term(rgba):
+    if rgba[3] < .3 * 256:
+        return termbox.DEFAULT
+    r = channel2cterm(rgba[0])
+    g = channel2cterm(rgba[1])
+    b = channel2cterm(rgba[2])
+    return int(16 + 36 * r + 6 * g + b)
+
+# class FileWatcher:
+#     class Handler(ProcessEvent):
+#         def __init__(self, callback):
+#             self.callback = callback
+
+#         def process_IN_MODIFY(self, event):
+#             self.callback()
+
+#         def process_IN_CREATE(self, event):
+#             self.callback()
+
+#     def __init__(self, filename, callback):
+#         self.filename = filename
+#         self.callback = callback
+#         wm = WatchManager()
+#         wm.add_watch(filename, IN_MODIFY | IN_CREATE)
+#         self.notifier = ThreadedNotifier(wm, self.Handler(callback))
+
+#     def start(self):
+#         self.notifier.start()
+
+class ImageViewer(PixelScreenApp):
+
+    def __init__(self, tb, image='/home/gmoshkin/Pictures/sad.png'):
+        super().__init__(tb, fps=1)
+        try:
+            self.orig_image = Image.open(image)
+            self.filename = image
+            self.last_file_mtime = path.getmtime(self.filename)
+        except AttributeError:
+            self.filename = None
+            self.orig_image = image
+        self.scale_image()
+        self.tb.select_output_mode(termbox.OUTPUT_256)
+        # if self.filename:
+        #     fw = FileWatcher(self.filename, self.handle_modify)
+        #     fw.start()
+
+    def handle_modify(self):
+        self.orig_image = Image.open(self.filename)
+        self.scale_image()
+
+    def handle_resize(self, w, h):
+        super().handle_resize(w, h)
+        self.scale_image()
+
+    def scale_image(self):
+        orig_width, orig_height = self.orig_image.size
+        if self.width * orig_height < self.height * orig_width:
+            ratio = self.width / orig_width
+        else:
+            ratio = self.height / orig_height
+        self.scaled_size = tuple(ceil(old * ratio)
+                                 for old in self.orig_image.size)
+        self.scaled_image = self.orig_image.resize(self.scaled_size,
+                                                   Image.ANTIALIAS)
+        with open('/tmp/scaled_image', 'w') as f:
+            print(datetime.now(), file=f)
+            print(self.scaled_image.size, file=f)
+            for c in self.scaled_image.getdata():
+                print(c, file=f, end=' ')
+
+    def update(self):
+        mtime = path.getmtime(self.filename)
+        if mtime != self.last_file_mtime:
+            self.last_file_mtime = mtime
+            self.handle_modify()
+
+    def display_before(self):
+        start_x = (self.width - self.scaled_size[0]) // 2
+        start_y = (self.height - self.scaled_size[1]) // 2
+        image_data = self.scaled_image.getdata()
+        if len(image_data[0]) > 3:
+            convert = rgba2term
+        else:
+            convert = rgb2term
+        for j, row in enumerate(grouper(image_data, self.scaled_size[0])):
+            for i, c in enumerate(row):
+                self.screen.put_cell((start_x + i, start_y + j), convert(c))
+
+class LinesScreenSaver(PixelScreenApp):
     colors = [
         termbox.BLACK,
         termbox.RED,
@@ -264,10 +438,7 @@ class LinesScreenSaver(App):
     def __init__(self, tb, circle1=((20, 20), 15), circle2=((45, 50), 25),
                  color1=termbox.RED, color2=termbox.BLUE):
         super().__init__(tb, fps=1)
-        self.quit_keys.append('q')
         self.lines = []
-        self.height *=  2
-        self.screen = PixelScreen(self.width, self.height)
         self.circle1 = circle1
         self.circle2 = circle2
         self.color1 = color1
@@ -314,11 +485,11 @@ class LinesScreenSaver(App):
         #                    (self.circle[0][0] + self.circle[1],
         #                     self.circle[0][1]), color))
 
-    def display(self):
-        self.screen.clear()
+    def display_before(self):
         for l in self.lines:
             draw_line(self.screen, *l)
-        self.screen.display(self.tb)
+
+    def display_after(self):
         put_text(self.tb, (0, 0), '{}'.format(len(self.lines)))
 
 def random_dots(t):
@@ -481,25 +652,34 @@ def debug_draw_line(t):
     #     t.present()
     #     t.peek_event(timeout=1000)
 
-def random_lines(t):
-    LinesScreenSaver(t).run_loop()
-
 def run_app(t):
     app = App(t)
     app.quit_keys.append('q')
     app.run_loop()
 
+def image_viewer(tb, args):
+    ImageViewer(tb, args[0]).run_loop()
+
 def main():
-    mode = parse_args()
+    mode, args = parse_args()
     with termbox.Termbox() as t:
-        {
+        torun = {
             'r': random_dots,
             'd': debug_draw_line,
             'l': line_control,
             'a': run_app,
-            'rl': random_lines,
-        }.get(mode, lambda x: print('unknown mode'))(t)
+            'rl': LinesScreenSaver,
+            'i': image_viewer,
+        }.get(mode, lambda x: print('unknown mode'))
+        if isinstance(torun, type) and issubclass(torun, App):
+            torun(t).run_loop()
+        else:
+            if args:
+                torun(t, args=args)
+            else:
+                torun(t)
         pass
 
 if __name__ == '__main__':
+    # ImageViewer(StubTB()).run_loop()
     main()
