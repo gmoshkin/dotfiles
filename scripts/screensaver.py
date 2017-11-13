@@ -55,6 +55,8 @@ class PixelScreen:
                     else:
                         tb.change_cell(x, y, self.bottom_half,
                                        top | termbox.REVERSE, bot)
+                elif bot == top:
+                    tb.change_cell(x, y, self.full, bot, top)
                 else:
                     tb.change_cell(x, y, self.bottom_half, bot, top)
 
@@ -427,10 +429,12 @@ class LinesScreenSaver(PixelScreenApp):
     colors = [
         termbox.BLACK,
         termbox.RED,
+        termbox.RED | termbox.BOLD,
         termbox.GREEN,
         termbox.YELLOW,
         termbox.BLUE,
         termbox.MAGENTA,
+        termbox.MAGENTA | termbox.BOLD,
         termbox.CYAN,
         termbox.WHITE,
     ]
@@ -540,17 +544,27 @@ class Line:
         self.color = color
 
     def process_keys(self, ch, key, mod):
-        what, coord, ofs = {
-            's': (self.start, 1, +1),  # 'down'),
-            'w': (self.start, 1, -1),  # 'up'),
-            'd': (self.start, 0, +1),  # 'right'),
-            'a': (self.start, 0, -1),  # 'left'),
-            'j': (self.end, 1, +1),  # 'down'),
-            'k': (self.end, 1, -1),  # 'up'),
-            'l': (self.end, 0, +1),  # 'right'),
-            'h': (self.end, 0, -1),  # 'left'),
-        }[ch]
-        what[coord] += ofs
+        try:
+            what, coord, ofs = {
+                's': (self.start, 1, +1),  # 'down'),
+                'w': (self.start, 1, -1),  # 'up'),
+                'd': (self.start, 0, +1),  # 'right'),
+                'a': (self.start, 0, -1),  # 'left'),
+                'j': (self.end, 1, +1),  # 'down'),
+                'k': (self.end, 1, -1),  # 'up'),
+                'l': (self.end, 0, +1),  # 'right'),
+                'h': (self.end, 0, -1),  # 'left'),
+            }[ch]
+            what[coord] += ofs
+        except KeyError:
+            pass
+        try:
+            self.color += {
+                '+': 1,
+                '-': -1,
+            }[ch]
+        except KeyError:
+            pass
 
     def draw(self, screen):
         draw_line(screen, self.start, self.end, self.color)
@@ -559,7 +573,8 @@ class Line:
 def line_control(t):
     ps = PixelScreen(t.width(), t.height() * 2)
     run_app = True
-    line = Line((0, 0), (10, 10), termbox.BLUE)
+    line = Line((0, 0), (4, 11), termbox.MAGENTA | termbox.BOLD)
+    # line = Line((20, 0), (10, 10), termbox.RED)
     t.clear()
     line.draw(ps)
     ps.display(t)
