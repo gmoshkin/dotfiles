@@ -23,8 +23,8 @@ if [ "$1" == volume ]; then
             ;;
     esac
 else
-    if [ -n "$CMUS_PWD" ]; then
-        cmus_remote="cmus-remote --server ${cmus_addr:-0.0.0.0} --passwd ${CMUS_PWD}"
+    if [ -n "$CMUS_PWD" -a -n $cmus_addr ]; then
+        cmus_remote="cmus-remote --server ${cmus_addr} --passwd ${CMUS_PWD}"
     else
         cmus_remote="cmus-remote"
     fi
@@ -35,5 +35,5 @@ else
     else
         COMMAND="${cmus_remote} $@"
     fi
-    eval $COMMAND | bash 2>&1
+    eval $COMMAND
 fi
