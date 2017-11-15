@@ -271,15 +271,16 @@ def is_inside(circle, point):
 
 def random_color():
     colors = [
-        termbox.DEFAULT,
-        termbox.BLACK,
-        termbox.RED,
-        termbox.GREEN,
-        termbox.YELLOW,
-        termbox.BLUE,
-        termbox.MAGENTA,
-        termbox.CYAN,
-        termbox.WHITE,
+        # termbox.DEFAULT,
+        # termbox.BLACK,
+        # termbox.RED,
+        # termbox.GREEN,
+        # termbox.YELLOW,
+        # termbox.BLUE,
+        # termbox.MAGENTA,
+        # termbox.CYAN,
+        # termbox.WHITE,
+        0x10
     ]
     return colors[randint(0, len(colors) - 1)]
 
@@ -377,6 +378,7 @@ class ImageViewer(PixelScreenApp):
         except AttributeError:
             self.filename = None
             self.orig_image = image
+        self.current_scale = 'fit'
         self.scale_image()
         self.tb.select_output_mode(termbox.OUTPUT_256)
         # if self.filename:
@@ -391,12 +393,18 @@ class ImageViewer(PixelScreenApp):
         super().handle_resize(w, h)
         self.scale_image()
 
-    def scale_image(self):
+    def get_fit_ratio(self):
         orig_width, orig_height = self.orig_image.size
         if self.width * orig_height < self.height * orig_width:
-            ratio = self.width / orig_width
+            return self.width / orig_width
         else:
-            ratio = self.height / orig_height
+            return self.height / orig_height
+
+    def scale_image(self):
+        if self.current_scale == 'fit':
+            ratio = self.get_fit_ratio()
+        else:
+            ratio = self.current_scale
         self.scaled_size = tuple(ceil(old * ratio)
                                  for old in self.orig_image.size)
         self.scaled_image = self.orig_image.resize(self.scaled_size,
@@ -638,10 +646,43 @@ def debug_draw_line(t):
     # draw_dir(ps, (100, 0), (25, 15), termbox.BLUE)
     # # draw_dir(ps, (125, 25), (25, -15), termbox.BLUE)
 
-    draw_dir(ps, (0, 0), (10, 7), termbox.BLUE)
-    draw_dir(ps, (11, 7), (10, -7), termbox.RED)
-    draw_dir(ps, (0, 8), (7, 10), termbox.GREEN)
-    draw_dir(ps, (0, 29), (7, -10), termbox.MAGENTA)
+    x = 0
+    draw_dir(ps, (x, 0), (3, 9), 0x00); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x01); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x02); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x03); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x04); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x05); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x06); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x07); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x08); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x09); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x0a); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x0b); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x0c); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x0d); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x0e); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x0f); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x0 + termbox.BOLD); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x1 + termbox.BOLD); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x2 + termbox.BOLD); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x3 + termbox.BOLD); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x4 + termbox.BOLD); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x5 + termbox.BOLD); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x6 + termbox.BOLD); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x7 + termbox.BOLD); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x8 + termbox.BOLD); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0x9 + termbox.BOLD); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0xa + termbox.BOLD); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0xb + termbox.BOLD); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0xc + termbox.BOLD); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0xd + termbox.BOLD); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0xe + termbox.BOLD); x += 1
+    draw_dir(ps, (x, 0), (3, 9), 0xf + termbox.BOLD); x += 1
+
+    # draw_dir(ps, (11, 7), (10, -7), termbox.RED)
+    # draw_dir(ps, (0, 8), (7, 10), termbox.GREEN)
+    # draw_dir(ps, (0, 29), (7, -10), termbox.MAGENTA)
 
     ps.display(t)
     t.present()
