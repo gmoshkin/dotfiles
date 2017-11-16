@@ -39,7 +39,7 @@ class PixelScreen:
 
     def put_cell(self, point, color):
         x, y = point
-        if self.height > y and self.width > x:
+        if self.height > y >= 0 and self.width > x >= 0:
             self.cells[y][x] = color
 
     def display(self, tb):
@@ -227,6 +227,10 @@ class App:
     def add_key_callback(self, key, callback):
         self.key_callbacks[key].append(callback)
 
+    def add_keys_callback(self, callback, *keys):
+        for key in keys:
+            self.key_callbacks[key].append(lambda: callback(key))
+
     def handle_mouse(self, x, y):
         pass
 
@@ -369,6 +373,9 @@ def rgba2term(rgba):
 
 class ImageViewer(PixelScreenApp):
 
+    scale_step = 1.5
+    move_step = 10
+
     def __init__(self, tb, image='/home/gmoshkin/Pictures/sad.png'):
         super().__init__(tb, fps=1)
         try:
@@ -378,12 +385,64 @@ class ImageViewer(PixelScreenApp):
         except AttributeError:
             self.filename = None
             self.orig_image = image
-        self.current_scale = 'fit'
-        self.scale_image()
+        self.reset_scale()
         self.tb.select_output_mode(termbox.OUTPUT_256)
         # if self.filename:
         #     fw = FileWatcher(self.filename, self.handle_modify)
         #     fw.start()
+        self.add_key_callbacks()
+
+    def reset_scale(self):
+        self.current_scale = 'fit'
+        self.scale_image()
+
+    def add_key_callbacks(self):
+        def change_scale(step):
+            if self.current_scale == 'fit':
+                self.current_scale = self.get_fit_ratio()
+            new_scale = self.current_scale * step
+            if -.2 < new_scale / self.get_fit_ratio() - 1 < .2:
+                self.reset_scale()
+            else:
+                self.current_position = [ # aren't I a genius?
+                    (win_size + ceil(step * (2 * old_pos - win_size))) // 2
+                    for old_pos, win_size in zip(self.current_position,
+                                                 [self.width, self.height])
+                ]
+                self.current_scale = new_scale
+                self.scale_image()
+
+        self.add_key_callback('+', lambda: change_scale(self.scale_step ))#*
+                                                       # self.get_fit_ratio()))
+        self.add_key_callback('-', lambda: change_scale(1/self.scale_step))# *
+                                                        # self.get_fit_ratio()))
+
+        self.add_key_callback('=', self.reset_scale)
+
+        def move(coord, step):
+            if (self.current_scale != 'fit' and
+                self.current_scale > self.get_fit_ratio()):
+                self.current_position[coord] -= step# * self.current_scale
+
+        self.add_key_callback('l', lambda: move(0, self.move_step)) # right
+        self.add_key_callback('k', lambda: move(1, -self.move_step)) # up
+        self.add_key_callback('j', lambda: move(1, self.move_step)) # down
+        self.add_key_callback('h', lambda: move(0, -self.move_step)) # left
+
+        self.add_key_callback(termbox.KEY_ARROW_RIGHT, lambda: move(0, self.move_step)) # right
+        self.add_key_callback(termbox.KEY_ARROW_UP, lambda: move(1, -self.move_step)) # up
+        self.add_key_callback(termbox.KEY_ARROW_DOWN, lambda: move(1, self.move_step)) # down
+        self.add_key_callback(termbox.KEY_ARROW_LEFT, lambda: move(0, -self.move_step)) # left
+
+        self.add_key_callback('L', lambda: move(0, self.move_step * 3)) # right
+        self.add_key_callback('K', lambda: move(1, -self.move_step * 3)) # up
+        self.add_key_callback('J', lambda: move(1, self.move_step * 3)) # down
+        self.add_key_callback('H', lambda: move(0, -self.move_step * 3)) # left
+
+        self.add_key_callback(termbox.KEY_CTRL_L, lambda: move(0, 1)) # right
+        self.add_key_callback(termbox.KEY_CTRL_K, lambda: move(1, -1)) # up
+        self.add_key_callback(termbox.KEY_CTRL_J, lambda: move(1, 1)) # down
+        self.add_key_callback(termbox.KEY_CTRL_H, lambda: move(0, -1)) # left
 
     def handle_modify(self):
         self.orig_image = Image.open(self.filename)
@@ -403,6 +462,11 @@ class ImageViewer(PixelScreenApp):
     def scale_image(self):
         if self.current_scale == 'fit':
             ratio = self.get_fit_ratio()
+            self.current_position = [
+                (win_size - ceil(ratio * img_size)) // 2
+                for win_size, img_size in zip([self.width, self.height],
+                                              self.orig_image.size)
+            ]
         else:
             ratio = self.current_scale
         self.scaled_size = tuple(ceil(old * ratio)
@@ -422,8 +486,7 @@ class ImageViewer(PixelScreenApp):
             self.handle_modify()
 
     def display_before(self):
-        start_x = (self.width - self.scaled_size[0]) // 2
-        start_y = (self.height - self.scaled_size[1]) // 2
+        start_x, start_y = self.current_position
         image_data = self.scaled_image.getdata()
         if len(image_data[0]) > 3:
             convert = rgba2term
@@ -432,6 +495,14 @@ class ImageViewer(PixelScreenApp):
         for j, row in enumerate(grouper(image_data, self.scaled_size[0])):
             for i, c in enumerate(row):
                 self.screen.put_cell((start_x + i, start_y + j), convert(c))
+
+    # def display_after(self):
+    #     if self.current_scale == 'fit':
+    #         scale = '!{:.3}'.format(self.get_fit_ratio())
+    #     else:
+    #         scale = '{:.3}'.format(self.current_scale)
+    #     put_text(self.tb, (0, 0), '{} {}'.format(scale, self.current_position))
+
 
 class LinesScreenSaver(PixelScreenApp):
     colors = [
