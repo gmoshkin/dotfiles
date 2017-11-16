@@ -102,11 +102,11 @@ function volume {
         amixer -q set Master ${new}
     elif [[ "${argument}" =~ ${RELATIVE} ]]; then
         new=$(eval 'echo $(('"${current}${argument}"'))')
-        amixer -q set Master ${new}
+        amixer -q set Master ${new}%
     elif [[ "${argument}" =~ ${DEFAULT} ]]; then
         local offset="${argument}${DEFAULT_OFS}"
         new=$(eval 'echo $(('"${current}${offset}"'))')
-        amixer -q set Master ${new}
+        amixer -q set Master ${new}%
     else
         echo "${current}"
     fi
