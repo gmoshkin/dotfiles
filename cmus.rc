@@ -1,0 +1,2 @@
+set status_display_program=~/dotfiles/scripts/get_album_cover.sh
+colorscheme mine

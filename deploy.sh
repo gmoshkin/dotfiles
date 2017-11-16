@@ -122,6 +122,11 @@ function deploy_zathurarc {
     link zathurarc ~/.config/zathura/
 }
 
+function deploy_cmus {
+    link cmus.rc ~/.config/cmus/ rc
+    link cmus.theme ~/.config/cmus/ mine.theme
+}
+
 function print_help {
     cat << EOF
 Usage:
@@ -151,6 +156,7 @@ modules=(
     zathurarc
     i3
     xmodmap
+    cmus
 )
 
 function deploy_all {
