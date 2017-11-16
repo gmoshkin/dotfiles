@@ -20,7 +20,7 @@ CMUS_REMOTE="cmus-remote --server $CMUS_ADDR --passwd $CMUS_PWD"
 export USER=gmoshkin
 
 function start_cmus {
-    $CMUS_REMOTE -C "set shuffle" &> /tmp/cmus.out
+    $CMUS_REMOTE -C "set shuffle=true" &> /tmp/cmus.out
     $CMUS_REMOTE -C "set aaa_mode=all" &>> /tmp/cmus.out
     $CMUS_REMOTE --play &>> /tmp/cmus.out
 }
