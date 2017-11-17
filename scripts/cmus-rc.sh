@@ -64,7 +64,17 @@ parse_aaa_mode() {
 
 cmus_remote() {
     source ~/.cmus-vars
-    cmus-remote --server $CMUS_ADDR --passwd $CMUS_PWD $@
+    local args
+    if [ -n "$CMUS_ADDR" ]; then
+        args+=" --server $CMUS_ADDR"
+    fi
+    if [ -n "$CMUS_PWD" ]; then
+        args+=" --passwd $CMUS_PWD"
+    fi
+    for arg in "$@"; do
+        args+=" \"$arg\""
+    done
+    eval "cmus-remote $args"
 }
 
 set_aaa_mode() {
@@ -78,7 +88,7 @@ case "$1" in
         cmus_remote -n
         ;;
     prev )
-        cmus_remote -p
+        cmus_remote -r
         ;;
     pause )
         cmus_remote -u
@@ -101,5 +111,5 @@ case "$1" in
         cmus_remote -Q | parse_artist_title
         ;;
     * )
-        cmus_remote -C $@
+        cmus_remote -C "$@"
 esac
