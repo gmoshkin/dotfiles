@@ -1,0 +1,9 @@
+#!/bin/bash
+
+function clien_number {
+    sed -n 's/client \([0-9]\+\).*/\1/p'
+}
+
+keyboard_number=$(aconnect -i | grep 'client.*Keystation Mini' | clien_number)
+synth_number=$(aconnect -o | grep '\[type=user\]' | clien_number)
+aconnect $keyboard_number $synth_number
