@@ -57,3 +57,5 @@ if [ -f ~/.cmus-vars ]; then
 fi
 
 source "$DOTFILES/bash-it/completion/available/tmux.completion.bash"
+
+appendToPath "$DOTFILES/scripts"
