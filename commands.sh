@@ -93,11 +93,12 @@ function volume {
     local DEFAULT_OFS="5"
     local argument="$1"
     local ABSOLUTE='^[0-9]+$'
+    local ABSOLUTE_PERC='^[0-9]+%$'
     local RELATIVE='^[+-][0-9]+$'
     local DEFAULT='[-+]'
     local new
     local current=$(amixer get Master | grep '%' | cut -d'[' -f2 | cut -d'%' -f1)
-    if [[ "${argument}" =~ ${ABSOLUTE} ]]; then
+    if [[ "${argument}" =~ ${ABSOLUTE} || "${argument}" =~ ${ABSOLUTE_PERC} ]]; then
         new=${argument}
         amixer -q set Master ${new}
     elif [[ "${argument}" =~ ${RELATIVE} ]]; then
