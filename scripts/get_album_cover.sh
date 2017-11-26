@@ -10,7 +10,7 @@ done
 
 filename=/tmp/cover.png
 cp $filename /tmp/cover.old
-echo yes | ffmpeg -i "$file" $filename
+echo yes | ffmpeg -i "$file" $filename || cp ~/Pictures/sad.png $filename
 # if cmp $filename /tmp/cover.old; then
 #     cp ~/Pictures/sad.png $filename
 # fi
