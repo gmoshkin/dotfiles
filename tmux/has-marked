@@ -1,0 +1,2 @@
+#!/bin/bash
+tmux list-windows -F "#F" | grep M > /dev/null

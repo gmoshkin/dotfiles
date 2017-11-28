@@ -1,0 +1,2 @@
+#!/bin/bash
+~/dotfiles/tmux/has-marked && echo '{marked}' || echo ':.{bottom-right}'
