@@ -1,0 +1,22 @@
+#!/bin/bash
+function td {
+    what=$1
+    which=$2
+    tmux display -p -t $which "#{$what}"
+}
+
+if [ $(td pane_top .) = $(td pane_top {previous}) -a \
+    $(td pane_bottom .) = $(td pane_bottom {previous}) ]; then
+    # put them one on top of another
+    new_width=$(( $(td pane_width .) + $(td pane_width {previous}) + 1 ))
+    tmux move-pane -v -t {previous}
+    tmux resize-pane -x $new_width
+elif [ $(td pane_left .) = $(td pane_left {previous}) -a \
+    $(td pane_right .) = $(td pane_right {previous}) ]; then
+    # put them side by side
+    new_height=$(( $(td pane_height .) + $(td pane_height {previous}) + 1 ))
+    tmux move-pane -h -t {previous}
+    tmux resize-pane -y $new_height
+else
+    tmux display '☹'
+fi
