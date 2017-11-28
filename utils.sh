@@ -1,4 +1,4 @@
-source $DOTFILES/colors.sh
+[ -f $DOTFILES/colors.sh ] && source $DOTFILES/colors.sh
 
 function appendToPath {
     if [[ "$PATH" != *"$1"* ]]; then
