@@ -1,0 +1,9 @@
+#!/bin/bash
+if [ $(tmux list-windows | wc -l) -lt 1 ]; then
+    tmux new-window -da -t {end}
+fi
+if ~/dotfiles/tmux/has-marked; then
+    tmux swap-pane -t .
+else
+    tmux swap-pane -s $.0 -t .
+fi
