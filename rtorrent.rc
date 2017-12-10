@@ -109,12 +109,12 @@ schedule2 = sort_active,14,5,view.sort=active
 # "auto" (start and stop DHT as needed), or "on" (start DHT immediately).
 # The default is "off". For DHT to work, a session directory must be defined.
 #
-#dht = auto
+dht = auto
 
 # UDP port to use for DHT.
 #
-#dht_port = 6881
+dht_port = 6881
 
 # Enable peer exchange (for torrents not marked private)
 #
-#peer_exchange = yes
+peer_exchange = yes
