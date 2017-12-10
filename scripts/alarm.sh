@@ -25,10 +25,24 @@ function start_cmus {
     $CMUS_REMOTE --play &>> /tmp/cmus.out
 }
 
+function try_start_cmus {
+    if ! tmux list-sessions >/dev/null; then
+        echo "tmux isn't running"
+        return 1
+    fi
+    echo "opening music session..."
+    tmux new-session -dAs music "~/dotfiles/scripts/start-cmus.sh"
+    sleep 3
+}
+
 function try_cmus {
     if ! $CMUS_REMOTE -C format_print &>/dev/null; then
-        echo no
-        return 1
+        echo "cmus isn't running"
+        if ! try_start_cmus; then
+            echo "failed to run cmus"
+            echo no
+            return 1
+        fi
     fi
     echo yes
     start_cmus
