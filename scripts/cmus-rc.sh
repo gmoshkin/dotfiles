@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+debug=0
+
 parse_artist_title() {
     awk -e '
         $2 == "artist" {
@@ -74,7 +76,11 @@ cmus_remote() {
     for arg in "$@"; do
         args+=" \"$arg\""
     done
-    eval "cmus-remote $args"
+    if [ $debug != 0 ]; then
+        echo "cmus-remote $args"
+    else
+        eval "cmus-remote $args"
+    fi
 }
 
 set_aaa_mode() {
@@ -82,6 +88,12 @@ set_aaa_mode() {
     cmus_remote -C "set aaa_mode=$1"
     cmus_remote -Q | parse_aaa_mode
 }
+
+case "$1" in
+    -d | --debug )
+        debug=1
+        shift
+esac
 
 case "$1" in
     next )
@@ -109,6 +121,18 @@ case "$1" in
         ;;
     now )
         cmus_remote -Q | parse_artist_title
+        ;;
+    add )
+        shift
+        if [ ${1:0:1} != '/' ]; then
+            if [ -f "$1" -o -d "$1" ]; then
+                cmus_remote -C "add $(pwd)/$1"
+            else
+                echo no such file "'$1'"
+            fi
+        else
+            cmus_remote -C "add $1"
+        fi
         ;;
     * )
         cmus_remote -C "$@"
