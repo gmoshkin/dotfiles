@@ -791,7 +791,7 @@ import numpy as np
 class Qube(PixelScreenApp):
 
     def __init__(self, tb):
-        super().__init__(tb)
+        super().__init__(tb, fps=60)
         red, green, blue, yellow, cyan, magenta = [], [], [], [], [], []
         self.verts = [
             { 'v' : [], 'color' : 1},
@@ -801,22 +801,24 @@ class Qube(PixelScreenApp):
             { 'v' : [], 'color' : 5},
             { 'v' : [], 'color' : 6}
         ]
-        for i in range(4):
-            for j in range(4):
-                self.verts[0]['v'].append(np.matrix((i, j, -.5, 1)).T)
-                self.verts[1]['v'].append(np.matrix((i, j, 3.5, 1)).T)
-                self.verts[2]['v'].append(np.matrix((-.5, j, i, 1)).T)
-                self.verts[3]['v'].append(np.matrix((3.5, j, i, 1)).T)
-                self.verts[4]['v'].append(np.matrix((i, -.5, j, 1)).T)
-                self.verts[5]['v'].append(np.matrix((i, 3.5, j, 1)).T)
+        edge_ofs = .1
+        for i in range(2):
+            for j in range(2):
+                self.verts[0]['v'].append(np.matrix((i, i-j if i else j, -edge_ofs, 1)).T)
+                self.verts[1]['v'].append(np.matrix((i, i-j if i else j, 1 + edge_ofs, 1)).T)
+                self.verts[2]['v'].append(np.matrix((-edge_ofs, i-j if i else j, i, 1)).T)
+                self.verts[3]['v'].append(np.matrix((1 + edge_ofs, i-j if i else j, i, 1)).T)
+                self.verts[4]['v'].append(np.matrix((i, -edge_ofs, i-j if i else j, 1)).T)
+                self.verts[5]['v'].append(np.matrix((i, 1 + edge_ofs, i-j if i else j, 1)).T)
         for v in self.verts:
+            v['v'].append(v['v'][0])
             v['v'] = np.concatenate(v['v'], axis=1)
 
         self.scales = [50, 50, 1]
         self.scale_step = .1
         def move(coord, val):
             self.ofs[coord] += val
-        self.ofs = [0, 0, 10]
+        self.ofs = [0, 0, 2]
         self.ofs_step = .1
         def scale(coord, val):
             self.scales[coord] += val
@@ -845,6 +847,8 @@ class Qube(PixelScreenApp):
         self.add_key_callback('j', lambda: rotate(2, self.angle_step))
         self.add_key_callback('J', lambda: rotate(2, -self.angle_step))
 
+        self.angle_speeds = [.02, .05, 0]
+
     def move(self, ofs=None):
         if ofs:
             x, y, z = ofs
@@ -869,15 +873,22 @@ class Qube(PixelScreenApp):
 
     def put_verts(self, tmp, color):
         start_x, start_y = self.width // 2, self.height // 2
-        for p in tmp.T:
+        def norm(p):
             p = p / p[0, -1]
             p = p / p[0, -2]
-            p = np.array(p).flatten().astype(int)
-            self.screen.put_cell((start_x + p[0], start_y + p[1]), color)
+            return np.array(p).flatten().astype(int)
+        for s, e in zip(tmp.T[:-1], tmp.T[1:]):
+            s, e = norm(s), norm(e)
+            draw_line(self.screen,
+                      (start_x + s[0], start_y + s[1]),
+                      (start_x + e[0], start_y + e[1]), color)
+
+    def update(self):
+        self.angles = [a + s for a, s in zip(self.angles, self.angle_speeds)]
 
     def display_before(self):
         for d in self.verts:
-            tmp = self.move((-1.5, -1.5, -1.5)) * d['v']
+            tmp = self.move((-.5, -.5, -.5)) * d['v']
             for i, angle in enumerate(self.angles):
                 tmp = self.rotate(axis=i, angle=angle) * tmp
             tmp = self.move() * tmp
