@@ -787,6 +787,109 @@ def run_app(t):
 def image_viewer(tb, args):
     ImageViewer(tb, args[0]).run_loop()
 
+import numpy as np
+class Qube(PixelScreenApp):
+
+    def __init__(self, tb):
+        super().__init__(tb)
+        red, green, blue, yellow, cyan, magenta = [], [], [], [], [], []
+        self.verts = [
+            { 'v' : [], 'color' : 1},
+            { 'v' : [], 'color' : 3},
+            { 'v' : [], 'color' : 2},
+            { 'v' : [], 'color' : 4},
+            { 'v' : [], 'color' : 5},
+            { 'v' : [], 'color' : 6}
+        ]
+        for i in range(4):
+            for j in range(4):
+                self.verts[0]['v'].append(np.matrix((i, j, -.5, 1)).T)
+                self.verts[1]['v'].append(np.matrix((i, j, 3.5, 1)).T)
+                self.verts[2]['v'].append(np.matrix((-.5, j, i, 1)).T)
+                self.verts[3]['v'].append(np.matrix((3.5, j, i, 1)).T)
+                self.verts[4]['v'].append(np.matrix((i, -.5, j, 1)).T)
+                self.verts[5]['v'].append(np.matrix((i, 3.5, j, 1)).T)
+        for v in self.verts:
+            v['v'] = np.concatenate(v['v'], axis=1)
+
+        self.scales = [50, 50, 1]
+        self.scale_step = .1
+        def move(coord, val):
+            self.ofs[coord] += val
+        self.ofs = [0, 0, 10]
+        self.ofs_step = .1
+        def scale(coord, val):
+            self.scales[coord] += val
+        self.angles = [0, 0, 0]
+        self.angle_step = .1
+        def rotate(axis, val):
+            self.angles[axis] += val
+        self.add_key_callback('x', lambda: move(0, self.ofs_step))
+        self.add_key_callback('X', lambda: move(0, -self.ofs_step))
+        self.add_key_callback('y', lambda: move(1, self.ofs_step))
+        self.add_key_callback('Y', lambda: move(1, -self.ofs_step))
+        self.add_key_callback('z', lambda: move(2, self.ofs_step))
+        self.add_key_callback('Z', lambda: move(2, -self.ofs_step))
+
+        self.add_key_callback('a', lambda: scale(0, self.scale_step))
+        self.add_key_callback('A', lambda: scale(0, -self.scale_step))
+        self.add_key_callback('b', lambda: scale(1, self.scale_step))
+        self.add_key_callback('B', lambda: scale(1, -self.scale_step))
+        self.add_key_callback('c', lambda: scale(2, self.scale_step))
+        self.add_key_callback('C', lambda: scale(2, -self.scale_step))
+
+        self.add_key_callback('k', lambda: rotate(0, self.angle_step))
+        self.add_key_callback('K', lambda: rotate(0, -self.angle_step))
+        self.add_key_callback('l', lambda: rotate(1, self.angle_step))
+        self.add_key_callback('L', lambda: rotate(1, -self.angle_step))
+        self.add_key_callback('j', lambda: rotate(2, self.angle_step))
+        self.add_key_callback('J', lambda: rotate(2, -self.angle_step))
+
+    def move(self, ofs=None):
+        if ofs:
+            x, y, z = ofs
+        else:
+            x, y, z = self.ofs
+        return np.matrix([[1,0,0,x],[0,1,0,y],[0,0,1,z],[0,0,0,1]])
+
+    def scale(self, x=1, y=1, z=1, s=1):
+        x, y, z = self.scales
+        return np.matrix([[x,0,0,0],[0,y,0,0],[0,0,z,0],[0,0,0,1/s]])
+
+    def rotate(self, axis=0, angle=0):
+        r = np.zeros((4,4))
+        r[3,3] = r[axis,axis] = 1
+        s = set([0,1,2])
+        s.remove(axis)
+        i,j  = min(s), max(s)
+        r[i,i] = r[j,j] = np.cos(angle)
+        r[i,j] = -np.sin(angle)
+        r[j,i] = np.sin(angle)
+        return r
+
+    def put_verts(self, tmp, color):
+        start_x, start_y = self.width // 2, self.height // 2
+        for p in tmp.T:
+            p = p / p[0, -1]
+            p = p / p[0, -2]
+            p = np.array(p).flatten().astype(int)
+            self.screen.put_cell((start_x + p[0], start_y + p[1]), color)
+
+    def display_before(self):
+        for d in self.verts:
+            tmp = self.move((-1.5, -1.5, -1.5)) * d['v']
+            for i, angle in enumerate(self.angles):
+                tmp = self.rotate(axis=i, angle=angle) * tmp
+            tmp = self.move() * tmp
+            tmp = self.scale() * tmp
+            self.put_verts(tmp, d['color'])
+
+    def display_after(self):
+        pass
+
+def qube(tb, args=None):
+    Qube(tb).run_loop()
+
 def main():
     mode, args = parse_args()
     with termbox.Termbox() as t:
@@ -797,6 +900,7 @@ def main():
             'a': run_app,
             'rl': LinesScreenSaver,
             'i': image_viewer,
+            'q': qube,
         }.get(mode, lambda x: print('unknown mode'))
         if isinstance(torun, type) and issubclass(torun, App):
             torun(t).run_loop()
