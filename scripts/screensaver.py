@@ -80,36 +80,19 @@ class PixelScreen:
 
 def get_ds(start, end):
     dx, dy = end[0] - start[0], start[1] - end[1]
-    if dy >= 0:  # ↗
-        if dx >= dy:  # major direction: →
-            coord = 0
-            dStraight = 2 * dy
+    step = ofs = 1
+    if dy >= 0:
+        if dx >= dy:
             ofs = -1
-            dDiag = dStraight - 2 * dx
-            d0 = dStraight - dx
-            step = 1
-        else:         # major direction: ↑
-            coord = 1
-            dStraight = 2 * dx
-            ofs = 1  # doesn't matter
-            dDiag = dStraight - 2 * dy
-            d0 = dStraight - dy
+        else:
             step = -1
-    else:  # ↘
-        if dx >= -dy:  # major direction: →
-            coord = 0
-            dStraight = -2 * dy
-            ofs = 1
-            dDiag = dStraight - 2 * dx
-            d0 = dStraight - dx
-            step = 1
-        else:         # major direction: ↓
-            coord = 1
-            dStraight = 2 * dx
-            ofs = 1  # doesn't matter
-            dDiag = dStraight + 2 * dy
-            d0 = dStraight + dy
-            step = 1
+    _dy = dy if dy >= 0 else -dy
+    coord = int(dx < _dy)
+    m = min((dx, _dy))
+    M = max((dx, _dy))
+    dStraight = 2 * m
+    dDiag = dStraight - 2 * M
+    d0 = dStraight - M
     return dx, dy, coord, dStraight, dDiag, d0, ofs, step
 
 def draw_line(screen, start, end, color):
