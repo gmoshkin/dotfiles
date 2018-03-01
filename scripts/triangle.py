@@ -15,7 +15,7 @@ def barycentric(a, b, c, p):
     dev = (by-cy)*(ax-cx)+(cx-bx)*(ay-cy)
     ba = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / dev
     bb = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / dev
-    return np.array((ba, bb, (1 - ba - bb)))
+    return np.array((ba, bb, (1 - ba - bb))).flatten()
 
 class Ds():
     def __init__(self, ds, dm, d0, ofs, dr=0):
@@ -45,8 +45,9 @@ class Ds():
         return np.array(self.x, self.y)
 
 def draw_triangle_beta(buf, points, colors):
-    (p1, c1), (p2, c2), (p3, c3) = sorted(zip(points, colors),
-                                          key=lambda _: _[0][0])
+    (p1, c1), (p2, c2), (p3, c3) = sorted([
+        (np.array(p).flatten().astype(int), c) for p, c in zip(points, colors)
+    ], key=lambda _: _[0][0])
 
     ds1 = get_ds_beta(p1, p2)
     ds2 = get_ds_beta(p1, p3)
@@ -67,7 +68,7 @@ def draw_triangle_beta(buf, points, colors):
                 m, M = M, m
             for y in range(m, M + 1):
                 _put(t2[0], y)
-    while t1[0] != p3[0]:
+    while t1[0] != p3[0] or t1[1] != p3[1]:
         _put(*t1)
         t1 += ds3.move()[:2]
         while t1[0] > t2[0]:
@@ -122,7 +123,8 @@ def draw_line_beta(buf, start, end, color_start, color_end=None):
 
     r = 0
     x, y = start
-    while (x, y) != end:
+    color = color_start
+    while x != end[0] or y != end[1]:
         color = color_start * (1 - r) + color_end * r
         put(buf, x, y, color)
         dx, dy, dr = ds.move()
@@ -172,11 +174,40 @@ def from_hex(h):
         res[i] = int(h[i * 2: (i + 1) * 2], base=16)
     return res
 
+def move(x=0, y=0, z=0):
+    return np.matrix([[1,0,0,x], [0,1,0,y], [0,0,1,z], [0,0,0,1]])
+
+def scale(x=1, y=1, z=1, s=1):
+    return np.matrix([[x,0,0,0], [0,y,0,0], [0,0,z,0], [0,0,0,1/s]])
+
+def rotate(axis=0, angle=0):
+    r = np.zeros((4,4))
+    r[3,3] = r[axis,axis] = 1
+    s = set([0,1,2])
+    s.remove(axis)
+    i,j = min(s), max(s)
+    r[i,i] = r[j,j] = np.cos(angle)
+    r[i,j] = -np.sin(angle)
+    r[j,i] = np.sin(angle)
+    return r
+
+def project(v):
+    v = v / v.flat[-1]
+    if v.flat[-2] <= 0:
+        return np.zeros(4).astype(int)
+    v = v / v.flat[-2]
+    return np.array(v).flatten().astype(int)
+
 if __name__ == '__main__':
     bg = from_hex('#002b36')
     RED = from_hex('#dc322f')
+    YELLOW = from_hex('#b58900')
+    ORANGE = from_hex('#cb4b16')
     GREEN = from_hex('#859900')
     BLUE = from_hex('#268bd2')
+    MAGENTA = from_hex('#d33682')
+    WHITE = from_hex('#fdf6e3')
+    PI = 3.14159265358979
     width, height = 80, 40
     buf = np.full((height, width, 3), bg)
     p1, p2, p3 = np.array([(0, 0), (3, 10), (10, 2)])
@@ -204,11 +235,12 @@ if __name__ == '__main__':
                    p1 + ofs + (0, 10)),
                   (RED, GREEN, BLUE))
     ofs = (20, 20)
-    draw_triangle_beta(buf, (p1 + ofs, p2 + ofs, p3 + ofs), (RED, GREEN, BLUE))
+    draw_triangle_beta(buf, (p1 + ofs, p2 + ofs, p3 + ofs), (RED, YELLOW, ORANGE))
+    draw_triangle_beta(buf, (p3 + ofs, p2 + ofs, p3 + ofs + (0, 10)), (ORANGE, YELLOW, MAGENTA))
     ofs = (30, 20)
     draw_triangle_beta(buf, (p3 + ofs + (0, 10),
                              p2 + ofs + (0, -10),
-                             p1 + ofs + (0, 10)), (RED, GREEN, BLUE))
+                             p1 + ofs + (0, 10)), (RED, YELLOW, ORANGE))
     ofs = (40, 20)
     draw_triangle(buf, (np.array((0, 0)) + ofs,
                         np.array((8, 0)) + ofs,
@@ -216,5 +248,30 @@ if __name__ == '__main__':
     ofs = (50, 20)
     draw_triangle_beta(buf, (np.array((0, 0)) + ofs,
                              np.array((8, 0)) + ofs,
-                             np.array((4, 10)) + ofs), (RED, GREEN, BLUE))
+                             np.array((4, 10)) + ofs), (RED, YELLOW, ORANGE))
+
+    vs = np.matrix('-1 -1 1 1; 1 -1 1 1; -1 1 1 1; 1 1 1 1').T
+    vs = np.c_[vs, np.matrix('-1 -1 -1 1; 1 -1 -1 1; -1 1 -1 1; 1 1 -1 1').T]
+    colors = np.array((WHITE, WHITE, WHITE, WHITE, BLUE, BLUE, BLUE, BLUE))
+    triangles = np.array([(0, 1, 2), (1, 2, 3),
+                          (1, 5, 7), (1, 3, 7),
+                          (0, 1, 5), (0, 5, 4),
+                          (0, 4, 6), (0, 2, 6),
+                          (3, 7, 6), (3, 2, 6)])
+    lines = np.array([(4, 5), (4, 6), (6, 7), (7, 5)])
+    phi = -15*PI/90
+    vs = rotate(axis=1, angle=phi) * vs
+    vs = scale(x=20, y=20, z=.5) * vs
+    vs = move(z=2) * vs
+    screen_ofs = np.array((width/2, height/2)).astype(int)
+    for idxs in triangles:
+        draw_triangle_beta(buf, *zip(*[(project(vs[:,i])[:2] + screen_ofs, colors[i]) for i in idxs]))
+
+    for idxs in lines:
+        _vs, cs = zip(*[(project(vs[:,i])[:2] + screen_ofs, colors[i]) for i in idxs])
+        draw_line_beta(buf, _vs[0].astype(int), _vs[1].astype(int), *cs)
+
+    for v, c in zip(vs.T, colors):
+        put(buf, *(project(v)[:2] + screen_ofs), RED)
+
     draw_buf(buf)
