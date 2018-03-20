@@ -15,6 +15,42 @@ from datetime import datetime
 # )
 from os import path
 
+def hex2rgb(hex):
+    return tuple(int(hex[1 + i*2 : 1 + (i+1)*2], base=16) for i in range(3))
+
+outputmode = termbox.OUTPUT_256
+
+palette = [
+    hex2rgb("#002b36"), # base03
+    hex2rgb("#dc322f"), # red
+    hex2rgb("#859900"), # green
+    hex2rgb("#b58900"), # yellow
+    hex2rgb("#268bd2"), # blue
+    hex2rgb("#d33682"), # magenta
+    hex2rgb("#2aa198"), # cyan
+    hex2rgb("#eee8d5"), # base2
+    hex2rgb("#073642"), # base02
+    hex2rgb("#cb4b16"), # orange
+    hex2rgb("#586e75"), # base01
+    hex2rgb("#657b83"), # base00
+    hex2rgb("#839496"), # base0
+    hex2rgb("#6c71c4"), # violet
+    hex2rgb("#93a1a1"), # base1
+    hex2rgb("#fdf6e3"), # base3
+]
+
+def term2rgb(term):
+    if term < 0x10:
+        return palette[term]
+    elif term > 0xe7:
+        return ( (term - 0xe8) * (255/23) ,) * 3
+    else:
+        term -= 0x10
+        r = term // 36 * (51)
+        g = term % 36 // 6 * (51)
+        b = term % 6 * (51)
+        return (r, g, b)
+
 def parse_args():
     arg_parser = ArgumentParser(description='TODO')
     arg_parser.add_argument('mode')
@@ -31,9 +67,11 @@ class PixelScreen:
     full = 0x2588  # '█'
     empty = 0x20  # ' '
 
-    def __init__(self, width=None, height=None):
+    def __init__(self, width=None, height=None, bg_color=termbox.DEFAULT):
         self.width = width or None
         self.height = height or None
+        self.cells = []
+        self.bg_color = bg_color
         if self.width and self.height:
             self.clear()
 
@@ -49,7 +87,7 @@ class PixelScreen:
             for x, (top, bot) in enumerate(zip(*line_group)):
                 if x > tb.width():
                     break
-                if bot == termbox.DEFAULT:
+                if bot == self.bg_color:
                     if bot == top:
                         tb.change_cell(x, y, self.empty, bot, top)
                     else:
@@ -62,21 +100,39 @@ class PixelScreen:
 
     def clear(self):
         self.cells = [
-            [termbox.DEFAULT] * self.width for y in range(self.height)
+            [self.bg_color] * self.width for y in range(self.height)
         ]
 
     def resize(self, width=None, height=None):
-        old_width = self.width
-        old_height = self.height
+        old_width = self.width or 0
+        old_height = self.height or 0
         self.width = width or self.width
         self.height = height or self.height
         if self.width > old_width:
             for row in self.cells:
-                row.extend([termbox.DEFAULT] * (self.width - old_width))
+                row.extend([self.bg_color] * (self.width - old_width))
         if self.height > old_height:
             self.cells.extend([
-                [termbox.DEFAULT] * self.width for y in range(self.height - old_height)
+                [self.bg_color] * self.width for y in range(self.height - old_height)
             ])
+
+class TrueColorPixelScreen(PixelScreen):
+    def __init__(self, width=None, height=None, bg_color=palette[0]):
+        super().__init__(width, height, bg_color)
+
+    def display(self, tb):
+        tb.change_cell_rgb(0, 0, ord('a'), *(255,0,0), *(0,0,255))
+        for y, line_group in enumerate(grouper(self.cells, 2, [])):
+            if y > tb.height():
+                break
+            for x, (top, bot) in enumerate(zip(*line_group)):
+                if x > tb.width():
+                    break
+                if bot == top:
+                    tb.change_cell_rgb(x, y, self.full, *bot, *top)
+                else:
+                    tb.change_cell_rgb(x, y, self.bottom_half, *bot, *top)
+
 
 def get_ds(start, end):
     dx, dy = end[0] - start[0], start[1] - end[1]
@@ -138,10 +194,14 @@ def draw_line(screen, start, end, color):
         'range' : list(range(start[0], end[0] + 1)),
     }
 
-def put_text(tb, position, text, fg=termbox.DEFAULT, bg=termbox.DEFAULT):
+def put_text(tb, position, text, fg=termbox.DEFAULT, bg=termbox.DEFAULT,
+             fg_rgb=palette[14], bg_rgb=palette[0]):
     x, y = position
     for i, c in enumerate(text):
-        tb.change_cell(x + i, y, ord(c), fg, bg)
+        if outputmode == termbox.OUTPUT_TRUECOLOR:
+            tb.change_cell_rgb(x + i, y, ord(c), *fg_rgb, *bg_rgb)
+        else:
+            tb.change_cell(x + i, y, ord(c), fg, bg)
 
 class StubTB:
     quit_event = (termbox.EVENT_KEY, 'q', None, None, None, None, None, None)
@@ -287,13 +347,14 @@ def random_circle(w, h):
     r = randint(min(w, h) // 5, min(w, h) // 2)
     return c, r
 
-class PixelScreenApp(App):
+class ScreenApp(App):
 
-    def __init__(self, tb, fps=0, clear=True):
+    def __init__(self, tb, screen, fps=0, clear=True):
         super().__init__(tb, fps)
         self.do_clear = clear
         self.height *=  2
-        self.screen = PixelScreen(self.width, self.height)
+        self.screen = screen
+        self.screen.resize(self.width, self.height)
         self.quit_keys.append('q')
         self.tb.select_output_mode(termbox.OUTPUT_256)
 
@@ -313,6 +374,19 @@ class PixelScreenApp(App):
         self.display_before()
         self.screen.display(self.tb)
         self.display_after()
+
+class PixelScreenApp(ScreenApp):
+
+    def __init__(self, tb, fps=0, clear=True):
+        super().__init__(tb=tb, screen=PixelScreen(),
+                         fps=fps, clear=clear)
+
+class TrueColorPixelScreenApp(ScreenApp):
+
+    def __init__(self, tb, fps=0, clear=True):
+        super().__init__(tb=tb,
+                         screen=TrueColorPixelScreen(),
+                         fps=fps, clear=clear)
 
 
 def channel2cterm(x):
@@ -468,13 +542,19 @@ class ImageViewer(PixelScreenApp):
             self.last_file_mtime = mtime
             self.handle_modify()
 
+    def convert(self, rgb):
+        return rgb2term(rgb)
+
+    def set_converter(self, converter):
+        self.convert = converter
+
     def display_before(self):
         start_x, start_y = self.current_position
         image_data = self.scaled_image.getdata()
         if len(image_data[0]) > 3:
             convert = rgba2term
         else:
-            convert = rgb2term
+            convert = self.convert
         for j, row in enumerate(grouper(image_data, self.scaled_size[0])):
             for i, c in enumerate(row):
                 self.screen.put_cell((start_x + i, start_y + j), convert(c))
@@ -770,6 +850,14 @@ def run_app(t):
 def image_viewer(tb, args):
     ImageViewer(tb, args[0]).run_loop()
 
+def tc_image_viewer(tb, args):
+    iv = ImageViewer(tb, args[0])
+    tb.select_output_mode(termbox.OUTPUT_TRUECOLOR)
+    iv.screen = TrueColorPixelScreen(iv.width, iv.height)
+    iv.set_converter(lambda x : x)
+    iv.run_loop()
+
+
 import numpy as np
 class Qube(PixelScreenApp):
 
@@ -879,10 +967,57 @@ class Qube(PixelScreenApp):
             self.put_verts(tmp, d['color'])
 
     def display_after(self):
+        # put_text(self.tb, (0, 0), 'scale: ({})'.format(self.scales))
+        # put_text(self.tb, (0, 1), 'position: ({})'.format(self.ofs))
         pass
 
 def qube(tb, args=None):
     Qube(tb).run_loop()
+
+def test(t, args=None):
+
+    global outputmode
+    if args and args[0] == 'tc':
+        t.select_output_mode(termbox.OUTPUT_TRUECOLOR)
+        outputmode = termbox.OUTPUT_TRUECOLOR
+    else:
+        t.select_output_mode(termbox.OUTPUT_256)
+        outputmode = termbox.OUTPUT_256
+    t.clear()
+    t.present()
+    width = t.width()
+    height = t.height()
+    colors = [
+        termbox.BLACK,
+        termbox.RED,
+        termbox.GREEN,
+        termbox.YELLOW,
+        termbox.BLUE,
+        termbox.MAGENTA,
+        termbox.CYAN,
+        termbox.WHITE,
+    ]
+    run_app = True
+    counter = 0
+    while run_app:
+        put_text(t, (0, 0), "counter: {}".format(counter))
+        event_here = t.peek_event(timeout=1000)
+        while event_here:
+            (type, ch, key, mod, w, h, x, y) = event_here
+            if type == termbox.EVENT_KEY and key == termbox.KEY_ESC:
+                run_app = False
+            event_here = t.peek_event()
+        i = 0
+        for i in range(16):
+            for j in range(16):
+                put_text(t, (4 + j * 5, 1 + i),
+                         '0x{:02x}'.format(i*16 + j),
+                         fg=termbox.BLACK,
+                         fg_rgb=term2rgb(termbox.BLACK),
+                         bg=j + i * 16,
+                         bg_rgb=term2rgb(j + i * 16))
+        t.present()
+        counter += 1
 
 def main():
     mode, args = parse_args()
@@ -894,7 +1029,9 @@ def main():
             'a': run_app,
             'rl': LinesScreenSaver,
             'i': image_viewer,
+            'I': tc_image_viewer,
             'q': qube,
+            't': test,
         }.get(mode, lambda x: print('unknown mode'))
         if isinstance(torun, type) and issubclass(torun, App):
             torun(t).run_loop()
