@@ -121,7 +121,6 @@ class TrueColorPixelScreen(PixelScreen):
         super().__init__(width, height, bg_color)
 
     def display(self, tb):
-        tb.change_cell_rgb(0, 0, ord('a'), *(255,0,0), *(0,0,255))
         for y, line_group in enumerate(grouper(self.cells, 2, [])):
             if y > tb.height():
                 break
