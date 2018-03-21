@@ -76,6 +76,7 @@ class PixelScreen:
             self.clear()
 
     def put_cell(self, point, color):
+        log('putting "{}" to {}'.format(color, point))
         x, y = point
         if self.height > y >= 0 and self.width > x >= 0:
             self.cells[y][x] = color
@@ -116,6 +117,10 @@ class PixelScreen:
                 [self.bg_color] * self.width for y in range(self.height - old_height)
             ])
 
+def log(*msg):
+    with open('/tmp/iv_log', 'a') as f:
+        print (*msg, file=f)
+
 class TrueColorPixelScreen(PixelScreen):
     def __init__(self, width=None, height=None, bg_color=palette[0]):
         super().__init__(width, height, bg_color)
@@ -128,7 +133,10 @@ class TrueColorPixelScreen(PixelScreen):
                 if x > tb.width():
                     break
                 if bot == top:
-                    tb.change_cell_rgb(x, y, self.full, *bot, *top)
+                    try:
+                        tb.change_cell_rgb(x, y, self.full, *bot, *top)
+                    except TypeError:
+                        log(bot, top)
                 else:
                     tb.change_cell_rgb(x, y, self.bottom_half, *bot, *top)
 
@@ -544,14 +552,20 @@ class ImageViewer(PixelScreenApp):
     def convert(self, rgb):
         return rgb2term(rgb)
 
+    def convert_alpha(self, rgb):
+        return rgba2term(rgb)
+
     def set_converter(self, converter):
         self.convert = converter
+
+    def set_converter_alpha(self, converter):
+        self.convert_alpha = converter
 
     def display_before(self):
         start_x, start_y = self.current_position
         image_data = self.scaled_image.getdata()
         if len(image_data[0]) > 3:
-            convert = rgba2term
+            convert = self.convert_alpha
         else:
             convert = self.convert
         for j, row in enumerate(grouper(image_data, self.scaled_size[0])):
@@ -849,11 +863,17 @@ def run_app(t):
 def image_viewer(tb, args):
     ImageViewer(tb, args[0]).run_loop()
 
+def mix(color, bg, alpha):
+    r = alpha / 255
+    return tuple(int(c * r + b * (1 - r)) for (c, b) in zip(color, bg))
+
 def tc_image_viewer(tb, args):
     iv = ImageViewer(tb, args[0])
     tb.select_output_mode(termbox.OUTPUT_TRUECOLOR)
     iv.screen = TrueColorPixelScreen(iv.width, iv.height)
+    log(iv.screen.bg_color)
     iv.set_converter(lambda x : x)
+    iv.set_converter_alpha(lambda x : mix(x[:3], iv.screen.bg_color, x[3]))
     iv.run_loop()
 
 
