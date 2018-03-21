@@ -76,7 +76,6 @@ class PixelScreen:
             self.clear()
 
     def put_cell(self, point, color):
-        log('putting "{}" to {}'.format(color, point))
         x, y = point
         if self.height > y >= 0 and self.width > x >= 0:
             self.cells[y][x] = color
@@ -871,7 +870,6 @@ def tc_image_viewer(tb, args):
     iv = ImageViewer(tb, args[0])
     tb.select_output_mode(termbox.OUTPUT_TRUECOLOR)
     iv.screen = TrueColorPixelScreen(iv.width, iv.height)
-    log(iv.screen.bg_color)
     iv.set_converter(lambda x : x)
     iv.set_converter_alpha(lambda x : mix(x[:3], iv.screen.bg_color, x[3]))
     iv.run_loop()
