@@ -4,11 +4,17 @@
 import yaml
 import os
 import datetime
+import argparse
+
+arg_parser = argparse.ArgumentParser()
+arg_parser.add_argument('-c', '--config',
+                        default=os.path.expanduser('~/.config/alarms.yaml'))
+args = arg_parser.parse_args()
 
 preamble = 'SHELL=/bin/bash'
 command = '/usr/sbin/etherwake 9C:5C:8E:84:B6:33'
 
-with open(os.path.expanduser('~/.config/alarms.yaml')) as f:
+with open(args.config) as f:
     days = yaml.load(f)
 
 dow_map = {
