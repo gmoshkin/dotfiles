@@ -9,10 +9,13 @@ import argparse
 arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument('-c', '--config',
                         default=os.path.expanduser('~/.config/alarms.yaml'))
+arg_parser.add_argument('-p', '--preamble',
+                        default='SHELL=/bin/bash')
+arg_parser.add_argument('-r', '--command',
+                        default='/usr/sbin/etherwake 9C:5C:8E:84:B6:33')
+arg_parser.add_argument('-o', '--offset',
+                        type=float, default=5)
 args = arg_parser.parse_args()
-
-preamble = 'SHELL=/bin/bash'
-command = '/usr/sbin/etherwake 9C:5C:8E:84:B6:33'
 
 with open(args.config) as f:
     days = yaml.load(f)
@@ -29,7 +32,7 @@ dow_map = {
     'weekd' : '1,2,3,4,5',
     'weeke' : '6,7',
 }
-_5min = datetime.timedelta(seconds=5*60)
+ofs = datetime.timedelta(seconds=args.offset*60)
 
 def prepk(k):
     k = k.lower()
@@ -45,12 +48,12 @@ def prepv(v):
     else:
         return v
 
-print(preamble)
+print(args.preamble)
 for k, vs in days.items():
     dow = dow_map[prepk(k)]
     if not isinstance(vs, list):
         vs = [vs]
     for v in vs:
         time = datetime.datetime.strptime(prepv(v), '%H:%M')
-        min_hour = (time - _5min).strftime('%M %H')
-        print('{} * * {} {}'.format(min_hour, dow, command))
+        min_hour = (time - ofs).strftime('%M %H')
+        print('{} * * {} {}'.format(min_hour, dow, args.command))
