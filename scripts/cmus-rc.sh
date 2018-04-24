@@ -134,6 +134,9 @@ case "$1" in
             cmus_remote -C "add $1"
         fi
         ;;
+    -* )
+        cmus_remote "$@"
+        ;;
     * )
         cmus_remote -C "$@"
 esac
