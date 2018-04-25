@@ -15,6 +15,9 @@ def parse_args():
     ))
     arg_parser.add_argument('-tg', help='Send result as a message to telegram',
                             action='store_true')
+    arg_parser.add_argument('-itg', help=('Send result as a message to telegram'
+                                          ' (via integram)'),
+                            action='store_true')
     return arg_parser.parse_args()
 
 ALPHAVANTAGE_URL = 'https://www.alphavantage.co/query'
@@ -34,6 +37,10 @@ def get_api_key():
 
 def get_sums():
     return tuple(float(get_conf().get('sum', _)) for _ in ['usd', 'rub'])
+
+def integram(message):
+    requests.post('https://integram.org/' + os.environ['INTEGRAM_TOKEN'],
+                  data={'payload': json.dumps({'text': message})})
 
 def main(args):
     params = {
@@ -63,8 +70,14 @@ def main(args):
     will_have_rub = have_usd * rate
     diff = will_have_rub - want_rub
     message = 'USD {}\nПрибыль: {:.02f}₽'.format(rate, diff)
+    failed = False
     if args.tg:
-        telegram_send.send([message])
+        try:
+            telegram_send.send([message], timeout=3.0)
+        except:
+            failed = True
+    if args.itg or failed:
+        integram(message)
     print(message)
 
 
