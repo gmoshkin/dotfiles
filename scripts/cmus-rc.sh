@@ -23,6 +23,31 @@ parse_artist_title() {
     '
 }
 
+convert_to_notify() {
+    awk -e '
+        $2 == "artist" {
+            artist = "";
+            for ( i = 3; i <=NF; i++ )
+                artist = artist $i " ";
+        }
+        $2 == "title" {
+            title = "";
+            for ( i = 3; i <=NF; i++ )
+                title = title $i " ";
+        }
+        $1 == "status" {
+            if ($2 == "playing") {
+                icon = "~/Pictures/play.png"
+            } else {
+                icon = "~/Pictures/pause.png"
+            }
+        }
+        END {
+            print "\"" title "\" \"" artist "\" -i " icon
+        }
+    '
+}
+
 parse_setting() {
     setting="$1"
     awk -e '
@@ -133,6 +158,9 @@ case "$1" in
         else
             cmus_remote -C "add $1"
         fi
+        ;;
+    notify )
+        cmus-remote -Q | convert_to_notify
         ;;
     -* )
         cmus_remote "$@"
