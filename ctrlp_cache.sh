@@ -1,37 +1,19 @@
 #!/bin/bash
 source ~/dotfiles/utils.sh
 
-USER="$(whoami)"
-CTRLPCACHE="/home/${USER}/.cache/ctrlp"
+CTRLPCACHE=~/.cache/ctrlp
+DIRSLISTFILE=~/.config/ctrlp_cache_dirs
 
-VIMFILES=${VIMFILES:-"/home/${USER}/.vim"}
-DOTFILES=${DOTFILES:-"/home/${USER}/dotfiles"}
-REP_DIR=${REP_DIR:-"/space/${USER}/REP"}
-CSPROJ=${CSPROJ:-"/space/${USER}/projects/csharp"}
-PRS=${PRS:-"/space/${USER}/PRs"}
+# XXX won't work if you put spaces in directory names so don't do it
+for d in $(cat $DIRSLISTFILE); do
+    # this expands '~' to home directory, don't you just love bash?
+    eval d=$d
+    f="${CTRLPCACHE}/$(echo $d | sed 's/\/\//\//g' | sed 's/\//%/g').txt"
 
-declare -A CACHE
-CACHE=(
-    ["$VIMFILES"]="$CTRLPCACHE/%home%${USER}%.vim.txt"
-    ["$DOTFILES"]="$CTRLPCACHE/%home%${USER}%dotfiles.txt"
-    ["$REP_DIR"]="$CTRLPCACHE/%space%${USER}%REP.txt"
-    ["$CSPROJ"]="$CTRLPCACHE/%space%${USER}%projects%csharp.txt"
-    ["$PRS"]="$CTRLPCACHE/%space%${USER}%PRs.txt"
-)
-
-# in order to update the cache for just one directory, comment out the rest of
-# them in this array
-DIRS=(
-    "$VIMFILES"
-    "$DOTFILES"
-    "$REP_DIR"
-    "$CSPROJ"
-    "$PRS"
-)
-
-for d in ${DIRS[@]}; do
     if [ -d "$d" ]; then
+        echo "Searching files for '$d'"
         cd "$d"
-        find_all > "${CACHE[$d]}"
+        find_all > "$f"
+        echo "Done. Written to '$f'"
     fi
 done
