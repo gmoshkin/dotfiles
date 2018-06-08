@@ -104,17 +104,72 @@ class PixelScreen:
         ]
 
     def resize(self, width=None, height=None):
-        old_width = self.width or 0
-        old_height = self.height or 0
         self.width = width or self.width
         self.height = height or self.height
-        if self.width > old_width:
-            for row in self.cells:
-                row.extend([self.bg_color] * (self.width - old_width))
-        if self.height > old_height:
-            self.cells.extend([
-                [self.bg_color] * self.width for y in range(self.height - old_height)
-            ])
+        resize_2d_buffer(self.cells,
+                         self.width,
+                         self.height,
+                         self.bg_color)
+
+def resize_2d_buffer(buf, width, height, fill):
+    old_height = len(buf) or 0
+    old_width = len(buf[0]) if old_height > 0 else 0
+    if width > old_width:
+        for row in buf:
+            # XXX: won't copy mutable fill objects!
+            row.extend([fill] * (width - old_width))
+    if height > old_height:
+        buf.extend([
+            # XXX: won't copy mutable fill objects!
+            [fill] * width for y in range(height - old_height)
+        ])
+
+class PixelScreenWithDepth(PixelScreen):
+
+    def __init__(self, width=None, height=None, bg_color=termbox.DEFAULT):
+        super().__init__(width, height, bg_color)
+        self.depths = []
+        self.default_depth = float('-inf')
+
+    def clear(self):
+        super().clear()
+        self.depths = [
+            [ self.default_depth ] * self.width for y in range(self.height)
+        ]
+
+    def resize(self, width=None, height=None):
+        super().resize(width, height)
+        resize_2d_buffer(self.depths, width, height, self.default_depth)
+
+    def rasterize_point(self, point, color):
+        x, y, z = point[:3]
+        if self.height > y >= 0 and self.width > x >= 0 and self.depths[y][x] < z:
+            self.depths[y][x] = z
+            self.put_cell((x, y), color)
+
+    def draw_line(self, start, end, color):
+        if start[0] > end[0]:
+            start, end = end, start
+        # TODO: in order for depth to help I need to interpolate z coordinates
+        #       the same way I interpolate the other ones. So please come up
+        #       with a way to do it using get_ds function
+        dx, dy, coord, dStraight, dDiag, d, ofs, step = get_ds(start, end)
+        self.rasterize_point(start, termbox.WHITE)
+        self.rasterize_point(end, termbox.WHITE)
+
+        j = start[1 - coord]
+        z = start[2]
+        for i in range(start[coord], end[coord] + step, step):
+            if coord:
+                self.rasterize_point((j, i, z), color)
+            else:
+                self.rasterize_point((i, j, z), color)
+            if d > 0:
+                j += ofs
+                z += ofs
+                d += dDiag
+            else:
+                d += dStraight
 
 def log(*msg):
     with open('/tmp/iv_log', 'a') as f:
@@ -392,6 +447,12 @@ class TrueColorPixelScreenApp(ScreenApp):
     def __init__(self, tb, fps=0, clear=True):
         super().__init__(tb=tb,
                          screen=TrueColorPixelScreen(),
+                         fps=fps, clear=clear)
+
+class AppThatHasAScreenThatIsActuallyAPixelScreenWithDepthYouSee(ScreenApp):
+
+    def __init__(self, tb, fps=0, clear=True):
+        super().__init__(tb=tb, screen=PixelScreenWithDepth(),
                          fps=fps, clear=clear)
 
 
@@ -876,7 +937,7 @@ def tc_image_viewer(tb, args):
 
 
 import numpy as np
-class Qube(PixelScreenApp):
+class Qube(AppThatHasAScreenThatIsActuallyAPixelScreenWithDepthYouSee):
 
     def __init__(self, tb):
         super().__init__(tb, fps=60)
@@ -934,6 +995,14 @@ class Qube(PixelScreenApp):
         self.add_key_callback('L', lambda: rotate(1, -self.angle_step))
         self.add_key_callback('j', lambda: rotate(2, self.angle_step))
         self.add_key_callback('J', lambda: rotate(2, -self.angle_step))
+        self.frozen = False
+        def freeze():
+            self.frozen = not self.frozen
+        self.add_key_callback('f', lambda: freeze())
+        self.step = False
+        def step():
+            self.step = True
+        self.add_key_callback('.', lambda: step())
 
         self.angle_speeds = [.02, .05, 0]
 
@@ -962,16 +1031,23 @@ class Qube(PixelScreenApp):
     def put_verts(self, tmp, color):
         start_x, start_y = self.width // 2, self.height // 2
         def norm(p):
-            p = p / p[0, -1]
+            # p = p / p[0, -1]
             p = p / p[0, -2]
             return np.array(p).flatten().astype(int)
         for s, e in zip(tmp.T[:-1], tmp.T[1:]):
             s, e = norm(s), norm(e)
-            draw_line(self.screen,
-                      (start_x + s[0], start_y + s[1]),
-                      (start_x + e[0], start_y + e[1]), color)
+            self.screen.draw_line((start_x, start_y, 0, 0) + s,
+                                  (start_x, start_y, 0, 0) + e,
+                                  color)
+            # draw_line(self.screen,
+            #           (start_x + s[0], start_y + s[1]),
+            #           (start_x + e[0], start_y + e[1]), color)
 
     def update(self):
+        if self.frozen:
+            if not self.step:
+                return
+            self.step = False
         self.angles = [a + s for a, s in zip(self.angles, self.angle_speeds)]
 
     def display_before(self):
