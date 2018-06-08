@@ -1,5 +1,5 @@
 #!/bin/bash
-config=~/.home-music-conf
+config=~/.config/home-music-conf
 if [ ! -f $config ]; then
     echo $config doesn\'t exist, please create it
     exit 1
