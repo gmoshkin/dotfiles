@@ -129,7 +129,7 @@ class PixelScreenWithDepth(PixelScreen):
     def __init__(self, width=None, height=None, bg_color=termbox.DEFAULT):
         super().__init__(width, height, bg_color)
         self.depths = []
-        self.default_depth = float('-inf')
+        self.default_depth = float('inf')
 
     def clear(self):
         super().clear()
@@ -143,9 +143,9 @@ class PixelScreenWithDepth(PixelScreen):
 
     def rasterize_point(self, point, color):
         x, y, z = point[:3]
-        if self.height > y >= 0 and self.width > x >= 0 and self.depths[y][x] < z:
-            self.depths[y][x] = z
-            self.put_cell((x, y), color)
+        if self.height > y >= 0 and self.width > x >= 0 and self.depths[int(y)][int(x)] > z:
+            self.depths[int(y)][int(x)] = z
+            self.put_cell((int(x), int(y)), color)
 
     def draw_line(self, start, end, color):
         if start[0] > end[0]:
@@ -154,19 +154,16 @@ class PixelScreenWithDepth(PixelScreen):
         #       the same way I interpolate the other ones. So please come up
         #       with a way to do it using get_ds function
         dx, dy, coord, dStraight, dDiag, d, ofs, step = get_ds(start, end)
-        self.rasterize_point(start, termbox.WHITE)
-        self.rasterize_point(end, termbox.WHITE)
 
         j = start[1 - coord]
-        z = start[2]
-        for i in range(start[coord], end[coord] + step, step):
+        z = min(start[2], end[2])
+        for i in range(int(start[coord]), int(end[coord] + step), step):
             if coord:
                 self.rasterize_point((j, i, z), color)
             else:
                 self.rasterize_point((i, j, z), color)
             if d > 0:
                 j += ofs
-                z += ofs
                 d += dDiag
             else:
                 d += dStraight
@@ -1005,6 +1002,7 @@ class Qube(AppThatHasAScreenThatIsActuallyAPixelScreenWithDepthYouSee):
         self.add_key_callback('.', lambda: step())
 
         self.angle_speeds = [.02, .05, 0]
+        self.text = []
 
     def move(self, ofs=None):
         if ofs:
@@ -1028,17 +1026,25 @@ class Qube(AppThatHasAScreenThatIsActuallyAPixelScreenWithDepthYouSee):
         r[j,i] = np.sin(angle)
         return r
 
+    def put_text(self, position, text, fg, bg):
+        self.text.append({'pos':position, 'text':text, 'fg':fg, 'bg':bg})
+
     def put_verts(self, tmp, color):
         start_x, start_y = self.width // 2, self.height // 2
         def norm(p):
-            # p = p / p[0, -1]
+            z = p[0, -2]
+            p = p / p[0, -1]
             p = p / p[0, -2]
-            return np.array(p).flatten().astype(int)
+            p[0, -2] = z
+            return np.array(p).flatten()
         for s, e in zip(tmp.T[:-1], tmp.T[1:]):
-            s, e = norm(s), norm(e)
-            self.screen.draw_line((start_x, start_y, 0, 0) + s,
-                                  (start_x, start_y, 0, 0) + e,
-                                  color)
+            s = norm(s) + (start_x, start_y, 0, 0)
+            e = norm(e) + (start_x, start_y, 0, 0)
+            # self.put_text((s[0], s[1] // 2), '{:.03f}, {:.03f}, {:.03f}'.format(*s[:3]),
+            #               termbox.WHITE, termbox.BLACK)
+            # self.put_text((s[0], s[1] // 2), '{:.03f}, {:.03f}, {:.03f}'.format(*e[:3]),
+            #               termbox.WHITE, termbox.BLACK)
+            self.screen.draw_line(s, e, color)
             # draw_line(self.screen,
             #           (start_x + s[0], start_y + s[1]),
             #           (start_x + e[0], start_y + e[1]), color)
@@ -1062,6 +1068,9 @@ class Qube(AppThatHasAScreenThatIsActuallyAPixelScreenWithDepthYouSee):
     def display_after(self):
         # put_text(self.tb, (0, 0), 'scale: ({})'.format(self.scales))
         # put_text(self.tb, (0, 1), 'position: ({})'.format(self.ofs))
+        for t in self.text:
+            put_text(self.tb, t['pos'], t['text'], t['fg'], t['bg'])
+        self.text = []
         pass
 
 def qube(tb, args=None):
