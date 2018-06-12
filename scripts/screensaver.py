@@ -18,6 +18,9 @@ from os import path
 def hex2rgb(hex):
     return tuple(int(hex[1 + i*2 : 1 + (i+1)*2], base=16) for i in range(3))
 
+def lerp(r, fr, to):
+    return [int(f * (1 - r) + t * r) for f, t in zip(fr, to)]
+
 outputmode = termbox.OUTPUT_256
 
 palette = [
@@ -445,6 +448,9 @@ class TrueColorPixelScreenApp(ScreenApp):
         super().__init__(tb=tb,
                          screen=TrueColorPixelScreen(),
                          fps=fps, clear=clear)
+        tb.select_output_mode(termbox.OUTPUT_TRUECOLOR)
+        global outputmode
+        outputmode = termbox.OUTPUT_TRUECOLOR
 
 class AppThatHasAScreenThatIsActuallyAPixelScreenWithDepthYouSee(ScreenApp):
 
@@ -932,6 +938,52 @@ def tc_image_viewer(tb, args):
     iv.set_converter_alpha(lambda x : mix(x[:3], iv.screen.bg_color, x[3]))
     iv.run_loop()
 
+class Circle(TrueColorPixelScreenApp):
+
+    def __init__(self, tb):
+        super().__init__(tb, clear=False)
+        self.radius = 10
+        def rad(r):
+            self.radius += r
+        self.position = (10, 10)
+        self.add_key_callback('+', lambda: rad(+1))
+        self.add_key_callback('-', lambda: rad(-1))
+        def pos(p):
+            self.position = tuple(sum(z) for z in zip(self.position, p))
+        self.add_key_callback('h', lambda: pos((-1, 0)))
+        self.add_key_callback('j', lambda: pos((0, +1)))
+        self.add_key_callback('l', lambda: pos((+1, 0)))
+        self.add_key_callback('k', lambda: pos((0, -1)))
+        self.color = hex2rgb('#dc322f')
+        self.bg_color = hex2rgb('#002b36')
+        tb.change_cell_rgb(20, 20, ord('a'), *self.color, *self.bg_color)
+
+    def display_before(self):
+        x0, y0 = self.position
+        for x in range((x0 - self.radius), (x0 + self.radius)):
+            for y in range((y0 - self.radius), (y0 + self.radius)):
+                r = (x - x0) ** 2 + (y - y0) ** 2
+                r /= self.radius ** 2
+                if r > 1:
+                    continue
+                self.screen.put_cell([x, y], lerp(r,
+                                                  self.color, self.bg_color))
+        self.screen.put_cell([0, self.height // 2], (255, 128, 0))
+        self.screen.put_cell([self.width - 1, self.height // 2], (128, 255, 0))
+        self.screen.put_cell([self.width // 2, 0], (0, 128, 255))
+        self.screen.put_cell([self.width // 2, self.height - 1], (0, 255, 128))
+        self.screen.put_cell([self.width // 2, self.height // 2], (128, 128, 0))
+        self.screen.put_cell([self.width // 2 + 1, self.height // 2], (255, 255, 255))
+
+    def display_after(self):
+        put_text(self.tb, [0, 0], 'pos: [{}, {}]'.format(*self.position),
+                 (255, 255, 255), (0, 0, 0))
+        put_text(self.tb, [0, 1], 'rad: {}'.format(self.radius),
+                 (255, 255, 255), (0, 0, 0))
+
+def circle(tb, *args):
+    Circle(tb).run_loop()
+
 
 import numpy as np
 class Qube(AppThatHasAScreenThatIsActuallyAPixelScreenWithDepthYouSee):
@@ -1134,6 +1186,7 @@ def main():
             'I': tc_image_viewer,
             'q': qube,
             't': test,
+            'c': circle,
         }.get(mode, lambda x: print('unknown mode'))
         if isinstance(torun, type) and issubclass(torun, App):
             torun(t).run_loop()
