@@ -140,6 +140,7 @@ function integram {
     else
         message="$@"
     fi
+    message=$(echo "$message" | sed 's/>/＞/g')
     data='payload={"text":"'"$message"'"}'
     curl -s -d "$data" "https://integram.org/$token"
 }
