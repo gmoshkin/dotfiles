@@ -160,7 +160,7 @@ case "$1" in
         fi
         ;;
     notify )
-        cmus-remote -Q | convert_to_notify
+        cmus_remote -Q | convert_to_notify
         ;;
     -* )
         cmus_remote "$@"
