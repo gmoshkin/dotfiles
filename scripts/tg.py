@@ -6,6 +6,7 @@ from os.path import expanduser
 import telethon
 import time
 import argparse
+import socks
 
 def parse_args():
     arg_parser = argparse.ArgumentParser(
@@ -13,6 +14,8 @@ def parse_args():
     )
     arg_parser.add_argument('-c', '--config', help='Configuration file',
                             default='~/.config/telegram-api.conf')
+    arg_parser.add_argument('-p', '--proxy', help='Proxy configuration file',
+                            default='~/.config/proxy.conf')
     return arg_parser.parse_args()
 
 def load_config(filename):
@@ -20,9 +23,19 @@ def load_config(filename):
     cp.read(expanduser(filename))
     return cp.get('api', 'id'), cp.get('api', 'hash')
 
+def get_proxy(filename):
+    cp = configparser.ConfigParser()
+    cp.read(expanduser(filename))
+    return dict(proxy_type=socks.SOCKS5,
+                addr=cp.get('socks5', 'addr'),
+                port=int(cp.get('socks5', 'port')),
+                username=cp.get('login', 'username'),
+                password=cp.get('login', 'password'))
+
 def main(args):
     api_id, api_hash = load_config(args.config)
-    cl = telethon.TelegramClient(expanduser('~/UnreadCount'), api_id, api_hash)
+    cl = telethon.TelegramClient(expanduser('~/UnreadCount'),
+                                 api_id, api_hash, proxy=get_proxy(args.proxy))
     cl.start()
     unread_count = sum(
         d.unread_count for d in cl.iter_dialogs()
