@@ -3,7 +3,7 @@
 
 import configparser
 from os.path import expanduser
-import telethon
+from telethon.sync import TelegramClient
 import time
 import argparse
 import socks
@@ -34,8 +34,8 @@ def get_proxy(filename):
 
 def main(args):
     api_id, api_hash = load_config(args.config)
-    cl = telethon.TelegramClient(expanduser('~/UnreadCount'),
-                                 api_id, api_hash, proxy=get_proxy(args.proxy))
+    cl = TelegramClient(expanduser('~/UnreadCount'),
+                        api_id, api_hash, proxy=get_proxy(args.proxy))
     cl.start()
     unread_count = sum(
         d.unread_count for d in cl.iter_dialogs()
