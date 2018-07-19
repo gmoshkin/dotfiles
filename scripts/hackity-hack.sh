@@ -14,7 +14,9 @@ tmux capture-pane -et $TMUX_PANE -b "$bufname"
 tmux save-buffer -b "$bufname" $buffilename
 tput smcup
 tput civis
-cat $buffilename
+cat $buffilename | perl -e 'while (my $line = <>)
+{ $line =~ s/\[(\d\d)m/ "[".($1 == 39 ? 90 : $1 == 99 ? 30 : $1 == 49 ? 100 :
+    $1 == 109 ? 40 : $1 + 1)."m" /eg; print $line }'
 sleep .5
 tput cup $(( $(tput lines) / 2 )) $(( $(tput cols) / 2 - 10 ))
 tput setaf 1
