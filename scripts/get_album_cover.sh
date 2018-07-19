@@ -12,7 +12,7 @@ filename=/tmp/cover.png
 cp $filename /tmp/cover.old
 echo yes | ffmpeg -i "$file" $filename || cp ~/Pictures/sad.png $filename
 
-eval notify-send -u critical $(cmus-rc.sh notify)
+# eval notify-send  $(cmus-rc.sh notify)
 # if cmp $filename /tmp/cover.old; then
 #     cp ~/Pictures/sad.png $filename
 # fi
