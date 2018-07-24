@@ -32,10 +32,12 @@ def get_proxy(filename):
                 username=cp.get('login', 'username'),
                 password=cp.get('login', 'password'))
 
+def get_tg_client(config, proxy, session=expanduser('~/UnreadCount')):
+    api_id, api_hash = load_config(config)
+    return TelegramClient(session, api_id, api_hash, proxy=get_proxy(proxy))
+
 def main(args):
-    api_id, api_hash = load_config(args.config)
-    cl = TelegramClient(expanduser('~/UnreadCount'),
-                        api_id, api_hash, proxy=get_proxy(args.proxy))
+    cl = get_tg_client(args.config, args.proxy)
     cl.start()
     unread_count = sum(
         d.unread_count for d in cl.iter_dialogs()
