@@ -1,0 +1,13 @@
+#command
+H           left-scroll
+L           right-scroll
+<           no-scroll
+>           end-scroll
+#line-edit
+\e\f        word-right
+^P          up
+^N          down
+^B          left
+^F          right
+^A          home
+^E          end

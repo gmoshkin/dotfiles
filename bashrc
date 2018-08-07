@@ -36,6 +36,9 @@ export BASHRC="$HOME/.bashrc"
 
 export GOPATH="$HOME/gocode"
 
+export LESS=RMWSJ
+export SYSTEMD_LESS=RSMK
+
 alias watch='watch --color -n 1'
 alias cput='xsel --clipboard'
 alias cget='cat | xsel --clipboard'

@@ -127,6 +127,10 @@ function deploy_cmus {
     link cmus.theme ~/.config/cmus/ mine.theme
 }
 
+function deploy_lesskey {
+    lesskey lesskey
+}
+
 function print_help {
     cat << EOF
 Usage:
@@ -157,6 +161,7 @@ modules=(
     i3
     xmodmap
     cmus
+    lesskey
 )
 
 function deploy_all {
