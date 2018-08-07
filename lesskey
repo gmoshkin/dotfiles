@@ -11,3 +11,4 @@ L           right-scroll
 ^F          right
 ^A          home
 ^E          end
+^D          delete
