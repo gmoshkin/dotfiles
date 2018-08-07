@@ -12,3 +12,5 @@ L           right-scroll
 ^A          home
 ^E          end
 ^D          delete
+^W          word-backspace
+\ed         word-delete
