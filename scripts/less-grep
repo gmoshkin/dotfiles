@@ -1,0 +1,5 @@
+#!/bin/bash
+
+re="$1"
+shift
+less +"&${re}" "${@}"
