@@ -38,7 +38,10 @@ export GOPATH="$HOME/gocode"
 
 export LESS=RMWSJ
 export SYSTEMD_LESS=RSMK
+export PS_FORMAT=pid,stat,tty,bsdstart,bsdtime,command
 
+alias ps='ps -f'
+alias psl='ps -xf | less'
 alias watch='watch --color -n 1'
 alias cput='xsel --clipboard'
 alias cget='cat | xsel --clipboard'
