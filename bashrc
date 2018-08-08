@@ -40,8 +40,8 @@ export LESS=RMWSJ
 export SYSTEMD_LESS=RSMK
 export PS_FORMAT=pid,stat,tty,bsdstart,bsdtime,command
 
-alias ps='ps -f'
-alias psl='ps -xf | less'
+alias ps='ps Tf'
+alias psl='ps -A f | less'
 alias lgrep='less-grep'
 alias watch='watch --color -n 1'
 alias cput='xsel --clipboard'
