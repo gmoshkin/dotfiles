@@ -131,6 +131,10 @@ function deploy_lesskey {
     lesskey lesskey
 }
 
+function deploy_htoprc {
+    link htoprc ~/.config/htop/
+}
+
 function print_help {
     cat << EOF
 Usage:
@@ -162,6 +166,7 @@ modules=(
     xmodmap
     cmus
     lesskey
+    htoprc
 )
 
 function deploy_all {
