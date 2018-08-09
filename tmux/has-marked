@@ -1,2 +1,2 @@
 #!/bin/bash
-tmux list-windows -F "#F" | grep M > /dev/null
+tmux list-sessions -F "#F" | grep M > /dev/null
