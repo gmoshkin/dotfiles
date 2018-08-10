@@ -186,13 +186,13 @@ class TrueColorPixelScreen(PixelScreen):
             for x, (top, bot) in enumerate(zip(*line_group)):
                 if x > tb.width():
                     break
-                if bot == top:
-                    try:
+                try:
+                    if bot == top:
                         tb.change_cell_rgb(x, y, self.full, *bot, *top)
-                    except TypeError:
-                        log(bot, top)
-                else:
-                    tb.change_cell_rgb(x, y, self.bottom_half, *bot, *top)
+                    else:
+                        tb.change_cell_rgb(x, y, self.bottom_half, *bot, *top)
+                except TypeError:
+                    log(bot, top)
 
 
 def get_ds(start, end):
