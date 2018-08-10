@@ -1,2 +1,4 @@
 #!/bin/bash
-tmux list-sessions -F "#F" | grep M > /dev/null
+for sess in $(tmux list-sessions -F "#S"); do
+    tmux list-windows -t $sess -F '#F'
+done | grep M > /dev/null
