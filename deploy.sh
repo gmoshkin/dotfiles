@@ -135,6 +135,10 @@ function deploy_htoprc {
     link htoprc ~/.config/htop/
 }
 
+function deploy_ranger {
+    link ranger/scope.sh ~/.config/
+}
+
 function print_help {
     cat << EOF
 Usage:
@@ -167,6 +171,7 @@ modules=(
     cmus
     lesskey
     htoprc
+    ranger
 )
 
 function deploy_all {
