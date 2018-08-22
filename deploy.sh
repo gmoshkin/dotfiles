@@ -137,6 +137,7 @@ function deploy_htoprc {
 
 function deploy_ranger {
     link ranger/scope.sh ~/.config/
+    link ranger/rc.conf ~/.config/
 }
 
 function print_help {
