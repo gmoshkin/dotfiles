@@ -140,6 +140,10 @@ function deploy_ranger {
     link ranger/rc.conf ~/.config/
 }
 
+function deploy_radare2 {
+    link radare2/radare2rc ~/.config/
+}
+
 function print_help {
     cat << EOF
 Usage:
@@ -173,6 +177,7 @@ modules=(
     lesskey
     htoprc
     ranger
+    radare2
 )
 
 function deploy_all {
