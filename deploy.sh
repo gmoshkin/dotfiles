@@ -144,6 +144,10 @@ function deploy_radare2 {
     link radare2/radare2rc ~/.config/
 }
 
+function deploy_keynavrc {
+    link keynavrc
+}
+
 function print_help {
     cat << EOF
 Usage:
@@ -178,6 +182,7 @@ modules=(
     htoprc
     ranger
     radare2
+    keynavrc
 )
 
 function deploy_all {

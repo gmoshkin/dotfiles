@@ -1,0 +1,14 @@
+c  cursorzoom  100  100
+
+alt+h  move-left   10
+alt+j  move-down   10
+alt+k  move-up     10
+alt+l  move-right  10
+
+4  click  4
+5  click  5
+
+shift+h   move-left    .5
+shift+j   move-down    .5
+shift+k   move-up      .5
+shift+l   move-right   .5
