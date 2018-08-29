@@ -1,0 +1,5 @@
+e asm.syntax=regnum
+e asm.pseudo=true
+e prj.git=true
+e scr.utf8=true
+e scr.utf8.curvy=true
