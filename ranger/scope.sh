@@ -86,6 +86,8 @@ case "$mimetype" in
         try mediainfo "$path" && { dump | trim | sed 's/  \+:/: /;';  exit 5; } || exit 1;;
     */octet-stream)
         try hexdump "$path" && { dump | trim; exit 5; } || exit 1;;
+    */x-sharedlib)
+        try objdump -f "$path" && { dump | trim; exit 5; } || exit 1;;
 esac
 
 exit 1
