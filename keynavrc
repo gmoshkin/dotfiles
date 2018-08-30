@@ -6,8 +6,8 @@ alt+j  move-down   10, warp
 alt+k  move-up     10, warp
 alt+l  move-right  10, warp
 
-4  click  4
-5  click  5
+4  click 5
+5  click 4
 
 shift+h   move-left    .5, warp
 shift+j   move-down    .5, warp
