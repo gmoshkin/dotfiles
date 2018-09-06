@@ -41,22 +41,48 @@ class PaneContainer(Container):
         self.pane_id = pane_id
         super().__init__(size, position)
 
+    def get_panes(self):
+        return [self]
+
+    def get_min_size(self):
+        return 1, 1
+
+    def __repr__(self):
+        return "PaneContainer({}, {}, {})".format(self.pane_id,
+                                                  self.size,
+                                                  self.position)
+
 class SequenceContainer(Container):
     def __init__(self, containers=None, size=None, position=None):
         self.containers = containers
         super().__init__(size, position)
 
+    def get_panes(self):
+        return [p for c in self.containers for p in c.get_panes()]
+
 class HorizontalSequence(SequenceContainer):
     def __init__(self, containers=None, size=None, position=None):
         super().__init__(containers, size, position)
+
+    def get_min_size(self):
+        min_x, min_y = zip(*[c.get_min_size() for c in self.containers])
+        return sum(min_x) + len(self.containers) - 1, max(min_y)
 
 class VerticalSequence(SequenceContainer):
     def __init__(self, containers=None, size=None, position=None):
         super().__init__(containers, size, position)
 
+    def get_min_size(self):
+        min_x, min_y = zip(*[c.get_min_size() for c in self.containers])
+        return max(min_x), sum(min_y) + len(self.containers) - 1
+
 class Layout:
     def __init__(self, container=None):
         self.container = container
+
+    def show_panes(self):
+        for p in self.container.get_panes():
+            print(p)
 
 def walk_layout(layout):
     container = layout
@@ -90,3 +116,23 @@ if __name__ == '__main__':
     args = argparser.parse_args()
     layout = parse_layout(args.layout)
     l = Layout(walk_layout(layout))
+    l.show_panes()
+    print(l.container.get_min_size())
+
+# TODO: how do I print this picture for a layout?
+# vertical{pane,horizontal{pane,pane,pane}}:
+# ┌─────┐
+# │     │
+# ├─┬─┬─┤
+# │ │ │ │
+# └─┴─┴─┘
+# or even this one?
+# ┌─────┐
+# ├─┬─┬─┤
+# └─┴─┴─┘
+# or maybe this one?
+# ┌────────┐
+# │   %1   │
+# ├──┬──┬──┤
+# │%2│%3│%4│
+# └──┴──┴──┘
