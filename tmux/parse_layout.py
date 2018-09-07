@@ -57,6 +57,12 @@ class PaneContainer(Container):
         if pos:
             self.position = pos
 
+    def is_border(self, pos):
+        x, y = pos
+        ox, oy = self.position
+        w, h = self.size
+        return x == ox or y == oy or x == ox + w or y == oy + h
+
 class SequenceContainer(Container):
     def __init__(self, containers=None, size=None, position=None):
         self.containers = containers
@@ -97,9 +103,12 @@ class HorizontalSequence(SequenceContainer):
         w -= len(self.containers) - 1
         min_ws, _ = self._get_min_size()
         self.divide(w, sum(min_ws))
-        for c in self.containers:
-            c_w, _ = c.get_min_size()
-            c.expand((self.divide(weight=c_w), h))
+        cur_x, cur_y = self.position
+        for c in sorted(self.containers, key=lambda c: c.position[0]):
+            c_weight, _ = c.get_min_size()
+            c_w = self.divide(weight=c_weight)
+            c.expand((c_w, h), (cur_x, cur_y))
+            cur_x += c_w + 1
 
 class VerticalSequence(SequenceContainer):
     def __init__(self, containers=None, size=None, position=None):
@@ -115,9 +124,12 @@ class VerticalSequence(SequenceContainer):
         h -= len(self.containers) - 1
         _, min_hs = self._get_min_size()
         self.divide(h, sum(min_hs))
-        for c in self.containers:
-            _, c_h = c.get_min_size()
-            c.expand((w, self.divide(weight=c_h)))
+        cur_x, cur_y = self.position
+        for c in sorted(self.containers, key=lambda c: c.position[1]):
+            _, c_weight = c.get_min_size()
+            c_h = self.divide(weight=c_weight)
+            c.expand((w, c_h), (cur_x, cur_y))
+            cur_y += c_h + 1
 
 class Layout:
     def __init__(self, container=None):
@@ -130,6 +142,39 @@ class Layout:
     def compress(self):
         min_size = self.container.get_min_size()
         self.container.expand(min_size, pos=(0, 0))
+
+    def draw_mini(self):
+        # ← ↓ ↑ →
+        borders = {
+            0b0000: ' ',
+            0b0001: '╶',
+            0b0010: '╵',
+            0b0011: '└',
+            0b0100: '╷',
+            0b0101: '┌',
+            0b0110: '│',
+            0b0111: '├',
+            0b1000: '╴',
+            0b1001: '─',
+            0b1010: '┘',
+            0b1011: '┴',
+            0b1100: '┐',
+            0b1101: '┬',
+            0b1110: '┤',
+            0b1111: '┼',
+        }
+        #TODO: TODO
+        self.compress()
+        w, h = (_ + 2 for _ in self.container.get_min_size())
+        lines = []
+        for y in range(h):
+            line = []
+            for x in range(w):
+                line.append(self.container.get_grid_cell((x, y)))
+            lines.append(''.join(line))
+        print('\n'.join(lines))
+
+
 
 def walk_layout(layout):
     container = layout
@@ -163,9 +208,10 @@ if __name__ == '__main__':
     args = argparser.parse_args()
     layout = parse_layout(args.layout)
     l = Layout(walk_layout(layout))
-    l.show_panes()
+    # l.show_panes()
     l.compress()
-    l.show_panes()
+    # l.show_panes()
+    l.draw_mini()
     print(l.container.get_min_size())
 
 # TODO: how do I print this picture for a layout?
