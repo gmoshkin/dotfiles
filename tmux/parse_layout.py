@@ -52,13 +52,26 @@ class PaneContainer(Container):
                                                   self.size,
                                                   self.position)
 
+    def expand(self, size):
+        self.size = size
+
 class SequenceContainer(Container):
     def __init__(self, containers=None, size=None, position=None):
         self.containers = containers
         super().__init__(size, position)
+        self._cur_piece = None
+        self._cur_remainder = None
 
     def get_panes(self):
         return [p for c in self.containers for p in c.get_panes()]
+
+    def divide(self, what=None, howmany=None, weight=None):
+        if weight:
+            this_one_gets = self._cur_remainder and 1 or 0
+            self._cur_remainder -= this_one_gets
+            return self._cur_piece * weight + this_one_gets
+        elif what and howmany:
+            self._cur_piece, self._cur_remainder = divmod(what, howmany)
 
 class HorizontalSequence(SequenceContainer):
     def __init__(self, containers=None, size=None, position=None):
@@ -68,6 +81,15 @@ class HorizontalSequence(SequenceContainer):
         min_x, min_y = zip(*[c.get_min_size() for c in self.containers])
         return sum(min_x) + len(self.containers) - 1, max(min_y)
 
+    def expand(self, size):
+        w, h = size
+        w -= len(self.containers) - 1
+        min_ws, _ = zip(*[c.get_min_size() for c in self.containers])
+        self.divide(w, sum(min_ws))
+        for c in self.containers:
+            c_w, _ = c.get_min_size()
+            c.expand((self.divide(weight=c_w), h))
+
 class VerticalSequence(SequenceContainer):
     def __init__(self, containers=None, size=None, position=None):
         super().__init__(containers, size, position)
@@ -75,6 +97,16 @@ class VerticalSequence(SequenceContainer):
     def get_min_size(self):
         min_x, min_y = zip(*[c.get_min_size() for c in self.containers])
         return max(min_x), sum(min_y) + len(self.containers) - 1
+
+    def expand(self, size):
+        # FIXME: fucking duplication ☹
+        w, h = size
+        _, min_hs = zip(*[c.get_min_size() for c in self.containers])
+        h -= len(self.containers) - 1
+        self.divide(h, sum(min_hs))
+        for c in self.containers:
+            _, c_h = c.get_min_size()
+            c.expand((w, self.divide(weight=c_h)))
 
 class Layout:
     def __init__(self, container=None):
@@ -84,17 +116,21 @@ class Layout:
         for p in self.container.get_panes():
             print(p)
 
+    def compress(self):
+        min_size = self.container.get_min_size()
+        self.container.expand(min_size)
+
 def walk_layout(layout):
     container = layout
     if 'container' in container:
         container = container['container']
     if 'pane_id' in container:
         pane_id = container['pane_id']
-        size_x, size_y = container['size']
-        pos_x, pos_y = container['position']
-        print('pane %{} at [{},{}] with size {}x{}'.format(pane_id,
-                                                           pos_x, pos_y,
-                                                           size_x, size_y))
+        size_x, size_y = (int(_) for _ in container['size'])
+        pos_x, pos_y = (int(_) for _ in container['position'])
+        # print('pane %{} at [{},{}] with size {}x{}'.format(pane_id,
+        #                                                    pos_x, pos_y,
+        #                                                    size_x, size_y))
         return PaneContainer(pane_id, (size_x, size_y), (pos_x, pos_y))
     else:
         for key, constructor in [('horizontal', HorizontalSequence),
@@ -104,8 +140,8 @@ def walk_layout(layout):
         else:
             raise Exception('wtf?')
         containers = [walk_layout(c) for c in container[key]]
-        size_x, size_y = container['size']
-        pos_x, pos_y = container['position']
+        size_x, size_y = (int(_) for _ in container['size'])
+        pos_x, pos_y = (int(_) for _ in container['position'])
         return constructor(containers=containers,
                            size=(size_x, size_y),
                            position=(pos_x, pos_y))
@@ -116,6 +152,8 @@ if __name__ == '__main__':
     args = argparser.parse_args()
     layout = parse_layout(args.layout)
     l = Layout(walk_layout(layout))
+    l.show_panes()
+    l.compress()
     l.show_panes()
     print(l.container.get_min_size())
 
@@ -131,8 +169,40 @@ if __name__ == '__main__':
 # ├─┬─┬─┤
 # └─┴─┴─┘
 # or maybe this one?
-# ┌────────┐
-# │   %1   │
-# ├──┬──┬──┤
-# │%2│%3│%4│
-# └──┴──┴──┘
+#       5
+# ┌───────────┐
+# │    5x1    │
+# ├───┬───┬───┤ 3
+# │1x1│1x1│1x1│
+# └───┴───┴───┘
+# vertical{horizontal{pane,vertical{pane,
+#                                   pane}},
+#          horizontal{pane,pane,pane},
+#          pane}:
+# ┌──┬──┐
+# │  ├──┤
+# ├─┬┴┬─┤
+# ├─┴─┴─┤
+# └─────┘
+#       5
+# ┌─────┬─────┐
+# │     │ 2x1 │
+# │ 2x3 ├─────┤
+# │     │ 2x1 │
+# ├───┬─┴─┬───┤ 7
+# │1x1│1x1│1x1│
+# ├───┴───┴───┤
+# │    5x1    │
+# └───────────┘
+# ┌─┬─┐
+# ├─┤ │
+# ├─┴─┤
+# └───┘
+#       3
+# ┌─────┬─────┐
+# │ 1x1 │     │
+# ├─────┤ 1x3 │
+# │ 1x1 │     │ 3
+# ├─────┴─────┤
+# │    3x1    │
+# └───────────┘
