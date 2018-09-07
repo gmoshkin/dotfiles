@@ -52,8 +52,10 @@ class PaneContainer(Container):
                                                   self.size,
                                                   self.position)
 
-    def expand(self, size):
+    def expand(self, size, pos=None):
         self.size = size
+        if pos:
+            self.position = pos
 
 class SequenceContainer(Container):
     def __init__(self, containers=None, size=None, position=None):
@@ -73,18 +75,27 @@ class SequenceContainer(Container):
         elif what and howmany:
             self._cur_piece, self._cur_remainder = divmod(what, howmany)
 
+    def expand(self, size, pos=None):
+        self.size = w, h = size
+        if pos:
+            self.position = pos
+        self._expand()
+
+    def _get_min_size(self):
+        return zip(*[c.get_min_size() for c in self.containers])
+
 class HorizontalSequence(SequenceContainer):
     def __init__(self, containers=None, size=None, position=None):
         super().__init__(containers, size, position)
 
     def get_min_size(self):
-        min_x, min_y = zip(*[c.get_min_size() for c in self.containers])
-        return sum(min_x) + len(self.containers) - 1, max(min_y)
+        min_ws, min_hs = self._get_min_size()
+        return sum(min_ws) + len(self.containers) - 1, max(min_hs)
 
-    def expand(self, size):
-        w, h = size
+    def _expand(self):
+        w, h = self.size
         w -= len(self.containers) - 1
-        min_ws, _ = zip(*[c.get_min_size() for c in self.containers])
+        min_ws, _ = self._get_min_size()
         self.divide(w, sum(min_ws))
         for c in self.containers:
             c_w, _ = c.get_min_size()
@@ -95,14 +106,14 @@ class VerticalSequence(SequenceContainer):
         super().__init__(containers, size, position)
 
     def get_min_size(self):
-        min_x, min_y = zip(*[c.get_min_size() for c in self.containers])
-        return max(min_x), sum(min_y) + len(self.containers) - 1
+        min_ws, min_hs = self._get_min_size()
+        return max(min_ws), sum(min_hs) + len(self.containers) - 1
 
-    def expand(self, size):
+    def _expand(self):
         # FIXME: fucking duplication ☹
-        w, h = size
-        _, min_hs = zip(*[c.get_min_size() for c in self.containers])
+        w, h = self.size
         h -= len(self.containers) - 1
+        _, min_hs = self._get_min_size()
         self.divide(h, sum(min_hs))
         for c in self.containers:
             _, c_h = c.get_min_size()
@@ -118,7 +129,7 @@ class Layout:
 
     def compress(self):
         min_size = self.container.get_min_size()
-        self.container.expand(min_size)
+        self.container.expand(min_size, pos=(0, 0))
 
 def walk_layout(layout):
     container = layout
