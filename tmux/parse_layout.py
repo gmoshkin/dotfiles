@@ -61,7 +61,9 @@ class PaneContainer(Container):
         x, y = pos
         ox, oy = self.position
         w, h = self.size
-        return x == ox or y == oy or x == ox + w or y == oy + h
+        if x < ox or x > ox + w + 1 or y < oy or y > oy + h + 1:
+            return False
+        return x == ox or y == oy or x == ox + w + 1 or y == oy + h + 1
 
 class SequenceContainer(Container):
     def __init__(self, containers=None, size=None, position=None):
@@ -89,6 +91,18 @@ class SequenceContainer(Container):
 
     def _get_min_size(self):
         return zip(*[c.get_min_size() for c in self.containers])
+
+    def is_border(self, pos):
+        x, y = pos
+        ox, oy = self.position
+        w, h = self.size
+        if x < ox or x > ox + w + 1 or y < oy or y > oy + h + 1:
+            return False
+        if x == ox or y == oy or x == ox + w + 1 or y == oy + h + 1:
+            return True
+        for c in self.containers:
+            if c.is_border(pos):
+                return True
 
 class HorizontalSequence(SequenceContainer):
     def __init__(self, containers=None, size=None, position=None):
@@ -170,7 +184,8 @@ class Layout:
         for y in range(h):
             line = []
             for x in range(w):
-                line.append(self.container.get_grid_cell((x, y)))
+                cell = '█' if self.container.is_border((x, y)) else ' '
+                line.append(cell)
             lines.append(''.join(line))
         print('\n'.join(lines))
 
