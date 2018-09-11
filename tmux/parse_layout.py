@@ -45,7 +45,7 @@ class PaneContainer(Container):
         return [self]
 
     def get_min_size(self):
-        return 1, 1
+        return 2, 1
 
     def __repr__(self):
         return "PaneContainer({}, {}, {})".format(self.pane_id,
@@ -177,6 +177,10 @@ class Layout:
             0b1110: '┤',
             0b1111: '┼',
         }
+        left = 0b1000
+        down = 0b0100
+        up = 0b0010
+        right = 0b0001
         #TODO: TODO
         self.compress()
         w, h = (_ + 2 for _ in self.container.get_min_size())
@@ -184,8 +188,19 @@ class Layout:
         for y in range(h):
             line = []
             for x in range(w):
-                cell = '█' if self.container.is_border((x, y)) else ' '
-                line.append(cell)
+                if not self.container.is_border((x, y)):
+                    line.append(' ')
+                    continue
+                cell = 0b0000
+                if self.container.is_border((x - 1, y)):
+                    cell |= left
+                if self.container.is_border((x, y + 1)):
+                    cell |= down
+                if self.container.is_border((x, y - 1)):
+                    cell |= up
+                if self.container.is_border((x + 1, y)):
+                    cell |= right
+                line.append(borders[cell])
             lines.append(''.join(line))
         print('\n'.join(lines))
 
@@ -225,7 +240,7 @@ if __name__ == '__main__':
     l = Layout(walk_layout(layout))
     # l.show_panes()
     l.compress()
-    # l.show_panes()
+    l.show_panes()
     l.draw_mini()
     print(l.container.get_min_size())
 
@@ -256,7 +271,16 @@ if __name__ == '__main__':
 # ├─┬┴┬─┤
 # ├─┴─┴─┤
 # └─────┘
-#       5
+#    5
+# ┌──┬──┐
+# │  │  │
+# │  ├──┤
+# │  │  │
+# ├─┬┴┬─┤ 7
+# │ │ │ │
+# ├─┴─┴─┤
+# │     │
+# └─────┘
 # ┌─────┬─────┐
 # │     │ 2x1 │
 # │ 2x3 ├─────┤
@@ -278,3 +302,16 @@ if __name__ == '__main__':
 # ├─────┴─────┤
 # │    3x1    │
 # └───────────┘
+# FIXME:
+# want:
+# ┌───┬────┐
+# │   │    │
+# ├──┬┴─┬──┤
+# │  │  │  │
+# └──┴──┴──┘
+# but get
+# ┌───┬───┬┐
+# │   │   ├┤
+# ├──┬┴─┬─┴┤
+# │  │  │  │
+# └──┴──┴──┘
