@@ -4,8 +4,15 @@ DELIM=,
 
 [ -z "$1" ] && { echo need a tty; exit 1; }
 
+if [ "$1" = "-" ]; then
+    read PANE_TTY
+else
+    PANE_TTY=$1
+fi
+
 PANE_ID=$(tmux list-panes -aF "#{pane_id}${DELIM}#{pane_tty}"\
-    | grep $1$ | cut -d${DELIM} -f1)
+    | grep ${PANE_TTY}$ | cut -d${DELIM} -f1)
+
 
 if [ "$2" != go ]; then
     echo $PANE_ID
