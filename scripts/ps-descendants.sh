@@ -3,6 +3,12 @@
 # set -x
 [ -z "$1" ] && exit 1
 
+if [ "$1" = "tmux-serv" ]; then
+    PID=$(tmux display -p '#{pid}')
+else
+    PID=${1}
+fi
+
 children() {
     [ -z "$1" ] && return
     ps -e o pid,ppid |  awk '($2 == '$1'){print $1}'
@@ -20,8 +26,8 @@ descendants() {
 export FUNCNEST=10
 
 if [ -n "$2" ]; then
-    descendants $1
+    descendants ${PID}
 else
-    descendants $1 | xargs ps f -p
+    descendants ${PID} | xargs ps f -p
 fi
 # set +x
