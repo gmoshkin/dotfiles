@@ -158,30 +158,29 @@ class Layout:
         self.container.expand(min_size, pos=(0, 0))
 
     def draw_mini(self):
-        # ← ↓ ↑ →
+        nowhere = 0b0000
+        right   = 0b1000
+        left    = 0b0100
+        down    = 0b0010
+        up      = 0b0001
         borders = {
-            0b0000: ' ',
-            0b0001: '╶',
-            0b0010: '╵',
-            0b0011: '└',
-            0b0100: '╷',
-            0b0101: '┌',
-            0b0110: '│',
-            0b0111: '├',
-            0b1000: '╴',
-            0b1001: '─',
-            0b1010: '┘',
-            0b1011: '┴',
-            0b1100: '┐',
-            0b1101: '┬',
-            0b1110: '┤',
-            0b1111: '┼',
+            nowhere                       : ' ',
+            right                         : '╶',
+            up                            : '╵',
+            down                          : '╷',
+            left                          : '╴',
+            up   | right                  : '└',
+            down | right                  : '┌',
+            down | up                     : '│',
+            left | right                  : '─',
+            left | up                     : '┘',
+            left | down                   : '┐',
+            down | up    | right          : '├',
+            left | right | up             : '┴',
+            left | down  | right          : '┬',
+            left | down  | up             : '┤',
+            left | down  | up     | right : '┼',
         }
-        left = 0b1000
-        down = 0b0100
-        up = 0b0010
-        right = 0b0001
-        #TODO: TODO
         self.compress()
         w, h = (_ + 2 for _ in self.container.get_min_size())
         lines = []
@@ -192,19 +191,18 @@ class Layout:
                     line.append(' ')
                     continue
                 cell = 0b0000
-                if self.container.is_border((x - 1, y)):
-                    cell |= left
-                if self.container.is_border((x, y + 1)):
-                    cell |= down
-                if self.container.is_border((x, y - 1)):
-                    cell |= up
-                if self.container.is_border((x + 1, y)):
-                    cell |= right
+                for direction in left, down, up, right:
+                    horiz = dothat(direction & 0b11)
+                    vert = dothat(direction >> 2)
+                    if self.container.is_border((x + vert, y + horiz)):
+                        cell |= direction
                 line.append(borders[cell])
             lines.append(''.join(line))
         print('\n'.join(lines))
 
-
+def dothat(v):
+    # 0b00 -> 0, 0b01 -> -1, 0b10 -> 1
+    return int(v * (3 * v - 5) / 2)
 
 def walk_layout(layout):
     container = layout
