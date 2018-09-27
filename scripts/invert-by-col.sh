@@ -1,6 +1,18 @@
 #!/bin/bash
 
-COL=${1:-3}
+COL=${1:-0}
+CLR=${2:-rev}
+case $CLR in
+    inv*|rev*)
+        CODE=7
+        ;;
+    bla*|sof*)
+        CODE=40
+        ;;
+    cy*|har*)
+        CODE='30;46'
+        ;;
+esac
 awk '
     BEGIN {
         clr = 0;
@@ -10,6 +22,6 @@ awk '
         clr = 1 - clr;
     }
     {
-        print (clr ? "\033[7m" : ""), $0;
+        print (clr ? "\033['"${CODE}"'m" : ""), $0, "\033[0m";
     }
 '
