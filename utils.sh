@@ -39,7 +39,7 @@ function fancy_prompt {
     # doesn't work if cwd path is too long
     # doesn't work if cwd path contains spaces
     local P
-    sep='$(separator $(columns) $(whoami) $(hostname) $(get_pwd) $(date +"%a_%d_%b_%Y_%H:%M"))'
+    sep='$(separator "$(columns)" "$(whoami)" "$(hostname)" "$(get_pwd)" $(date +"%a_%d_%b_%Y_%H:%M"))'
 
     SEPCLR='\[\033[30m\]'
     DOLLARCLR='\[\033[92m\]'
