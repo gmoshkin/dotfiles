@@ -57,6 +57,11 @@ function T {
 }
 
 function V {
+    local only_remote
+    if [ "$1" = '-r' ]; then
+        only_remote=1
+        shift
+    fi
     local session
     if [ -n "$TMUX" ]; then
         session=$(tmux display-message -p '#{session_name}')
@@ -73,7 +78,7 @@ function V {
             tmux select-window -t $window
             tmux select-pane -t $pane
         fi
-    else
+    elif [ -z "${only_remote}" ]; then
         touch "$vimservfile"
         if [ -n "$TMUX" ]; then
             local window=$(tmux display-message -p '#{window_index}')
