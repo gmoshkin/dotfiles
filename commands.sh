@@ -71,7 +71,13 @@ function V {
     local vimservfile="${VIMSERV}_${session}"
     local vimservname="VIM_${session}"
     if [ -f "$vimservfile" ]; then
-        vim --servername $vimservname --remote "$@"
+        if [[ "$1" =~ :[0-9]+$ ]]; then
+            local file="$(echo "$1" | sed 's/:[0-9]\+$//')"
+            local lineno="$(echo "$1" | sed 's/^.*:\([0-9]\+\)$/+\1/')"
+            vim --servername $vimservname --remote "$lineno" "$file"
+        else
+            vim --servername $vimservname --remote "$@"
+        fi
         if [ -n "$TMUX" ]; then
             local window=$(cat "$vimservfile" | cut -d'.' -f 1)
             local pane=$(cat "$vimservfile" | cut -d'.' -f 2)
