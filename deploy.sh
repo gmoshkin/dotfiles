@@ -148,6 +148,13 @@ function deploy_keynavrc {
     link keynavrc
 }
 
+function deploy_zsh {
+    link zshenv
+    cat >> ~/.zshrc << EOF
+source "\$DOTFILES/zshrc"
+EOF
+}
+
 function print_help {
     cat << EOF
 Usage:
@@ -183,6 +190,7 @@ modules=(
     ranger
     radare2
     keynavrc
+    zsh
 )
 
 function deploy_all {

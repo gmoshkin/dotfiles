@@ -23,32 +23,8 @@ fi
 # Emacs style key-bindings
 # gsettings set org.gnome.desktop.interface gtk-key-theme "Emacs"
 
-export EDITOR="$(which vim)"
-export GDBHISTFILE="$HOME/.gdb_history"
-
-export VIMFILES="$HOME/.vim"
-export VIMSERV="/tmp/vim-serv-tmp"
-
-export HISTSIZE=-1 # infinite
-export HISTFILESIZE=-1 # infinite
-
-export BASHRC="$HOME/.bashrc"
-
-export GOPATH="$HOME/gocode"
-
-export LESS=RMWSJ
-export SYSTEMD_LESS=RSMK
-export PS_FORMAT=pid,stat,tty,bsdstart,bsdtime,command
-
-alias pst='ps Tf'
-alias psl='ps -A f | less'
-alias lgrep='less-grep'
-alias watch='watch --color -n 1'
-alias cput='xsel --clipboard'
-alias cget='cat | xsel --clipboard'
-alias O='xdg-open'
-alias SB='source ~/.bashrc'
-alias gitstashpull='git stash && git pull && git stash pop'
+source "$DOTFILES/env.sh"
+source "$DOTFILES/aliases.sh"
 
 # check if `thefuck` is installed and make an alias for it
 if type "thefuck" &> /dev/null; then
