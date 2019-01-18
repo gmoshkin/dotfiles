@@ -26,6 +26,9 @@ fi
 source "$DOTFILES/env.sh"
 source "$DOTFILES/aliases.sh"
 
+export HISTSIZE=-1 # infinite
+export HISTFILESIZE=-1 # infinite
+
 # check if `thefuck` is installed and make an alias for it
 if type "thefuck" &> /dev/null; then
     eval $(thefuck -a)
