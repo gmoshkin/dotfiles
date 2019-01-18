@@ -18,9 +18,12 @@ autoload -U select-word-style
 select-word-style bash
 
 source "$DOTFILES/aliases.sh"
+source "$DOTFILES/commands.sh"
 
 eval `dircolors ~/.dir_colors/dircolors`
 zstyle ':completion:*:default' list-colors ${(s.:.)LS_COLORS}
+
+alias SZ="source ~/.zshrc"
 
 source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 

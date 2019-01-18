@@ -181,4 +181,5 @@ function M {
     vim "+M $@"
 }
 
-complete -F _man M
+[ type complete &>/dev/null ] && complete -F _man M
+[ type compdef &>/dev/null ] && compdef _man M
