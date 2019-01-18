@@ -9,6 +9,7 @@
 	logg1 = log --graph --oneline
 	last = log -1
 	loggp = log --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset) %s'
+	loggpa = log --all --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset)%C(yellow)%d%Creset %s'
 	curbranch = rev-parse --abbrev-ref HEAD
 	curhash = rev-parse --verify HEAD
 [core]
