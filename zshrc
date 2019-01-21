@@ -1,5 +1,5 @@
 # Lines configured by zsh-newuser-install
-setopt appendhistory autocd extendedglob nomatch notify
+setopt appendhistory autocd extendedglob nomatch notify histignorealldups
 unsetopt beep
 bindkey -e
 # End of lines configured by zsh-newuser-install
@@ -24,6 +24,9 @@ eval `dircolors ~/.dir_colors/dircolors`
 zstyle ':completion:*:default' list-colors ${(s.:.)LS_COLORS}
 
 alias SZ="source ~/.zshrc"
+
+bindkey "^U" backward-kill-line
+bindkey "^\\" redo
 
 source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 
