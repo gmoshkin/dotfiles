@@ -28,6 +28,12 @@ alias SZ="source ~/.zshrc"
 bindkey "^U" backward-kill-line
 bindkey "^\\" redo
 
-source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+# disable c-s binding (stop/start output control)
+stty -ixon
+
+local hlfile=/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+if [ -f "$hlfile" ]; then
+    source "$hlfile"
+fi
 
 # End of lines added by compinstall
