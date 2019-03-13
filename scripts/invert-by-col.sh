@@ -1,7 +1,7 @@
 #!/bin/bash
 
 COL=${1:-0}
-CLR=${2:-rev}
+CLR=${2:-soft}
 case $CLR in
     inv*|rev*)
         CODE=7

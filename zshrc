@@ -36,4 +36,6 @@ if [ -f "$hlfile" ]; then
     source "$hlfile"
 fi
 
+alias SB='source ~/.zshrc'
+
 # End of lines added by compinstall

@@ -44,4 +44,6 @@ fi
 
 source "$DOTFILES/bash-it/completion/available/tmux.completion.bash"
 
+alias SB='source ~/.bashrc'
+
 appendToPath "$DOTFILES/scripts"
