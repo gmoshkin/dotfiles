@@ -1,3 +1,4 @@
+#!/bin/bash
 FEATURE="--with-features=huge"
 FEATURES=(
     "cscope"
