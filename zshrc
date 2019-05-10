@@ -31,6 +31,9 @@ bindkey "^\\" redo
 # disable c-s binding (stop/start output control)
 stty -ixon
 
+source "$DOTFILES/utils.sh"
+appendToPath "$DOTFILES/scripts"
+
 local hlfile=/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 if [ -f "$hlfile" ]; then
     source "$hlfile"
