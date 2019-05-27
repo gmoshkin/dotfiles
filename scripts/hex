@@ -1,3 +1,5 @@
 #!/bin/bash
 
-xargs printf '0x%x\n' $@
+fmt='0x%x\n'
+
+[ $# -gt 0 ] && printf "$fmt" $@ || xargs printf "$fmt"
