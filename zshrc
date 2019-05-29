@@ -23,7 +23,7 @@ source "$DOTFILES/commands.sh"
 eval `dircolors ~/.dir_colors/dircolors`
 zstyle ':completion:*:default' list-colors ${(s.:.)LS_COLORS}
 
-alias SZ="source ~/.zshrc"
+alias SZ="source ~/.zshrc && source ~/.zshenv"
 
 bindkey "^U" backward-kill-line
 bindkey "^\\" redo
