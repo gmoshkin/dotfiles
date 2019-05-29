@@ -1,16 +1,17 @@
 #!/bin/bash
 
-if [ "$1" = -l ]; then
-    shift
-    out="less"
-fi
+case "$1" in
+    -?) opt="$1"; shift ;;
+esac
 
 pane=${1:-$(tmux display -p '#{pane_id}')}
 pane_id=$(tmux display -p -t "$pane" '#{pane_id}')
 pane_tty=$(tmux display -p -t $pane_id '#{pane_tty}')
 
-if [ "$out" = "less" ]; then
-    tmux split-window -t $pane_id "ps-tty.sh $pane_tty | less"
-else
-    tmux split-window -t $pane_id "watch --color -n1 ps-tty.sh $pane_tty"
-fi
+case "$opt" in
+    -l) cmd_fmt="%s | less" ;;
+    -v) cmd_fmt="%s -C | vim -" ;;
+    *)  cmd_fmt="watch --color -n1 %s";;
+esac
+
+tmux split-window -t $pane_id "$(printf "$cmd_fmt" "ps-tty.sh $pane_tty")"
