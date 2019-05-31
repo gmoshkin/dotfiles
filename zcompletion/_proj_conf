@@ -1,0 +1,19 @@
+#compdef proj_conf.py
+
+_proj_conf() {
+    _arguments -C \
+        "1:Project Name:($(proj_conf.py @ name))" \
+        ':Key:_proj_conf_key' \
+        {-h,--help}'[help]' \
+        {-c,--config}'[config file]:filename:_files' \
+        {-s,--substitute}'[substitute the template parameter with this]:filename:_files' \
+        {-o,--opts-substitute}'[substitue the tmeplate opts with this]:filename:_files' \
+}
+
+_proj_conf_key() {
+    if [ -n "$line[1]" ]; then
+        _values Keys $(proj_conf.py $line[1] @)
+    fi
+}
+
+_proj_conf

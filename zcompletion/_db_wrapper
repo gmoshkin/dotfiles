@@ -1,0 +1,36 @@
+#compdef db_wrapper.py
+
+_db_wrapper() {
+    _arguments -C \
+        "1:Project Name:($(proj_conf.py @ name))" \
+        {-h,--help}'[help]' \
+        {-d,--database}'[database]::' \
+        {-u,--user}'[user name]::' \
+        {-p,--password}'[password]::' \
+        --schema'[SCHEMA schema]::' \
+        --host'[HOST host]::' \
+        --port'[PORT port]::' \
+        {-q,--query}'[query]::' \
+        --callers'[CALLERS get all callers for the specified function]:functions:_db_wrapper_function' \
+        --callees'[CALLEES get all callees for the specified function]:functions:_db_wrapper_function' \
+        --jumpees'[JUMPEES get all basic blocks following the specified one]:basic blocks:_db_wrapper_basic_block' \
+        --jumpers'[JUMPERS get all basic blocks preceding the specified one]:basic blocks:_db_wrapper_basic_block' \
+        --basic-block'[BASIC_BLOCK get basic block containing given address]::' \
+        --function'[FUNCTION get function address or name]:functions:_db_wrapper_function' \
+        --test'[run tests]::' \
+        --tmp'[TMP create a temporary table with these values for the query]:filename:_files' \
+        --method'[METHOD run this method]::'
+        --method-args'[METHOD run this method]::'
+}
+
+_db_wrapper_function () {
+    [ -n "$line[1]" ] || return
+    _values functions $(db_wrapper.py $line[1] -q 'select name from $functions' 2>/dev/null)
+}
+
+_db_wrapper_basic_block () {
+    [ -n "$line[1]" ] || return
+    _values 'basic blocks' $(db_wrapper.py $line[1] -q "select '0x'||to_hex(address) from \$basic_blocks" 2>/dev/null)
+}
+
+_db_wrapper
