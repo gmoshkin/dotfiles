@@ -7,20 +7,20 @@ _db_wrapper() {
         {-d,--database}'[database]::' \
         {-u,--user}'[user name]::' \
         {-p,--password}'[password]::' \
-        --schema'[SCHEMA schema]::' \
-        --host'[HOST host]::' \
-        --port'[PORT port]::' \
+        --schema'[schema]::' \
+        --host'[host]::' \
+        --port'[port]::' \
         {-q,--query}'[query]::' \
-        --callers'[CALLERS get all callers for the specified function]:functions:_db_wrapper_function' \
-        --callees'[CALLEES get all callees for the specified function]:functions:_db_wrapper_function' \
-        --jumpees'[JUMPEES get all basic blocks following the specified one]:basic blocks:_db_wrapper_basic_block' \
-        --jumpers'[JUMPERS get all basic blocks preceding the specified one]:basic blocks:_db_wrapper_basic_block' \
+        --callers'[get all callers for the specified function]:functions:_db_wrapper_function' \
+        --callees'[get all callees for the specified function]:functions:_db_wrapper_function' \
+        --jumpees'[get all basic blocks following the specified one]:basic blocks:_db_wrapper_basic_block' \
+        --jumpers'[get all basic blocks preceding the specified one]:basic blocks:_db_wrapper_basic_block' \
         --basic-block'[BASIC_BLOCK get basic block containing given address]::' \
-        --function'[FUNCTION get function address or name]:functions:_db_wrapper_function' \
+        --function'[get function address or name]:functions:_db_wrapper_function' \
         --test'[run tests]::' \
-        --tmp'[TMP create a temporary table with these values for the query]:filename:_files' \
-        --method'[METHOD run this method]::' \
-        --method-args'[METHOD run this method]::'
+        --tmp'[create a temporary table with these values for the query]:filename:_files' \
+        {--builtin,--builtin-query}'[run this builtin query]:builtin query:_db_wrapper_builtins' \
+        --params'[parameters for the builting query]::'
 }
 
 _db_wrapper_function () {
@@ -32,5 +32,11 @@ _db_wrapper_basic_block () {
     [ -n "$line[1]" ] || return
     _values 'basic blocks' $(db_wrapper.py $line[1] -q "select '0x'||to_hex(address) from \$basic_blocks" 2>/dev/null)
 }
+
+_db_wrapper_builtins () {
+    [ -n "$line[1]" ] || return
+    _values 'builtin query' $(db_wrapper.py $line[1] --builtin-query 2>/dev/null)
+}
+
 
 _db_wrapper
