@@ -19,7 +19,7 @@ _db_wrapper() {
         --function'[FUNCTION get function address or name]:functions:_db_wrapper_function' \
         --test'[run tests]::' \
         --tmp'[TMP create a temporary table with these values for the query]:filename:_files' \
-        --method'[METHOD run this method]::'
+        --method'[METHOD run this method]::' \
         --method-args'[METHOD run this method]::'
 }
 
