@@ -34,6 +34,7 @@ stty -ixon
 source "$DOTFILES/utils.sh"
 appendToPath "$DOTFILES/scripts"
 appendToPath "$HOME/.cargo/bin"
+appendToPath "$HOME/.perl6/bin"
 
 local hlfile=/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 if [ -f "$hlfile" ]; then
