@@ -43,4 +43,7 @@ fi
 
 alias SB='source ~/.zshrc'
 
+[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+bindkey '^T' transpose-chars
+
 # End of lines added by compinstall
