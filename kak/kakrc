@@ -1,0 +1,38 @@
+# TODO:
+# * ctrl-w in insert mode (ctrl-u too?)
+# * how to center screen around cursor? -- vv
+# * how to scroll line by line? -- vj {kinda sucks :( } also V -- locks in v-mode
+#    - how to hide the popup in view-mode?
+#    - view mode doesn't move the curor when the screen is over :(
+# * 'a' at end of line to edit current line not next
+# * auto insert closing brackets
+# * how to search backwards {N -- is multicursor not search back :( } -- alt-n
+# * how to show line numbers? -- `add-highlighter global/ number-lines`
+# * how do i unmap shift+alt from changing keyboard layout
+map global normal 0 gh
+map global normal <c-e> vj
+map global normal <c-y> vk
+map global normal <c-n> ': bn<ret>'
+map global normal <c-p> ': bp<ret>'
+
+map global insert <c-a> '<a-;>gh'
+map global insert <c-b> '<a-;>h'
+map global insert <c-e> '<a-;>gl'
+map global insert <c-f> '<a-;>l'
+map global insert <a-b> '<a-;>b'
+map global insert <a-f> '<a-;>w'
+map global insert <c-d> '<a-;>d'
+map global insert <c-h> '<a-;>h<a-;>d'
+map global insert <a-d> '<a-;>E<a-;>d'
+map global insert <c-w> '<a-;>b<a-;>d'
+map global insert <c-u> '<a-;>Gh<a-;>d'
+
+# TODO: should be set for kakrc filetype? are there file types?
+map global user e 'X: eval %val{selection}<ret>'
+
+# line numbers
+add-highlighter global/ number-lines
+colorscheme solarized-dark-termcolors
+
+# should be via a hook?
+add-highlighter global/ regex "%opt{comment_line}\s*(TODO)" 1:blue

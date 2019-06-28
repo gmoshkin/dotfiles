@@ -40,7 +40,7 @@ function link {
     else
         linkname="$HOME/.$1"
     fi
-    if [ ! -f "$path" ]; then
+    if [ ! -e "$path" ]; then
         echo "'$path' doesn't exist, not deploying"
         return 1
     fi
@@ -155,6 +155,10 @@ source "\$DOTFILES/zshrc"
 EOF
 }
 
+function deploy_kak {
+    link kak ~/.config
+}
+
 function print_help {
     cat << EOF
 Usage:
@@ -191,6 +195,7 @@ modules=(
     radare2
     keynavrc
     zsh
+    kak
 )
 
 function deploy_all {
