@@ -30,6 +30,8 @@ map global insert <c-u> '<a-;>Gh<a-;>d'
 # TODO: should be set for kakrc filetype? are there file types?
 map global user e 'X: eval %val{selection}<ret>'
 
+map global prompt <c-t> <s-tab>
+
 # line numbers
 add-highlighter global/ number-lines
 colorscheme solarized-dark-termcolors
