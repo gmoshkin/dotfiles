@@ -8,4 +8,15 @@ function list-panes() {
     done
 }
 
-list-panes | slmenu -l $[ROWS - 1] | awk '{print $3}' | tmux-pane-by-tty.sh - go
+function menu() {
+    if type fzf &>/dev/null; then
+        fzf
+    elif type slmenu &>/dev/null; then
+        slmenu -l $[ROWS - 1]
+    else
+        echo 'pls install fzf' >&2
+        exit 1
+    fi
+}
+
+list-panes | menu | awk '{print $3}' | tmux-pane-by-tty.sh - go
