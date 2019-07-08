@@ -34,8 +34,8 @@ multi sub infix:<of> (CardVal() $val, Suit() $suit) {
 }
 # say Ace of Spades
 
-my @deck = (Card.new(|$_) for (CardVal::.values) X (Suit::.values)).pick: *;
-say @deck.fmt('%s');
+my @deck = ((CardVal::.values) Xof (Suit::.values)).pick: *;
+say @deck.fmt;
 
 # TODO
 Klondike => ['Column' xx 7, 'Deck', 'Foundation Pile' xx 4, 'Draw Pile']
