@@ -35,6 +35,7 @@ source "$DOTFILES/utils.sh"
 appendToPath "$DOTFILES/scripts"
 appendToPath "$HOME/.cargo/bin"
 appendToPath "$HOME/.perl6/bin"
+appendToPath "$HOME/.local/share/perl6/site/bin"
 
 local hlfile=/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 if [ -f "$hlfile" ]; then

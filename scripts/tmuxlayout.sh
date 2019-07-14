@@ -6,15 +6,15 @@ function get-width {
 
 function main-top {
     tmux\
-        split-window -v -p 35 -t .{bottom-right} \;\
-        split-window -h -p 67 -t .{bottom-right} \;\
-        split-window -h -p 50 -t .{bottom-right}
+        split-window -v -p 35 -t ${session_name}:.{bottom-right} \;\
+        split-window -h -p 67 -t ${session_name}:.{bottom-right} \;\
+        split-window -h -p 50 -t ${session_name}:.{bottom-right}
 }
 
 function main-left {
     tmux\
-        split-window -h -p 50 -t .{bottom-right} \;\
-        split-window -v -p 50 -t .{bottom-right}
+        split-window -h -p 50 -t ${session_name}:.{bottom-right} \;\
+        split-window -v -p 50 -t ${session_name}:.{bottom-right}
 }
 
 function scalable-layout {
@@ -24,6 +24,8 @@ function scalable-layout {
         main-left
     fi
 }
+
+session_name=$2
 
 case "$1" in
     scalable )

@@ -16,8 +16,8 @@ INTERPS=(
     "lua" # ???
 )
 PYTHON2CONF="--with-python-config-dir=/usr/lib/python2.7/config-x86_64-linux-gnu"
-PYTHON3CONF="--with-python3-config-dir=/usr/lib/python3.7/config-3.7m-x86_64-linux-gnu"
-PYTHON3COMMAND="--with-python3-command=python3.7"
+PYTHON3CONF="--with-python3-config-dir=/usr/lib/python3.5/config-3.5m-x86_64-linux-gnu"
+PYTHON3COMMAND="--with-python3-command=python3.5"
 
 ENABLEINTERPS=""
 for interp in ${INTERPS[@]}; do
