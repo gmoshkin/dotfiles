@@ -10,7 +10,7 @@ export GOPATH="$HOME/gocode"
 
 export LESS=RMWSJ
 export SYSTEMD_LESS=RSMK
-export PS_FORMAT=pid,stat,tty,bsdstart,bsdtime,command
+export PS_FORMAT=pid,stat,tty,bsdstart,bsdtime,%mem,%cpu,command
 export JQ_COLORS='36:31:32:34:95:33:35'
 export FZF_DEFAULT_OPTS="\
     --color=bg+:#073642,bg:#002b36,spinner:#d33682,hl:#268bd2\
