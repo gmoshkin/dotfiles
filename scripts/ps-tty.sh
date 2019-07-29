@@ -10,8 +10,20 @@ hl_interp_arg() {
     sed 's/\(\\_\s\+\)\([^ ]*\(python\|bash\)[^ ]*\)\s\+\([^ ]\+\)/\1\2 [34m\4[0m/'
 }
 
-if [ "$2" = '-C' ]; then
-    ps f -t $TTY
-else
-    ps f -t $TTY | hl_executable | hl_interp_arg
-fi
+{
+    if [ "$2" = '-t' ]; then
+        shift
+        ps hf -o pid -t $TTY | head | {
+            read rpid
+            ps-descendants.sh $rpid
+        }
+    else
+        ps f -t $TTY;
+    fi
+} | {
+    if [ "$2" = '-C' ]; then
+        cat
+    else
+        hl_executable | hl_interp_arg
+    fi
+}

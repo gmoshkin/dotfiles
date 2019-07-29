@@ -14,4 +14,4 @@ case "$opt" in
     *)  cmd_fmt="watch --color -n1 %s";;
 esac
 
-tmux split-window -t $pane_id "$(printf "$cmd_fmt" "ps-tty.sh $pane_tty")"
+tmux split-window -t $pane_id "$(printf "$cmd_fmt" "ps-tty.sh $pane_tty -t")"
