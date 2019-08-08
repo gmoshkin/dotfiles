@@ -1,28 +1,41 @@
 #!/bin/bash
 
-KEY="${1}${2}"
+match_default() {
+    declare -A ABBREVS=(
+        ['pi']='π'
+        ['ta']='τ'
+        ['!=']='≠'
+        ['>=']='≥'
+        ['<=']='≤'
+        ['*8']='∞'
+        ['*x']='×'
+        ['>>']='»'
+        ['<<']='«'
+        ['..']='…'
+        [':(']='☹'
+        [':)']='☺'
+    )
+    tmux send-keys ${ABBREVS["$1"]}
+}
 
-declare -A ABBREVS=(
-    ['^0']='⁰'
-    ['^1']='¹'
-    ['^2']='²'
-    ['^3']='³'
-    ['^4']='⁴'
-    ['^5']='⁵'
-    ['^6']='⁶'
-    ['^7']='⁷'
-    ['^8']='⁸'
-    ['^9']='⁹'
-    ['pi']='π'
-    ['ta']='τ'
-    ['ta']='τ'
-    ['!=']='≠'
-    ['>=']='≥'
-    ['<=']='≤'
-    ['*8']='∞'
-    ['>>']='»'
-    ['<<']='«'
-    ['..']='…'
-)
+match_script() {
+    kind="$1"
+    target="$2"
+    SUBSUPERSCRIPTSFILE="$HOME/dotfiles/subsuperscripts.json"
+    if [ -f "$SUBSUPERSCRIPTSFILE" ]; then
+        <$SUBSUPERSCRIPTSFILE \
+            jq -r ".${kind}|to_entries[]|[.key,.value.unicode]|@tsv" |
+            while read key val; do
+                if [ "$key" = "$target" ]; then
+                    tmux send-keys "$val"
+                    exit 0
+                fi
+            done
+    fi
+}
 
-tmux send-keys ${ABBREVS["${KEY}"]}
+case "$1" in
+    ('^') match_script superscript "$2" ;;
+    ('_') match_script subscript "$2" ;;
+      (*) match_default "${1}${2}" ;;
+esac
