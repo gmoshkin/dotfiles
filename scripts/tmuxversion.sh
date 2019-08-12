@@ -5,10 +5,9 @@ if [ -z "$1" ]; then
 fi
 
 needed="$1"
-version=$(tmux -V | cut -d' ' -f2)
+version=$(tmux -V | cut -d' ' -f2 | cut -d'-' -f1)
 # the result of the script would be true if version >= needed
-if [ "${version}" = master ]; then
-    exit 0
-else
-    exit $(echo "${version}<${needed}" | bc)
-fi
+case "${version}" in
+    (master|next) exit 0;;
+    (*) exit $(echo "${version}<${needed}" | bc)
+esac

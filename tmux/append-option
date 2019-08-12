@@ -5,5 +5,6 @@ value="$2"
 flags=${3:-"-sg"}
 
 tmux show-options $flags $name | grep '"'"$value"'"' &>/dev/null && exit 0
+tmux show-options $flags $name | grep "$value" &>/dev/null && exit 0
 
 tmux set-option $flags -a $name "$value"
