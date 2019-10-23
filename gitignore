@@ -8,3 +8,4 @@ cscope.*
 .gitreview
 .vscode
 compile_commands.json
+tags
