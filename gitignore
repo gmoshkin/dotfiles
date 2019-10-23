@@ -6,3 +6,5 @@ cscope.*
 .gdbinit
 .ctrlpignore
 .gitreview
+.vscode
+compile_commands.json
