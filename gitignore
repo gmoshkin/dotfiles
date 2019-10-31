@@ -9,3 +9,4 @@ cscope.*
 .vscode
 compile_commands.json
 tags
+Cargo.lock
