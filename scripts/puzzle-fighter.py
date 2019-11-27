@@ -101,7 +101,15 @@ def drop_gems(game_state, modified_cols):
             something_dropped = True
             col[:] = nonempty + [' '] * (len(col) - len(nonempty))
 
+    if something_dropped:
+        log('dropped some')
+        log(lambda: pretty_game_state(game_state))
+
     return something_dropped
+
+def find_power_gems(game_state):
+    # TODO: I give up on power gems ☹
+    pass
 
 def perform_actions(gem_pair, game_state):
     need_to_crash = False
@@ -113,10 +121,7 @@ def perform_actions(gem_pair, game_state):
     while need_to_crash:
         modified_cols = crash_gems(game_state)
         need_to_crash = drop_gems(game_state, modified_cols)
-
-        if need_to_crash:
-            log('dropped some')
-            log(lambda: pretty_game_state(game_state))
+        power_gems = find_power_gems(game_state)
 
 def pretty_game_state(gs):
     return '\n'.join(''.join(cell if cell != ' ' else '_' for cell in row)
