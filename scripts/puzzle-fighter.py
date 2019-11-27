@@ -78,7 +78,7 @@ def log(*args, **kwargs):
 
 import operator
 
-def crash_and_drop(game_state):
+def crash_gems(game_state):
     cols = set()
     for x, col in enumerate(game_state):
         for y, cell in enumerate(col):
@@ -90,17 +90,17 @@ def crash_and_drop(game_state):
                     log(f'crashed some')
                     log(lambda: pretty_game_state(game_state))
                 cols |= new_cols
+    return cols
+
+def drop_gems(game_state, modified_cols):
     something_dropped = False
-    for x in cols:
+    for x in modified_cols:
         col = game_state[x]
         nonempty = [cell for cell in col if cell != ' ']
         if not all(new == old for new, old in zip(nonempty, col)):
             something_dropped = True
             col[:] = nonempty + [' '] * (len(col) - len(nonempty))
 
-    if something_dropped:
-        log('dropped some')
-        log(lambda: pretty_game_state(game_state))
     return something_dropped
 
 def perform_actions(gem_pair, game_state):
@@ -111,7 +111,12 @@ def perform_actions(gem_pair, game_state):
         y = game_state[x].index(' ')
         game_state[x][y] = kind
     while need_to_crash:
-        need_to_crash = crash_and_drop(game_state)
+        modified_cols = crash_gems(game_state)
+        need_to_crash = drop_gems(game_state, modified_cols)
+
+        if need_to_crash:
+            log('dropped some')
+            log(lambda: pretty_game_state(game_state))
 
 def pretty_game_state(gs):
     return '\n'.join(''.join(cell if cell != ' ' else '_' for cell in row)
