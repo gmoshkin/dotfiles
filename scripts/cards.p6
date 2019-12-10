@@ -3,7 +3,7 @@
 enum Suit <Hearts Spades Diamonds Clubs>;
 enum CardVal (%{
     'Ace'   => 1,
-    (2..9).map({.Str.uniname.words.tail.tc => .Int}),
+    (2..9).map({.Str.uniname.words.tail.lc.tc => .Int}),
     'Ten'   => 10,
     'Jack'  => 11,
     'Queen' => 12,
