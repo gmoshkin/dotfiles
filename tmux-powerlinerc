@@ -142,7 +142,7 @@
 
 # weather.sh {
 	# The data provider to use. Currently only "yahoo" is supported.
-	export TMUX_POWERLINE_SEG_WEATHER_DATA_PROVIDER="yahoo"
+	export TMUX_POWERLINE_SEG_WEATHER_DATA_PROVIDER="wttr.in"
 	# What unit to use. Can be any of {c,f,k}.
 	export TMUX_POWERLINE_SEG_WEATHER_UNIT="c"
 	# How often to update the weather in seconds.
@@ -204,8 +204,8 @@
 # }
 
 # local tmux-powerlinerc {
-	if [ -f ~/.tmux-powerlinerc ]; then
-		source ~/.tmux-powerlinerc
+	if [ -f ~/.tmux-powerlinerc.local ]; then
+		source ~/.tmux-powerlinerc.local
 		# for some reason my laptop's font has pretty symbols for these characters
 		#    
 		# how do I get them on all of my computers?
