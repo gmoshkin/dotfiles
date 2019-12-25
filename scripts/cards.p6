@@ -38,4 +38,4 @@ my @deck = ((CardVal::.values) Xof (Suit::.values)).pick: *;
 say @deck.fmt;
 
 # TODO
-Klondike => ['Column' xx 7, 'Deck', 'Foundation Pile' xx 4, 'Draw Pile']
+# Klondike => ['Column' xx 7, 'Deck', 'Foundation Pile' xx 4, 'Draw Pile']
