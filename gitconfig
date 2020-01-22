@@ -27,3 +27,5 @@
 	excludesfile = ~/.gitignore
 [push]
 	default = simple
+[diff]
+	algorithm = patience
