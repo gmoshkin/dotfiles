@@ -39,6 +39,7 @@ appendToPath "$HOME/.local/share/perl6/site/bin"
 appendToPath "$HOME/.rakudobrew/bin"
 
 source "$DOTFILES/rakudobrew_init.zsh"
+rakudobrew switch &>/dev/null
 
 local hlfile=/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 if [ -f "$hlfile" ]; then
