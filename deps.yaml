@@ -1,0 +1,21 @@
+tmux-powerline:
+  - curl
+  - xsel
+misc:
+  - python3-pip:
+    - ipython
+  - ranger
+  - golang
+  - build-essential
+  - ctags
+  - nvim
+  - htop
+  - jq
+vim:
+  - libpython3-dev
+  - libx11-dev
+  - libx11-dev
+  - libncurses5-dev
+  - libgtk2.0-dev
+zsh:
+  - zsh-syntax-highlighting
