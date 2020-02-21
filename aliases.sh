@@ -1,3 +1,5 @@
+alias g='git'
+alias gl='git l'
 alias pst='ps Tf'
 alias psl='ps -A f | less'
 alias lgrep='less-grep'
