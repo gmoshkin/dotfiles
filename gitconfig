@@ -3,10 +3,23 @@
 	email = louielouie314@gmail.com
 	name = Georgy Moshkin
 [alias]
+	c         = commit
+	ca        = commit --amend
 	co        = checkout
+	d         = diff
+	dc        = diff --cached
+	f         = fetch
+	p         = pull
+	pr        = pull --rebase
+	pp        = push
 	s         = status
 	ss		  = stash save
 	sp		  = stash pop
+	sh		  = show
+	r		  = rebase
+	ri		  = rebase --interactive
+	rc		  = rebase --continue
+	ra		  = rebase --abort
 	lg        = log --graph
 	logg      = log --graph
 	l1        = log --oneline

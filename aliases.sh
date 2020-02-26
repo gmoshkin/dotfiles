@@ -1,5 +1,9 @@
 alias g='git'
-alias gl='git l'
+git config --global --get-regexp '^alias.' |
+    perl6 -ne '.words.first.split(".").tail.&{"alias g$_='\''git $_'\''"}.say' |
+    while read git_alias; do
+        eval $git_alias;
+    done
 alias pst='ps Tf'
 alias psl='ps -A f | less'
 alias lgrep='less-grep'
