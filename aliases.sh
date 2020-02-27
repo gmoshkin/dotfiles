@@ -1,6 +1,6 @@
 alias g='git'
 git config --global --get-regexp '^alias.' |
-    perl6 -ne '.words.first.split(".").tail.&{"alias g$_='\''git $_'\''"}.say' |
+    raku -ne '.words.first.split(".").tail.&{"alias g$_='\''git $_'\''"}.say' |
     while read git_alias; do
         eval $git_alias;
     done

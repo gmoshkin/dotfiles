@@ -41,6 +41,8 @@ appendToPath "$HOME/.rakudobrew/bin"
 source "$DOTFILES/rakudobrew_init.zsh"
 rakudobrew switch &>/dev/null
 
+source "$DOTFILES/aliases.sh"
+
 local hlfile=/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 if [ -f "$hlfile" ]; then
     source "$hlfile"
