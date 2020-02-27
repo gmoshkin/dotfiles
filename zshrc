@@ -17,7 +17,6 @@ prompt mine
 autoload -U select-word-style
 select-word-style bash
 
-source "$DOTFILES/aliases.sh"
 source "$DOTFILES/commands.sh"
 
 eval `dircolors ~/.dir_colors/dircolors`
@@ -52,5 +51,6 @@ alias SB='source ~/.zshrc'
 
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 bindkey '^T' transpose-chars
+bindkey '^O' fzf-file-widget
 
 # End of lines added by compinstall
