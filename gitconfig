@@ -3,6 +3,7 @@
 	email = louielouie314@gmail.com
 	name = Georgy Moshkin
 [alias]
+	b         = branch
 	c         = commit
 	ca        = commit --amend
 	co        = checkout
