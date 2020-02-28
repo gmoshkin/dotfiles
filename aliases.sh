@@ -19,28 +19,29 @@ alias iperl6='jupyter-console --kernel=perl6'
 alias df='df -h'
 alias rwp='rlwrap perl6'
 
+NJOBS=8
 alias cmgui='cmake \
     -DCMAKE_BUILD_TYPE=Debug \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
     -C ../preset/ubuntu1910.cmake .. && \
-        make -j10'
+        make -j'"$NJOBS"
 alias cmweb='source ../deps/work/emscripten/*/src/emsdk_env.sh \
     cmake \
     -DCMAKE_BUILD_TYPE=Debug \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
     -C ../preset/ubuntu1604-emscripten-wasm.cmake .. && \
-        make -j10'
+        make -j'"$NJOBS"
 alias cmguirel='cmake \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
     -C ../preset/ubuntu1910.cmake .. && \
-        make -j10'
+        make -j'"$NJOBS"
 alias cmwebrel='source ../deps/work/emscripten/*/src/emsdk_env.sh \
     cmake \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
     -C ../preset/ubuntu1604-emscripten-wasm.cmake .. && \
-        make -j10'
+        make -j'"$NJOBS"
 alias runweb='git rev-parse --git-dir &>/dev/null && \
     cd "$(git rev-parse --show-toplevel)/build-web/bin" && {
     [ -f index.html ] || ln -s ../../docker/frontend/poormans/index.html;
