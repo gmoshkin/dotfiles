@@ -19,7 +19,13 @@ alias iperl6='jupyter-console --kernel=perl6'
 alias df='df -h'
 alias rwp='rlwrap perl6'
 
-NJOBS=8
+NCPUS="$(lscpu  -p | grep -c "^[0-9]")"
+if [ $NCPUS -ge 6 ]; then
+    NJOBS=$[NCPUS - 2]
+else
+    NJOBS="$[NCPUS - 1]"
+fi
+
 alias cmgui='cmake \
     -DCMAKE_BUILD_TYPE=Debug \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
