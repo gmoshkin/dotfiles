@@ -11,6 +11,8 @@ misc:
   - nvim
   - htop
   - jq
+  - rakudobrew
+  - rustup
 vim:
   - libpython3-dev
   - libx11-dev
