@@ -1,9 +1,13 @@
 alias g='git'
-git config --global --get-regexp '^alias.' |
-    raku -ne '.words.first.split(".").tail.&{"alias g$_='\''git $_'\''"}.say' |
-    while read git_alias; do
+{
+    git config --global --get-regexp '^alias.' |
+        raku -ne '.words.first.split(".").tail.&{"alias g$_='\''git $_'\''"}.say';
+    git help -a |
+        raku -ne '("alias g$_='\''git $_'\''".say for .words) when /^^ \s\s <[a..z]>/';
+} | while read git_alias; do
         eval $git_alias;
     done
+
 alias pst='ps Tf'
 alias psl='ps -A f | less'
 alias lgrep='less-grep'
