@@ -17,6 +17,7 @@
 	ss		  = stash save
 	sp		  = stash pop
 	sh		  = show
+	stashpull = !"git stash && git pull && git stash pop"
 	r		  = rebase
 	ri		  = rebase --interactive
 	rc		  = rebase --continue
