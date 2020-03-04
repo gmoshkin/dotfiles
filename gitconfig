@@ -37,6 +37,8 @@
 	l			= log --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset) %s'
 	la			= log --all --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset)%C(yellow)%d%Creset %s'
 	loggpa		= log --all --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset)%C(yellow)%d%Creset %s'
+	m			= merge
+	ma			= merge --abort
 	curbranch	= rev-parse --abbrev-ref HEAD
 	curhash		= rev-parse --verify HEAD
 [core]
