@@ -3,42 +3,42 @@
 	email = louielouie314@gmail.com
 	name = Georgy Moshkin
 [alias]
-	b         = branch
-	c         = commit
-	ca        = commit --amend
-	co        = checkout
-	d         = diff
-	dc        = diff --cached
-	f         = fetch
-	p         = pull
-	pr        = pull --rebase
-	pp        = push
-	s         = status
-	ss		  = stash save
-	sp		  = stash pop
-	sh		  = show
-	stashpull = !"git stash && git pull && git stash pop"
-	r		  = rebase
-	ri		  = rebase --interactive
-	rc		  = rebase --continue
-	ra		  = rebase --abort
-	lg        = log --graph
-	logg      = log --graph
-	l1        = log --oneline
-	log1      = log --oneline
-	l1g       = log --oneline --graph
-	log1g     = log --oneline --graph
-	lg1       = log --graph --oneline
-	logg1     = log --graph --oneline
-	lt        = log -1
-	last      = log -1
-	lgp       = log --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset) %s'
-	loggp     = log --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset) %s'
-	l         = log --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset) %s'
-	la        = log --all --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset)%C(yellow)%d%Creset %s'
-	loggpa    = log --all --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset)%C(yellow)%d%Creset %s'
-	curbranch = rev-parse --abbrev-ref HEAD
-	curhash   = rev-parse --verify HEAD
+	b			= branch
+	c			= commit
+	ca			= commit --amend
+	co			= checkout
+	d			= diff
+	dc			= diff --cached
+	f			= fetch
+	p			= pull
+	pr			= pull --rebase
+	pp			= push
+	s			= status
+	ss			= stash save
+	sp			= stash pop
+	sh			= show
+	stashpull	= !"git stash && git pull && git stash pop"
+	r			= rebase
+	ri			= rebase --interactive
+	rc			= rebase --continue
+	ra			= rebase --abort
+	lg			= log --graph
+	logg		= log --graph
+	l1			= log --oneline
+	log1		= log --oneline
+	l1g			= log --oneline --graph
+	log1g		= log --oneline --graph
+	lg1			= log --graph --oneline
+	logg1		= log --graph --oneline
+	lt			= log -1
+	last		= log -1
+	lgp			= log --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset) %s'
+	loggp		= log --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset) %s'
+	l			= log --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset) %s'
+	la			= log --all --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset)%C(yellow)%d%Creset %s'
+	loggpa		= log --all --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset)%C(yellow)%d%Creset %s'
+	curbranch	= rev-parse --abbrev-ref HEAD
+	curhash		= rev-parse --verify HEAD
 [core]
 	excludesfile = ~/.gitignore
 [push]
