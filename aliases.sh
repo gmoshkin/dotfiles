@@ -2,8 +2,9 @@ alias g='git'
 {
     git config --global --get-regexp '^alias.' |
         raku -ne '.words.first.split(".").tail.&{"alias g$_='\''git $_'\''"}.say';
-    git help -a |
-        raku -ne '("alias g$_='\''git $_'\''".say for .words) when /^^ \s\s <[a..z]>/';
+    raku -e '"/usr/lib/git-core".IO.dir.grep({.x and !.d}).map: {
+        .basename.subst("git-").&{"alias g$_='\''git $_'\''"}.say
+    }';
 } | while read git_alias; do
         eval $git_alias;
     done
