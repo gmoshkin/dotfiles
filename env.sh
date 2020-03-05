@@ -17,3 +17,8 @@ export FZF_DEFAULT_OPTS="\
     --color=fg:#839496,header:#586e75,info:#586e75,pointer:#dc322f\
     --color=marker:#cb4b16,fg+:#839496,prompt:#268bd2,hl+:#268bd2\
 "
+
+if type rg &>/dev/null; then
+    export FZF_DEFAULT_COMMAND='rg --files --hidden'
+    export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+fi
