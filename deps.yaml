@@ -13,6 +13,8 @@ misc:
   - jq
   - rakudobrew
   - rustup
+  - cmake
+  - rlwrap
 vim:
   - libpython3-dev
   - libx11-dev

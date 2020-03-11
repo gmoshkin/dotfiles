@@ -35,17 +35,22 @@ appendToPath "$DOTFILES/scripts"
 appendToPath "$HOME/.cargo/bin"
 appendToPath "$HOME/.perl6/bin"
 appendToPath "$HOME/.local/share/perl6/site/bin"
-appendToPath "$HOME/.rakudobrew/bin"
+appendToPath "$DOTFILES/rakudobrew/bin"
 
 source "$DOTFILES/rakudobrew_init.zsh"
 rakudobrew switch &>/dev/null
 
 source "$DOTFILES/aliases.sh"
 
-local hlfile=/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
-if [ -f "$hlfile" ]; then
-    source "$hlfile"
-fi
+local hlfiles=(
+    /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+    /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+)
+for hlfile in  ${hlfiles[@]}; do
+    if [ -f "$hlfile" ]; then
+        source "$hlfile"
+    fi
+done
 
 alias SB='source ~/.zshrc'
 
