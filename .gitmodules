@@ -16,3 +16,6 @@
 [submodule "tmux-continuum"]
 	path = tmux-continuum
 	url = git@github.com:tmux-plugins/tmux-continuum.git
+[submodule "rakudobrew"]
+	path = rakudobrew
+	url = https://github.com/tadzik/rakudobrew
