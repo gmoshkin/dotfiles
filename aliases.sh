@@ -31,31 +31,37 @@ else
     NJOBS="$[NCPUS - 1]"
 fi
 
-alias cmgui='cmake \
+alias cmgui="cmake \
     -DCMAKE_BUILD_TYPE=Debug \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
     -C ../preset/ubuntu1910.cmake .. && \
-        make -j'"$NJOBS"
-alias cmweb='source ../deps/work/emscripten/*/src/emsdk_env.sh \
+        make -j$NJOBS"
+alias cmweb="source ../deps/work/emscripten/*/src/emsdk_env.sh \
     cmake \
     -DCMAKE_BUILD_TYPE=Debug \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
     -C ../preset/ubuntu1604-emscripten-wasm.cmake .. && \
-        make -j'"$NJOBS"
-alias cmguirel='cmake \
+        make -j$NJOBS"
+alias cmguirel="cmake \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
     -C ../preset/ubuntu1910.cmake .. && \
-        make -j'"$NJOBS"
-alias cmwebrel='source ../deps/work/emscripten/*/src/emsdk_env.sh \
+        make -j$NJOBS"
+alias cmwebrel="source ../deps/work/emscripten/*/src/emsdk_env.sh \
     cmake \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
     -C ../preset/ubuntu1604-emscripten-wasm.cmake .. && \
-        make -j'"$NJOBS"
-alias runweb='git rev-parse --git-dir &>/dev/null && \
-    cd "$(git rev-parse --show-toplevel)/build-web/bin" && {
-    [ -f index.html ] || ln -s ../../docker/frontend/poormans/index.html;
-    xdg-open http://localhost:8000;
-    python3 -m http.server;
-} || echo "Not inside repository"'
+        make -j$NJOBS"
+alias runweb="git rev-parse --git-dir &>/dev/null && \
+    cd \"\$(git rev-parse --show-toplevel)/build-web/bin\" && { \
+    [ -f index.html ] || ln -s ../../docker/frontend/poormans/index.html; \
+    xdg-open http://localhost:8000; \
+    python3 -m http.server; \
+} || echo 'Not inside repository'"
+alias runfatty="git rev-parse --git-dir &>/dev/null && \
+    cd \"\$(git rev-parse --show-toplevel)/build/bin\" && { \
+    [ -d img ] || ln -s ../../lde/editor/img; \
+    [ -d res ] || ln -s ../../lde/fatty/res; \
+    ./fatty \
+} || echo 'Not inside repository'"

@@ -1,7 +1,4 @@
 #!/usr/bin/env sh
 
-git config --global --get-regexp '^alias.' |
-    raku -ne '.words.first.split(".").tail.&{"alias g$_='\''git $_'\''"}.say'
 
-git help -a |
-    raku -ne '("alias g$_='\''git $_'\''".say for .words) when /^^ \s\s <[a..z]>/'
+for f in /usr/lib/git-core/*; do [ -x $f ] && [ ! -d $f ] &&  bf=$(basename $f); cmd=${bf#git-}; echo "alias g${cmd}='git ${cmd}'"; done
