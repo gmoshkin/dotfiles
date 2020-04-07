@@ -194,16 +194,21 @@ class DataClump {
             if (my $next := self.it.pull-one) !=:= IterationEnd {
                 self.frag = $next;
                 self.sp = self.frag.range;
-                %*sp{$.name}.say: "next frag" if $*DEBUG
+                # %*sp{$.name}.say: "next frag" if $*DEBUG
+                say YLW("{$.name}: next frag") if $*DEBUG
+
             }
             else {
                 self.ended = True;
-                %*sp{$.name}.say: "end" if $*DEBUG
+                # %*sp{$.name}.say: "end" if $*DEBUG
+                say YLW("{$.name}: end") if $*DEBUG
             }
         }
         else {
             self.sp.move-min(self.len);
-            %*sp{$.name}.say: "cut range" if $*DEBUG
+            # %*sp{$.name}.say: "cut range" if $*DEBUG
+            say YLW("{$.name}: cut range") if $*DEBUG
+
         }
         self.len = 0
 
@@ -222,8 +227,8 @@ sub diff-paragraphs(Paragraph:D $lhs, Paragraph:D $rhs, :@text-ops) {
 
     my (:add(@add-ops), :remove(@rem-ops)) := @text-ops.classify(*.key, as => *.value);
 
-    my DataClump $l .= new('l', $lhs.frags, $lhs.text, @rem-ops);
-    my DataClump $r .= new('r', $rhs.frags, $rhs.text, @add-ops);
+    my DataClump $l .= new('<', $lhs.frags, $lhs.text, @rem-ops);
+    my DataClump $r .= new('>', $rhs.frags, $rhs.text, @add-ops);
 
 
     my $add-it = @add-ops.iterator;
@@ -234,63 +239,51 @@ sub diff-paragraphs(Paragraph:D $lhs, Paragraph:D $rhs, :@text-ops) {
 
     FRAG: while $l.ended.not and $r.ended.not {
 
-        # say '─' x qx[tput cols];
-        split-print :border<before>, {
-            for $l, $r {
-                %*sp{.name}.say: "frag: {.frag}, {.substr}, ended: {.ended}" if $*DEBUG;
-                if .sp.min > .sp.max {%*sp{.name}.say: " fuck" if $*DEBUG; last FRAG }
-            }
+        say '─' x qx[tput cols] if $*DEBUG;
+        for $l, $r {
+            say "{.name}: frag: {.frag}, {.substr}, ended: {.ended}" if $*DEBUG;
+            if .sp.min > .sp.max {say "{.name}: fuck" if $*DEBUG; last FRAG }
         }
 
         RANGE: while $l.len < $l.sp.elems and $r.len < $r.sp.elems {
-            split-print :color<cyan>, {
                 for $l, $r {
-                    %*sp{.name}.say: "op: {.op // ''}, sp: {.sp}" if $*DEBUG;
+                    say "{.name}: op: {.op // ''}, sp: {.sp}" if $*DEBUG;
                     if .op eqv .sp {
                         .len += .op.elems;
                         .op = .op-it.&maybe-pull-one;
                         .advance;
-                        %*sp{.name}.say: "frag: {.frag}, {.substr}, ended: {.ended}" if $*DEBUG;
+                        say "{.name} frag: {.frag}, {.substr}, ended: {.ended}" if $*DEBUG;
                         next RANGE
                     }
-                    else {
-                        %*sp{.name}.say if $*DEBUG;
-                    }
                     ++.len;
-                    %*sp{.name}.print: "advanced +1" if $*DEBUG;
+                    print CYN("{.name}: advanced +1") if $*DEBUG;
                     if .op ∩ .new-sp {
-                        %*sp{.name}.print: " +{.op.elems}" if $*DEBUG;
+                        print CYN("{.name}: +{.op.elems}") if $*DEBUG;
                         .len += .op.elems;
                         .op = .op-it.&maybe-pull-one;
                     }
                     if .op ∩ .sp {
-                        %*sp{.name}.print: " ++{.op.elems}" if $*DEBUG;
+                        print CYN("{.name}: ++{.op.elems}") if $*DEBUG;
                         .len += .op.elems;
                         .op = .op-it.&maybe-pull-one;
                     }
-                    %*sp{.name}.say: " -> {.new-substr}" if $*DEBUG;
+                    say CYN(" -> {.new-substr}") if $*DEBUG;
                 }
-            }
         }
 
         if $l.id !eqv $r.id {
-            split-print :color<green>, {
-                for $l, $r {
-                    %*sp{.name}.say: "add {.new-substr}" if $*DEBUG; .res.push(.new-sp);
-                }
+            for $l, $r {
+                say GRN("{.name}: add {.new-substr}") if $*DEBUG; .res.push(.new-sp);
+                .advance
             }
         }
         else {
-            split-print :color<red>, {
-                for $l, $r {
-                    %*sp{.name}.say: "skip {.new-substr}" if $*DEBUG;
-                }
+            for $l, $r {
+                say RED("{.name}: skip {.new-substr}") if $*DEBUG;
+                .advance
             }
         }
 
-        split-print :color<yellow>, :border<after>, {
-            .advance for $l, $r
-        }
     }
 
     die RED("{.name} didn't end") unless .ended for $l, $r;
