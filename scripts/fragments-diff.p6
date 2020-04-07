@@ -3,12 +3,14 @@
 use split-print;
 
 constant RST = "\e[0m";
-constant RED = "\e[31m"; sub RED($s) { RED ~ $s ~ RST }
-constant GRN = "\e[32m"; sub GRN($s) { GRN ~ $s ~ RST }
-constant YLW = "\e[33m"; sub YLW($s) { YLW ~ $s ~ RST }
-constant BLU = "\e[34m"; sub BLU($s) { BLU ~ $s ~ RST }
-constant MGT = "\e[35m"; sub MGT($s) { MGT ~ $s ~ RST }
-constant CYN = "\e[36m"; sub CYN($s) { CYN ~ $s ~ RST }
+constant R = 1; constant RED = "\e[3{R}m"; sub RED($s) { RED ~ $s ~ RST }
+constant G = 2; constant GRN = "\e[3{G}m"; sub GRN($s) { GRN ~ $s ~ RST }
+constant Y = 3; constant YLW = "\e[3{Y}m"; sub YLW($s) { YLW ~ $s ~ RST }
+constant B = 4; constant BLU = "\e[3{B}m"; sub BLU($s) { BLU ~ $s ~ RST }
+constant M = 5; constant MGT = "\e[3{M}m"; sub MGT($s) { MGT ~ $s ~ RST }
+constant C = 6; constant CYN = "\e[3{C}m"; sub CYN($s) { CYN ~ $s ~ RST }
+
+# my $*DEBUG = False;
 
 class MyRange {
     has $.min   is rw;
@@ -124,12 +126,14 @@ multi sub par($text, *@frags) {
     }
 }
 
-say par('abcd');
-say par('abcd', 0 til 4);
-say par('abcd', 0 til 2 => 1, 2 til 4);
-say par('abcd', 2, 2 => 1);
-say par('abZcd', 1, 3 => 1, 1);
-say par('aXbcXd', 1, 4 => 1, 1);
+if $*DEBUG {
+    say par('abcd');
+    say par('abcd', 0 til 4);
+    say par('abcd', 0 til 2 => 1, 2 til 4);
+    say par('abcd', 2, 2 => 1);
+    say par('abZcd', 1, 3 => 1, 1);
+    say par('aXbcXd', 1, 4 => 1, 1);
+}
 
 sub max($_ is raw) {
     .excludes-max ?? .max - 1 !! .max
@@ -190,16 +194,16 @@ class DataClump {
             if (my $next := self.it.pull-one) !=:= IterationEnd {
                 self.frag = $next;
                 self.sp = self.frag.range;
-                %*sp{$.name}.say: "next frag"
+                %*sp{$.name}.say: "next frag" if $*DEBUG
             }
             else {
                 self.ended = True;
-                %*sp{$.name}.say: "end"
+                %*sp{$.name}.say: "end" if $*DEBUG
             }
         }
         else {
             self.sp.move-min(self.len);
-            %*sp{$.name}.say: "cut range"
+            %*sp{$.name}.say: "cut range" if $*DEBUG
         }
         self.len = 0
 
@@ -213,8 +217,8 @@ sub maybe-pull-one($iterator) {
 }
 
 sub diff-paragraphs(Paragraph:D $lhs, Paragraph:D $rhs, :@text-ops) {
-    say '━' x qx[tput cols];
-    say BLU ~ &?ROUTINE.name ~ RST ~ ($lhs, $rhs, |@text-ops)».gist.join(', ').fmt('(%s)');
+    say '━' x qx[tput cols] if $*DEBUG;
+    say BLU ~ &?ROUTINE.name ~ RST ~ ($lhs, $rhs, |@text-ops)».gist.join(', ').fmt('(%s)') if $*DEBUG;
 
     my (:add(@add-ops), :remove(@rem-ops)) := @text-ops.classify(*.key, as => *.value);
 
@@ -228,32 +232,43 @@ sub diff-paragraphs(Paragraph:D $lhs, Paragraph:D $rhs, :@text-ops) {
     my $rem-it = @rem-ops.iterator;
     my $curr-rem = $rem-it.&maybe-pull-one;
 
-    ROOT: while $l.ended.not and $r.ended.not {
+    FRAG: while $l.ended.not and $r.ended.not {
 
-        say '─' x qx[tput cols];
-        split-print {
+        # say '─' x qx[tput cols];
+        split-print :border<before>, {
             for $l, $r {
-                %*sp{.name}.say: "frag: {.frag}, {.substr}, ended: {.ended}";
-                if .sp.min > .sp.max {%*sp{.name}.say: " fuck"; last ROOT }
+                %*sp{.name}.say: "frag: {.frag}, {.substr}, ended: {.ended}" if $*DEBUG;
+                if .sp.min > .sp.max {%*sp{.name}.say: " fuck" if $*DEBUG; last FRAG }
             }
         }
 
-        while $l.len < $l.sp.elems and $r.len < $r.sp.elems {
+        RANGE: while $l.len < $l.sp.elems and $r.len < $r.sp.elems {
             split-print :color<cyan>, {
                 for $l, $r {
+                    %*sp{.name}.say: "op: {.op // ''}, sp: {.sp}" if $*DEBUG;
+                    if .op eqv .sp {
+                        say RED("wtf");
+                        .len += .op.elems;
+                        .advance;
+                        %*sp{.name}.say: "frag: {.frag}, {.substr}, ended: {.ended}" if $*DEBUG;
+                        next RANGE
+                    }
+                    else {
+                        %*sp{.name}.say if $*DEBUG;
+                    }
                     ++.len;
-                    %*sp{.name}.print: "advanced +1";
-                    while .op ∩ .new-sp {
-                        %*sp{.name}.print: " +{.op.elems}";
+                    %*sp{.name}.print: "advanced +1" if $*DEBUG;
+                    if .op ∩ .new-sp {
+                        %*sp{.name}.print: " +{.op.elems}" if $*DEBUG;
                         .len += .op.elems;
                         .op = .op-it.&maybe-pull-one;
                     }
-                    while .op ∩ .sp {
-                        %*sp{.name}.print: " ++{.op.elems}";
+                    if .op ∩ .sp {
+                        %*sp{.name}.print: " ++{.op.elems}" if $*DEBUG;
                         .len += .op.elems;
                         .op = .op-it.&maybe-pull-one;
                     }
-                    %*sp{.name}.say: " -> {.new-substr}";
+                    %*sp{.name}.say: " -> {.new-substr}" if $*DEBUG;
                 }
             }
         }
@@ -261,26 +276,26 @@ sub diff-paragraphs(Paragraph:D $lhs, Paragraph:D $rhs, :@text-ops) {
         if $l.id !eqv $r.id {
             split-print :color<green>, {
                 for $l, $r {
-                    %*sp{.name}.say: "add {.new-substr}"; .res.push(.new-sp);
+                    %*sp{.name}.say: "add {.new-substr}" if $*DEBUG; .res.push(.new-sp);
                 }
             }
         }
         else {
             split-print :color<red>, {
                 for $l, $r {
-                    %*sp{.name}.say: "skip {.new-substr}";
+                    %*sp{.name}.say: "skip {.new-substr}" if $*DEBUG;
                 }
             }
         }
 
-        split-print :color<yellow>, {
+        split-print :color<yellow>, :border<after>, {
             .advance for $l, $r
         }
     }
 
-    die unless $l.ended and $r.ended;
+    die RED("{.name} didn't end") unless .ended for $l, $r;
 
-    say '━' x qx[tput cols];
+    say '━' x qx[tput cols] if $*DEBUG;
     $l.res, $r.res
 }
 
@@ -402,6 +417,43 @@ my &check = {
     ), (
         [5 til 6],
         [4 til 5],
+    );
+    check
+}
+
+{
+    my ($*wanted, $*got) = diff-paragraphs(
+        par('abXcd', 2, 1 => 4, 2),
+        par('abcd'),
+        text-ops => [ remove => 2 ..+ 1 ]
+    ), (
+        [],
+        [],
+    );
+    check
+}
+
+{
+    my $*DEBUG = True;
+    my ($*wanted, $*got) = diff-paragraphs(
+        par('aXbXcXd', 1, 1 => R, 1, 1 => G, 1, 1 => B, 1),
+        par('abcd'),
+        text-ops => [ remove => 1..+1, remove => 3..+1, remove => 5..+1 ]
+    ), (
+        [],
+        [],
+    );
+    check
+}
+
+{
+    my ($*wanted, $*got) = diff-paragraphs(
+        par('abXcd', 2, 1 => 4, 2),
+        par('aZbcZd', 1, 1 => 2, 2, 1 => 5, 1),
+        text-ops => [ add => 1..+1, remove => 2..+1, add => 4..+1 ]
+    ), (
+        [],
+        [],
     );
     check
 }
