@@ -152,19 +152,19 @@ dd valid-frags @frags».range, 10;
 dd valid-frags [0..3, 4..10], 11;
 
 class DataClump {
+    has $.name;
     has $.it;
     has $.text;
-    has @.ops;
+    has $.op-it is rw;
     has $.frag  is rw = self.it.pull-one;
     has $.sp    is rw = self.frag.range;
     has $.len   is rw = 0;
     has $.ended is rw = False;
     has @.res         = [];
-    has $.op-it is rw = self.ops.iterator;
     has $.op    is rw = self.op-it.&maybe-pull-one;
 
-    method new(@frags, $text, @ops) {
-        self.bless(it => @frags.iterator, :$text, :@ops)
+    method new($name, @frags, $text, @ops) {
+        self.bless(:$name, it => @frags.iterator, :$text, op-it => @ops.iterator)
     }
 
     method id {
@@ -188,16 +188,16 @@ class DataClump {
             if (my $next := self.it.pull-one) !=:= IterationEnd {
                 self.frag = $next;
                 self.sp = self.frag.range;
-                say YLW, "next frag", RST
+                say YLW, "$.name: next frag", RST
             }
             else {
                 self.ended = True;
-                say YLW, "end", RST
+                say YLW, "$.name: end", RST
             }
         }
         else {
             self.sp.move-min(self.len);
-            say YLW, "cut range", RST
+            say YLW, "$.name: cut range", RST
         }
         self.len = 0
     }
@@ -214,8 +214,8 @@ sub diff-paragraphs(Paragraph:D $lhs, Paragraph:D $rhs, :@text-ops) {
 
     my (:add(@add-ops), :remove(@rem-ops)) := @text-ops.classify(*.key, as => *.value);
 
-    my DataClump $l .= new($lhs.frags, $lhs.text, @rem-ops);
-    my DataClump $r .= new($rhs.frags, $rhs.text, @add-ops);
+    my DataClump $l .= new('l', $lhs.frags, $lhs.text, @rem-ops);
+    my DataClump $r .= new('r', $rhs.frags, $rhs.text, @add-ops);
 
 
     my $add-it = @add-ops.iterator;
@@ -227,19 +227,16 @@ sub diff-paragraphs(Paragraph:D $lhs, Paragraph:D $rhs, :@text-ops) {
     ROOT: while $l.ended.not and $r.ended.not {
 
         say $++;
-        for :$l, :$r -> (:key($name), :value($_)) {
-            say "$name: frag: {.frag}, {.substr}, ended: {.ended}";
-        }
-
-        for :$l, :$r -> (:key($name), :value($_)) {
-            if .sp.min > .sp.max { say "$name: fuck"; ROOT.last }
+        for $l, $r {
+            say "{.name}: frag: {.frag}, {.substr}, ended: {.ended}";
+            if .sp.min > .sp.max {say "{.name}: fuck"; last ROOT }
         }
 
         while $l.len < $l.sp.elems and $r.len < $r.sp.elems {
             if $++ { say "need more" }
-            for :$l, :$r -> (:key($name), :value($_)) {
+            for $l, $r {
                 ++.len;
-                print CYN("advanced $name +1");
+                print CYN("{.name}: advanced +1");
                 while .op ∩ .new-sp {
                     print CYN(" +{.op.elems}");
                     .len += .op.elems;
@@ -255,16 +252,17 @@ sub diff-paragraphs(Paragraph:D $lhs, Paragraph:D $rhs, :@text-ops) {
         }
 
         if $l.id !eqv $r.id {
-            say GRN("add {$l.new-substr}"); $l.res.push($l.new-sp);
-            say GRN("add {$r.new-substr}"); $r.res.push($r.new-sp);
+            for $l, $r {
+                say GRN("{.name}: add {.new-substr}"); .res.push(.new-sp);
+            }
         }
         else {
-            say RED("skip {$l.new-substr}");
-            say RED("skip {$r.new-substr}");
+            for $l, $r {
+                say RED("{.name}: skip {.new-substr}");
+            }
         }
 
-        $l.advance;
-        $r.advance;
+        .advance for $l, $r
     }
 
     die unless $l.ended and $r.ended;
@@ -351,8 +349,8 @@ my &check = {
         par('aXbcXd', 1, 4 => 1, 1),
         text-ops => [ add => 1 til 2, remove => 2 til 3, add => 4 til 5  ]
     ), (
-        [2 til 4],
-        [3 til 5],
+        [],
+        [],
     );
     check
 }
