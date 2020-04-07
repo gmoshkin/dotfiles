@@ -223,7 +223,7 @@ sub maybe-pull-one($iterator) {
 
 sub diff-paragraphs(Paragraph:D $lhs, Paragraph:D $rhs, :@text-ops) {
     say '━' x qx[tput cols] if $*DEBUG;
-    say BLU ~ &?ROUTINE.name ~ RST ~ ($lhs, $rhs, |@text-ops)».gist.join(', ').fmt('(%s)') if $*DEBUG;
+    say BLU ~ &?ROUTINE.name ~ RST ~ ($lhs, $rhs, |@text-ops)».gist.join(', ').fmt('(%s)');
 
     my (:add(@add-ops), :remove(@rem-ops)) := @text-ops.classify(*.key, as => *.value);
 
@@ -278,7 +278,14 @@ sub diff-paragraphs(Paragraph:D $lhs, Paragraph:D $rhs, :@text-ops) {
         if $l.id !eqv $r.id {
             split-print :color<green>, {
                 for $l, $r {
-                    %*sp{.name}.say: "add {.new-substr}" if $*DEBUG; .res.push(.new-sp);
+                    if .new-sp.min == .res.tail.max {
+                        %*sp{.name}.say: "join last +{.new-substr}" if $*DEBUG;
+                        .res.tail.elems += .len;
+                    }
+                    else {
+                        %*sp{.name}.say: "add {.new-substr}" if $*DEBUG;
+                        .res.push(.new-sp);
+                    }
                 }
             }
         }
@@ -302,7 +309,8 @@ sub diff-paragraphs(Paragraph:D $lhs, Paragraph:D $rhs, :@text-ops) {
 }
 
 my &check = {
-    say '>>>>> ', ($*wanted eqv $*got ?? GRN !! RED), $*wanted => $*got, RST;
+    say '>>>>> ', ($*wanted eqv $*got ?? GRN !! RED),
+        $*wanted.&{ .[0] => .[1] }, ' X ', $*got.&{ .[0] => .[1] }, RST;
     say();
     die unless $*wanted eqv $*got
 }
@@ -451,6 +459,42 @@ my &check = {
     my ($*wanted, $*got) = diff-paragraphs(
         par('abXcd', 2, 1 => 4, 2),
         par('aZbcZd', 1, 1 => 2, 2, 1 => 5, 1),
+        text-ops => [ add => 1..+1, remove => 2..+1, add => 4..+1 ]
+    ), (
+        [],
+        [],
+    );
+    check
+}
+
+{
+    my ($*wanted, $*got) = diff-paragraphs(
+        par('abc', 2 => B, 1),
+        par('abc', 1, 2 => G),
+    ), (
+        [0..+3],
+        [0..+3],
+    );
+    check
+}
+
+{
+    my ($*wanted, $*got) = diff-paragraphs(
+        par('aXbc', 3 => B, 1),
+        par('abXc', 1, 3 => G),
+        text-ops => [ :remove(1..+1), :add(2..+1) ]
+    ), (
+        [0..+4],
+        [0..+4],
+    );
+    check
+}
+
+{
+    my $*DEBUG = True;
+    my ($*wanted, $*got) = diff-paragraphs(
+        par('abXcd', 2 => B, 1 => R, 1 => B, 1),
+        par('aZbcZd', 4 => G, 2 => M),
         text-ops => [ add => 1..+1, remove => 2..+1, add => 4..+1 ]
     ), (
         [],
