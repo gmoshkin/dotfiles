@@ -8,6 +8,8 @@ export BASHRC="$HOME/.bashrc"
 
 export GOPATH="$HOME/gocode"
 
+export PERL6LIB="$HOME/dotfiles/scripts"
+
 export LESS=RMWSJ
 export SYSTEMD_LESS=RSMK
 export PS_FORMAT=pid,stat,tty,bsdstart,bsdtime,%mem,%cpu,command
