@@ -189,6 +189,11 @@ class DataClump {
         self.substr(self.new-sp)
     }
 
+    method next-op {
+        self.len += self.op.elems;
+        self.op = self.op-it.&maybe-pull-one;
+    }
+
     method advance {
         if self.len == self.sp.elems {
             if (my $next := self.it.pull-one) !=:= IterationEnd {
@@ -247,8 +252,7 @@ sub diff-paragraphs(Paragraph:D $lhs, Paragraph:D $rhs, :@text-ops) {
                 SIDE: for $l, $r {
                     %*sp{.name}.say: "op: {.op // ''}, sp: {.sp}" if $*DEBUG;
                     if .op eqv .sp {
-                        .len += .op.elems;
-                        .op = .op-it.&maybe-pull-one;
+                        .next-op;
                         .advance;
                         %*sp{.name}.say: "frag: {.frag}, {.substr}, ended: {.ended}" if $*DEBUG;
                         redo SIDE
@@ -260,13 +264,11 @@ sub diff-paragraphs(Paragraph:D $lhs, Paragraph:D $rhs, :@text-ops) {
                     %*sp{.name}.print: "advanced +1" if $*DEBUG;
                     if .op ∩ .new-sp {
                         %*sp{.name}.print: " +{.op.elems}" if $*DEBUG;
-                        .len += .op.elems;
-                        .op = .op-it.&maybe-pull-one;
+                        .next-op;
                     }
                     if .op ∩ .sp {
                         %*sp{.name}.print: " ++{.op.elems}" if $*DEBUG;
-                        .len += .op.elems;
-                        .op = .op-it.&maybe-pull-one;
+                        .next-op;
                     }
                     %*sp{.name}.say: " -> {.new-substr}" if $*DEBUG;
                 }
@@ -446,7 +448,6 @@ my &check = {
 }
 
 {
-    my $*DEBUG = True;
     my ($*wanted, $*got) = diff-paragraphs(
         par('abXcd', 2, 1 => 4, 2),
         par('aZbcZd', 1, 1 => 2, 2, 1 => 5, 1),
