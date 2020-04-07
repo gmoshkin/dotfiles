@@ -247,8 +247,8 @@ sub diff-paragraphs(Paragraph:D $lhs, Paragraph:D $rhs, :@text-ops) {
                 for $l, $r {
                     %*sp{.name}.say: "op: {.op // ''}, sp: {.sp}" if $*DEBUG;
                     if .op eqv .sp {
-                        say RED("wtf");
                         .len += .op.elems;
+                        .op = .op-it.&maybe-pull-one;
                         .advance;
                         %*sp{.name}.say: "frag: {.frag}, {.substr}, ended: {.ended}" if $*DEBUG;
                         next RANGE
@@ -434,7 +434,6 @@ my &check = {
 }
 
 {
-    my $*DEBUG = True;
     my ($*wanted, $*got) = diff-paragraphs(
         par('aXbXcXd', 1, 1 => R, 1, 1 => G, 1, 1 => B, 1),
         par('abcd'),
@@ -447,6 +446,7 @@ my &check = {
 }
 
 {
+    my $*DEBUG = True;
     my ($*wanted, $*got) = diff-paragraphs(
         par('abXcd', 2, 1 => 4, 2),
         par('aZbcZd', 1, 1 => 2, 2, 1 => 5, 1),
