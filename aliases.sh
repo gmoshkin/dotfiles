@@ -31,7 +31,8 @@ alias cmgui="cmake \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
     -C ../preset/ubuntu1910.cmake .. && \
         make -j$NJOBS"
-alias cmweb="source ../deps/work/emscripten/*/src/emsdk_env.sh \
+alias cmweb="source ../deps/work/emscripten/*/src/emsdk_env.sh && \
+    export EMSCRIPTEN=\$PWD/../deps/work/emscripten/*/src/fastcomp/emscripten && \
     cmake \
     -DCMAKE_BUILD_TYPE=Debug \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
@@ -42,7 +43,8 @@ alias cmguirel="cmake \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
     -C ../preset/ubuntu1910.cmake .. && \
         make -j$NJOBS"
-alias cmwebrel="source ../deps/work/emscripten/*/src/emsdk_env.sh \
+alias cmwebrel="source ../deps/work/emscripten/*/src/emsdk_env.sh && \
+    export EMSCRIPTEN=\$PWD/../deps/work/emscripten/*/src/fastcomp/emscripten && \
     cmake \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
@@ -56,6 +58,12 @@ alias runweb="git rev-parse --git-dir &>/dev/null && \
 } || echo 'Not inside repository'"
 alias runfatty="git rev-parse --git-dir &>/dev/null && \
     cd \"\$(git rev-parse --show-toplevel)/build/bin\" && { \
+    [ -d img ] || ln -s ../../lde/editor/img; \
+    [ -d res ] || ln -s ../../lde/fatty/res; \
+    ./fatty \
+} || echo 'Not inside repository'"
+alias runfattyrel="git rev-parse --git-dir &>/dev/null && \
+    cd \"\$(git rev-parse --show-toplevel)/build-rel/bin\" && { \
     [ -d img ] || ln -s ../../lde/editor/img; \
     [ -d res ] || ln -s ../../lde/fatty/res; \
     ./fatty \
