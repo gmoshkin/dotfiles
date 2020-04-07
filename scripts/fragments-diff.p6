@@ -246,14 +246,14 @@ sub diff-paragraphs(Paragraph:D $lhs, Paragraph:D $rhs, :@text-ops) {
         }
 
         RANGE: while $l.len < $l.sp.elems and $r.len < $r.sp.elems {
-                for $l, $r {
+                SIDE: for $l, $r {
                     say "{.name}: op: {.op // ''}, sp: {.sp}" if $*DEBUG;
                     if .op eqv .sp {
                         .len += .op.elems;
                         .op = .op-it.&maybe-pull-one;
                         .advance;
-                        say "{.name} frag: {.frag}, {.substr}, ended: {.ended}" if $*DEBUG;
-                        next RANGE
+                        say "{.name}: frag: {.frag}, {.substr}, ended: {.ended}" if $*DEBUG;
+                        redo SIDE
                     }
                     ++.len;
                     print CYN("{.name}: advanced +1") if $*DEBUG;
