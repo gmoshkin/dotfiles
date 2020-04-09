@@ -491,14 +491,37 @@ my &check = {
 }
 
 {
-    my $*DEBUG = True;
     my ($*wanted, $*got) = diff-paragraphs(
         par('abXcd', 2 => B, 1 => R, 1 => B, 1),
         par('aZbcZd', 4 => G, 2 => M),
         text-ops => [ add => 1..+1, remove => 2..+1, add => 4..+1 ]
     ), (
+        [0 til 2, 3 til 5],
+        [0 til 6],
+    );
+    check
+}
+
+{
+    my ($*wanted, $*got) = diff-paragraphs(
+        par('abcd', 4 => B),
+        par('abcdX', 5 => B),
+        text-ops => [ add => 4..+1 ]
+    ), (
         [],
         [],
+    );
+    check
+}
+
+{
+    my ($*wanted, $*got) = diff-paragraphs(
+        par('abcd', 4 => B),
+        par('abcdef', 6 => G),
+        text-ops => [ add => 4..+2 ]
+    ), (
+        [0 til 4],
+        [0 til 6],
     );
     check
 }
