@@ -115,30 +115,57 @@ sub ops($lhs, $rhs, @dlm = dlm($lhs, $rhs)) {
     @ops.reverse
 }
 
-sub show-diff(Str:D $lhs, Str:D $rhs, @ops = ops($lhs, $rhs)) {
+sub get-diff-side(@ops, Str :$lhs, Str :$rhs where {$lhs.defined ^ $rhs.defined}) {
+    gather for @ops -> (:$kind, :$l, :$r) {
+        my $color = do given $kind {
+            when '-' { $lhs ?? "\e[31m" !! next }
+            when '+' { $rhs ?? "\e[32m" !! next }
+            when '~' { "\e[33m" }
+            when '.' { "" }
+        }
+        take "{$color}{$lhs.substr($l)}\e[0m" with $lhs;
+        take "{$color}{$rhs.substr($r)}\e[0m" with $rhs;
+    }.join
+}
+
+multi sub show-diff(Str:D $lhs, Str:D $rhs, @ops = ops($lhs, $rhs)) {
+    say "\"&get-diff-side(:$lhs, @ops)\" V \"&get-diff-side(:$rhs, @ops)\"";
+}
+
+multi sub show-diff(@lhs, @rhs, @ops = ops(@lhs, @rhs)) {
+    say "<" x 7;
     LEFT: for @ops -> (:$kind, :$l, :$r) {
         my $color = do given $kind {
             when '-' { "\e[31m" }
             when '+' { next LEFT }
-            when '~' { "\e[33m" }
-            when '.' { "" }
+            default  { "" }
         }
-        print $color, $lhs.substr($l), "\e[0m";
+        if $kind eq '~' {
+            for @lhs[@$l] Z @rhs[@$r] -> ($lhs, $rhs) {
+                say get-diff-side(:$lhs, ops($lhs, $rhs));
+            }
+        }
+        else {
+            say $color, $_, "\e[0m" for @lhs[@$l];
+        }
     }
-
-    print ' V ';
-
+    say "=" x 7;
     RIGHT: for @ops -> (:$kind, :$l, :$r) {
         my $color = do given $kind {
             when '-' { next RIGHT }
             when '+' { "\e[32m" }
-            when '~' { "\e[33m" }
-            when '.' { "" }
+            default  { "" }
         }
-        print $color, $rhs.substr($r), "\e[0m";
+        if $kind eq '~' {
+            for @lhs[@$l] Z @rhs[@$r] -> ($lhs, $rhs) {
+                say get-diff-side(:$rhs, ops($lhs, $rhs));
+            }
+        }
+        else {
+            say $color, $_, "\e[0m" for @rhs[@$r];
+        }
     }
-
-    say();
+    say ">" x 7;
 }
 
 sub print-matr(@m) {
@@ -164,8 +191,9 @@ for [(<fuck>, <duck>), (<shit>, <piss>), (<fuck>, <ass>), ('', 'wow')] -> [$l, $
     print-matr dlm($l, $r);
 }
 
-for [(<fuck ass shit>, <fuck cunt piss>), ] -> [$l, $r] {
+for [(<fuck ass shit>, <fuck cunt piss>), (<fuck ass fuck>, <fuck ass ass fuck>)] -> [$l, $r] {
     say "[$l] V [$r]";
+    show-diff($l, $r);
     say ops($l, $r)».Str;
     print-matr dlm($l, $r);
 }
