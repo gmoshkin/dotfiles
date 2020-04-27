@@ -77,13 +77,6 @@ class RangeOp is Cool {
             when '.' { "\e[34m{self.kind}[{self.l.gist} = {self.r.gist}]\e[0m" }
         }
     }
-
-    # method new($kind, $l, $r) { self.bless(:$kind, :$l, :$r) }
-    method join(RangeOp:D \other) {
-        die "Can't join ops with different kinds!" unless other.kind eqv self.kind;
-        self.l = other.l join self.l if other.l;
-        self.r = other.r join self.r if other.r;
-    }
 }
 
 sub ops($lhs, $rhs, @dlm = dlm($lhs, $rhs)) {
