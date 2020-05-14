@@ -58,4 +58,6 @@ alias SB='source ~/.zshrc'
 bindkey '^T' transpose-chars
 bindkey '^O' fzf-file-widget
 
+source /usr/share/z/z.sh
+
 # End of lines added by compinstall
