@@ -60,4 +60,8 @@ bindkey '^O' fzf-file-widget
 
 source /usr/share/z/z.sh
 
+export WORKON_HOME="${HOME}/.virtualenvs"
+source /usr/bin/virtualenvwrapper.sh
+[ -d "${WORKON_HOME}" ] || mkdir "${WORKON_HOME}"
+
 # End of lines added by compinstall
