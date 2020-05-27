@@ -6,8 +6,10 @@ from re import match
 
 color_muted = '#586e75'
 color_normal = '#268bd2'#'#93a1a1'
-glyphs = [ (50, ''), (20, ''), (0, '') ]
-glyph_muted = ''
+glyphs = [ (50, '🔊'), (20, '🔉'), (0,'🔈') ]
+# glyphs = [ (50, ''), (20, ''), (0, '') ]
+glyph_muted = '🔇'
+# glyph_muted = ''
 color = color_normal
 
 default_step = 5
