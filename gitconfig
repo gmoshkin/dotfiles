@@ -3,6 +3,7 @@
 	email = louielouie314@gmail.com
 	name = Georgy Moshkin
 [alias]
+	a			= add
 	b			= branch
 	c			= commit
 	ca			= commit --amend
@@ -42,6 +43,7 @@
 	curbranch	= rev-parse --abbrev-ref HEAD
 	cb	        = rev-parse --abbrev-ref HEAD
 	curhash		= rev-parse --verify HEAD
+	cp	        = cherry-pick
 [core]
 	excludesfile = ~/.gitignore
 [push]
