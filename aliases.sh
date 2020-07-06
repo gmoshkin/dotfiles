@@ -20,7 +20,7 @@ alias gitstashpull='git stash && git pull && git stash pop'
 alias ll='ls -lh'
 alias ls='ls --color=auto'
 alias grep='grep --color=auto'
-alias iperl6='jupyter-console --kernel=perl6'
+alias iraku='jupyter-console --kernel=raku'
 alias df='df -h'
 alias rwp='rlwrap perl6'
 

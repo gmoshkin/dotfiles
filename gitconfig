@@ -8,6 +8,10 @@
 	c			= commit
 	ca			= commit --amend
 	co			= checkout
+	curbranch	= rev-parse --abbrev-ref HEAD
+	cb	        = rev-parse --abbrev-ref HEAD
+	curhash		= rev-parse --verify HEAD
+	cp	        = cherry-pick
 	d			= diff
 	dc			= diff --cached
 	f			= fetch
@@ -40,10 +44,6 @@
 	loggpa		= log --all --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset)%C(yellow)%d%Creset %s'
 	m			= merge
 	ma			= merge --abort
-	curbranch	= rev-parse --abbrev-ref HEAD
-	cb	        = rev-parse --abbrev-ref HEAD
-	curhash		= rev-parse --verify HEAD
-	cp	        = cherry-pick
 [core]
 	excludesfile = ~/.gitignore
 [push]
