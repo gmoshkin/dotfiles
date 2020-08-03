@@ -45,12 +45,13 @@ source "$DOTFILES/aliases.sh"
 local hlfiles=(
     /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
     /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+    /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
 )
 for hlfile in  ${hlfiles[@]}; do
-    if [ -f "$hlfile" ]; then
-        source "$hlfile"
-    fi
+    [ -f "$hlfile" ] && source "$hlfile"
 done
+
+export ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=10"
 
 alias SB='source ~/.zshrc'
 
