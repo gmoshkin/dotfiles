@@ -58,10 +58,10 @@ alias SB='source ~/.zshrc'
 bindkey '^T' transpose-chars
 bindkey '^O' fzf-file-widget
 
-source /usr/share/z/z.sh
+[ -f /usr/share/z/z.sh ] && source /usr/share/z/z.sh
 
 export WORKON_HOME="${HOME}/.virtualenvs"
-source /usr/bin/virtualenvwrapper.sh
+[ -f /usr/bin/virtualenvwrapper.sh ] && source /usr/bin/virtualenvwrapper.sh
 [ -d "${WORKON_HOME}" ] || mkdir "${WORKON_HOME}"
 
 eval "$(pip completion --zsh)"
