@@ -55,9 +55,12 @@ export ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=8"
 
 alias SB='source ~/.zshrc'
 
-[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
-bindkey '^T' transpose-chars
-bindkey '^O' fzf-file-widget
+source "$DOTFILES/fzf-init.sh" && {
+    bindkey '^T' transpose-chars;
+    bindkey '^O' fzf-file-widget;
+} || {
+    echo 'fzf is not installed'
+}
 
 [ -f /usr/share/z/z.sh ] && source /usr/share/z/z.sh
 
