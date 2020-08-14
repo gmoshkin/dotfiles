@@ -24,6 +24,20 @@ alias iraku='jupyter-console --kernel=raku'
 alias df='df -h'
 alias rwp='rlwrap perl6'
 
+{
+    raku -e '<build check new init run search test update>.map: {
+        say "alias c{.substr(0, 1)}=\"cargo $_\""
+    }';
+    cargo --list |
+        raku -ne '
+            when /Installed/ { next };
+            my $c = .words.first;
+            say "alias c$c=\"cargo $c\""
+        ';
+} | while read cargo_alias; do
+        eval $cargo_alias;
+    done
+
 NJOBS="$(raku -e 'say ceiling qx[nproc] * .6')"
 
 alias cmgui="cmake \
