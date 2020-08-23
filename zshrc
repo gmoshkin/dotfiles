@@ -47,11 +47,14 @@ local hlfiles=(
     /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
     /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
     /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+    /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
 )
 for hlfile in  ${hlfiles[@]};
     [ -f "$hlfile" ] && source "$hlfile"
 
 export ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=8"
+
+export ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=10"
 
 alias SB='source ~/.zshrc'
 
