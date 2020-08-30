@@ -52,8 +52,6 @@ local hlfiles=(
 for hlfile in  ${hlfiles[@]};
     [ -f "$hlfile" ] && source "$hlfile"
 
-export ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=8"
-
 export ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=10"
 
 alias SB='source ~/.zshrc'
