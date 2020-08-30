@@ -183,3 +183,7 @@ function M {
 
 [ type complete &>/dev/null ] && complete -F _man M
 [ type compdef &>/dev/null ] && compdef _man M
+
+function md {
+    mkdir -p $1 && cd $1
+}
