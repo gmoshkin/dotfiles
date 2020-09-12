@@ -40,6 +40,8 @@ alias irb="irb -I$HOME/dotfiles/scripts -rmine"
         eval $cargo_alias;
     done
 
+alias cbr='cargo build --release'
+
 NJOBS="$(raku -e 'say ceiling qx[nproc] * .6')"
 
 alias cmgui="cmake \
