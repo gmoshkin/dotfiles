@@ -37,6 +37,8 @@ appendToPath "$HOME/.perl6/bin"
 appendToPath "$HOME/.local/share/perl6/site/bin"
 appendToPath "$DOTFILES/rakudobrew/bin"
 appendToPath "$HOME/.local/bin"
+appendToPath "$HOME/code/table-driven-testing-tool/target/debug"
+appendToPath "$HOME/gocode/bin"
 
 source "$DOTFILES/rakudobrew_init.zsh"
 rakudobrew switch &>/dev/null
