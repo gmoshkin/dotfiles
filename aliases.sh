@@ -23,6 +23,8 @@ alias grep='grep --color=auto'
 alias iraku='jupyter-console --kernel=raku'
 alias df='df -h'
 alias rwp='rlwrap perl6'
+alias rb="ruby -I$HOME/dotfiles/scripts -rmine"
+alias irb="irb -I$HOME/dotfiles/scripts -rmine"
 
 {
     raku -e '<build check new init run search test update>.map: {
