@@ -159,6 +159,10 @@ function deploy_kak {
     link kak ~/.config
 }
 
+function deploy_nvim {
+    link nvim ~/.config
+}
+
 function print_help {
     cat << EOF
 Usage:
@@ -196,6 +200,7 @@ modules=(
     keynavrc
     zsh
     kak
+    nvim
 )
 
 function deploy_all {
