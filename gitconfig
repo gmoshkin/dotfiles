@@ -37,11 +37,11 @@
 	logg1		= log --graph --oneline
 	lt			= log -1
 	last		= log -1
-	lgp			= log --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset) %s'
-	loggp		= log --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset) %s'
-	l			= log --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset) %s'
-	la			= log --all --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset)%C(yellow)%d%Creset %s'
-	loggpa		= log --all --graph --pretty='%Cgreen%ar%Creset:%Cblue%h%Creset (%Cred%an%Creset)%C(yellow)%d%Creset %s'
+	lgp			= log --graph --pretty='%Cgreen%ar%Creset %Cblue%h%Creset (%Cred%an%Creset) %s'
+	loggp		= log --graph --pretty='%Cgreen%ar%Creset %Cblue%h%Creset (%Cred%an%Creset) %s'
+	l			= log --graph --pretty='%Cgreen%ar%Creset %Cblue%h%Creset (%Cred%an%Creset) %s'
+	la			= log --all --graph --pretty='%Cgreen%ar%Creset %Cblue%h%Creset (%Cred%an%Creset)%C(yellow)%d%Creset %s'
+	loggpa		= log --all --graph --pretty='%Cgreen%ar%Creset %Cblue%h%Creset (%Cred%an%Creset)%C(yellow)%d%Creset %s'
 	m			= merge
 	ma			= merge --abort
 [core]
