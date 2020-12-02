@@ -1,5 +1,6 @@
 # Lines configured by zsh-newuser-install
 setopt appendhistory autocd extendedglob nomatch notify histignorealldups
+setopt interactivecomments
 unsetopt beep
 bindkey -e
 # End of lines configured by zsh-newuser-install
