@@ -9,7 +9,6 @@ cscope.*
 .gitreview
 .vscode
 .clangd
-compile_commands.json
 tags
 Cargo.lock
 
