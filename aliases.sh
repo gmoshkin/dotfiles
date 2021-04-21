@@ -86,3 +86,10 @@ alias runfattyrel="git rev-parse --git-dir &>/dev/null && \
     [ -d res ] || ln -s ../../lde/fatty/res; \
     ./fatty \
 } || echo 'Not inside repository'"
+
+# GitBash and Msys2 must be installed and the ssh keys must be set in one of
+# their home directories
+alias winsh='/mnt/c/msys64/usr/bin/bash.exe'
+alias wgf="winsh -c 'git fetch"
+alias wgpu="winsh -c 'git push -u origin \$(git rev-parse --abbrev-ref HEAD)'"
+alias wgpf="winsh -c 'git push -f'"
