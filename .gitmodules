@@ -10,12 +10,6 @@
 [submodule "bash-it"]
 	path = bash-it
 	url = git@github.com:Bash-it/bash-it.git
-[submodule "tmux-resurrect"]
-	path = tmux-resurrect
-	url = git@github.com:tmux-plugins/tmux-resurrect.git
-[submodule "tmux-continuum"]
-	path = tmux-continuum
-	url = git@github.com:tmux-plugins/tmux-continuum.git
 [submodule "rakudobrew"]
 	path = rakudobrew
 	url = https://github.com/tadzik/rakudobrew
