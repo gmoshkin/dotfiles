@@ -53,19 +53,26 @@ function link {
 }
 
 function deploy_bashrc {
-    backup_original ~/.bashrc || return 1
-    cat ~/.bashrc.original > ~/.bashrc
-    cat >> ~/.bashrc << EOF
+    [ -s ~/.bashrc ] || {
+        backup_original ~/.bashrc || return 1;
+        cat ~/.bashrc.original > ~/.bashrc;
+    }
+    grep DOTFILES ~/.bashrc || {
+        cat >> ~/.bashrc << EOF
 export DOTFILES="\$HOME/dotfiles"
 
 source "\$DOTFILES/utils.sh"
 source "\$DOTFILES/bashrc"
-EOF
+EOF;
+    }
 }
 
 function deploy_gitconfig {
-    backup_original ~/.gitconfig || return 1
-    cat ~/.gitconfig.original ./gitconfig > ~/.gitconfig
+    [ -s ~/.gitconfig ] || {
+        backup_original ~/.gitconfig || return 1
+        cat ~/.gitconfig.original > ~/.gitconfig
+    }
+    cat ./gitconfig >> ~/.gitconfig
 }
 
 function deploy_dircolors {
@@ -150,9 +157,11 @@ function deploy_keynavrc {
 
 function deploy_zsh {
     link zshenv
-    cat >> ~/.zshrc << EOF
+    grep DOTFILES ~/.zshrc || {
+        cat >> ~/.zshrc << EOF
 source "\$DOTFILES/zshrc"
-EOF
+EOF;
+    }
 }
 
 function deploy_kak {
