@@ -27,7 +27,7 @@ alias rb="ruby -I$HOME/dotfiles/scripts -rmine"
 alias irb="irb -I$HOME/dotfiles/scripts -rmine"
 
 {
-    raku -e '<build check new init run search test update>.map: {
+    raku -e '<build clippy new init run search update>.map: {
         say "alias c{.substr(0, 1)}=\"cargo $_\""
     }';
     cargo --list |
@@ -39,6 +39,7 @@ alias irb="irb -I$HOME/dotfiles/scripts -rmine"
 } | while read cargo_alias; do
         eval $cargo_alias;
     done
+alias ct='cargo test -- --test-threads='$(nproc)
 
 alias cbr='cargo build --release'
 
