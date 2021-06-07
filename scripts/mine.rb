@@ -24,3 +24,7 @@ end
 def ceil x
   x.ceil
 end
+
+def json_file f
+  JSON.parse File.open(f).read
+end
