@@ -17,7 +17,7 @@
 	f			= fetch
 	p			= pull
 	pr			= pull --rebase
-	pp			= push
+	pu			= push
 	s			= status
 	ss			= stash save
 	sp			= stash pop
