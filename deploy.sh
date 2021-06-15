@@ -63,7 +63,7 @@ export DOTFILES="\$HOME/dotfiles"
 
 source "\$DOTFILES/utils.sh"
 source "\$DOTFILES/bashrc"
-EOF;
+EOF
     }
 }
 
@@ -160,7 +160,7 @@ function deploy_zsh {
     grep DOTFILES ~/.zshrc || {
         cat >> ~/.zshrc << EOF
 source "\$DOTFILES/zshrc"
-EOF;
+EOF
     }
 }
 
