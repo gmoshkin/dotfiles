@@ -18,3 +18,5 @@ lde/v2/
 preset/ubuntu1910-emscripten.cmake
 build-*
 TODO
+
+scripts/*/target

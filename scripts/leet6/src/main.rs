@@ -1,42 +1,58 @@
 fn main() {
-    println!("Hello, world!");
+    println!("{}", solution("ABCDEFGHIJKL", 5));
+    // A   E   I
+    // B D F H J L
+    // C   G   K
+
+    // A     G
+    // B   F H   L
+    // C E   I K
+    // D     J
+
+    // A       I
+    // B     H J
+    // C   G   K
+    // D F     L
+    // E
 }
 
 #[test]
 fn test() {
-    assert_eq!(solution("PAYPALISHIRING", 3), "PAHNAPLSIIGYIR");
+    assert_eq!(solution("PAYPALISHIRING", 3), "PAHNAPLSIIGYIR")
 }
 
-fn solution<S>(s: S, n: usize) -> String
+fn solution<S>(s: S, num_rows: i32) -> String
 where
-    S: Into<String> + std::borrow::Borrow<str>,
+    S: Into<String>,
 {
-    if n == 1 { return s.into() }
+    let s = s.into();
+    let n = num_rows as usize;
 
-    let s = s.borrow();
-
-    let res = Vec::with_capacity(s.len());
-    for i in 0..n {
-
+    if n == 1 {
+        return s
     }
+
+    let mut res = vec![];
+
+    let b = s.into_bytes();
+
+    for i in (0..b.len()).step_by(2 * n - 2) {
+        res.push(b[i])
+    }
+
+    for j in 1..(n - 1) {
+        for i in (j..b.len()).step_by(2 * n - 2) {
+            res.push(b[i]);
+            let k = i + (2 * n - 2) - 2 * j;
+            if k < b.len() {
+                res.push(b[k])
+            }
+        }
+    }
+
+    for i in ((n - 1)..b.len()).step_by(2 * n - 2) {
+        res.push(b[i])
+    }
+
+    String::from_utf8(res).unwrap()
 }
-
-// PAYPALISHIRING
-//
-// P   A   H   N   PAHN APLSIIG YIR
-// A P L S I I G
-// Y   I   R
-
-// 0   4   8   c   048c 13579bd 26a
-// 1 3 5 7 9 b d
-// 2   6   a
-
-// P     I    N    PIN ALSIG YAHR PI
-// A   L S  I G
-// Y A   H R
-// P     I
-
-// 0     6     d   06d 157ce 248a 39
-// 1   5 7   c e
-// 2 4   8 a
-// 3     9
