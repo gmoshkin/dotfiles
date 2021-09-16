@@ -34,6 +34,7 @@ alias irb="irb -I$HOME/dotfiles/scripts -rmine"
         raku -ne '
             when /Installed/ { next };
             my $c = .words.first;
+            next if $c eq <d>;
             say "alias c$c=\"cargo $c\""
         ';
 } | while read cargo_alias; do
