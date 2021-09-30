@@ -21,6 +21,8 @@ sudo apt install \
     curl \
     build-essential \
     cmake \
+    ninja-build \
+    libssl-dev libncurses5-dev libreadline-dev libunwind-dev libicu-dev \
     rlwrap \
     tmux \
     golang \
@@ -44,6 +46,7 @@ hash pip 2>/dev/null && {
 } || {
     pip install --user \
         ipython \
+        gevent \
         || die "faile to get pip packages";
 }
 
