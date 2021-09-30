@@ -5,3 +5,4 @@ DOTFILES=~/dotfiles
 fpath=( "$DOTFILES/zcompletion" "$DOTFILES/zprompts" $fpath )
 
 source "$DOTFILES/env.sh"
+. "$HOME/.cargo/env"

@@ -156,6 +156,7 @@ function deploy_keynavrc {
 }
 
 function deploy_zsh {
+    [ -f ~/.zshenv ] && rm ~/.zshenv
     link zshenv
     grep DOTFILES ~/.zshrc || {
         cat >> ~/.zshrc << EOF
