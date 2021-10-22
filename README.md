@@ -5,3 +5,5 @@ guess what that is
 $ cd dotfiles
 $ ./deploy.sh
 ```
+This is some high quality README file wouldn't you say?
+
