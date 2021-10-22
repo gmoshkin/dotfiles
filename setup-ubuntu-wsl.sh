@@ -25,6 +25,7 @@ sudo apt install \
     libssl-dev libncurses5-dev libreadline-dev libunwind-dev libicu-dev \
     rlwrap \
     tmux \
+    clang \
     golang \
     jq \
     ripgrep \
