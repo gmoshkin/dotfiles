@@ -1,0 +1,5 @@
+* tmux: copy to `clip.exe` on wsl
+* tmux + nvim: open file in a central nvim pane
+* rust: repl idea:
+  - | $args: (i32, String) |
+  -     format!("{}({})", $args.1, $args.0)
