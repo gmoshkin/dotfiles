@@ -32,7 +32,6 @@ sudo apt install \
     ranger \
     zsh zsh-syntax-highlighting zsh-autosuggestions \
     vim \
-    nodejs \
     ruby \
     python3 python3-pip python-is-python3 \
     || die "failed to get apt packages"
@@ -65,6 +64,47 @@ info "getting 'rustup'"
     ~/.cargo/bin/rustup toolchain install nightly \
         || die "failed to install nightly toolchain";
 }
+
+################################################################################
+## ~/.local
+
+[ -d ~/.local ] || mkdir ~/.local
+
+################################################################################
+## nvim
+
+info "getting 'nvim'"
+
+hash nvim 2>/dev/null && {
+    info "'nvim' already installed: $(which nvim)";
+} || {
+    pushd /tmp;
+    wget https://github.com/neovim/neovim/releases/download/stable/nvim-linux64.tar.gz;
+    tar xf nvim-linux64.tar.gz;
+    cp -r nvim-linux64/* ~/.local/;
+    rm -r nvim-linux64*;
+    popd;
+}
+
+################################################################################
+## node
+
+info "getting 'node'"
+
+hash node 2>/dev/null && {
+    info "'node' already installed: $(which node)";
+} || {
+    pushd /tmp;
+    NODE_VERSION=${NODE_VERSION-v16.13.0}
+    NODE_ARCHIVE="${NODE_ARCHIVE-node-${NODE_VERSION}-linux-x64}"
+    wget "https://nodejs.org/dist/${NODE_VERSION}/${NODE_ARCHIVE}.tar.xz";
+    tar xf "${NODE_ARCHIVE}.tar.xz";
+    cp -r "${NODE_ARCHIVE}"/* ~/.local/;
+    rm -r "${NODE_ARCHIVE}"{,.tar.xz};
+    popd;
+}
+
+exit 0
 
 ################################################################################
 ## ssh keys
