@@ -1,6 +1,6 @@
 # put this in the $HOME/.gitconfig file
 [user]
-	email = louielouie314@gmail.com
+	email = gmoshkin@picodata.io
 	name = Georgy Moshkin
 [alias]
 	a			= add
