@@ -46,6 +46,8 @@
 	ma			= merge --abort
 [core]
 	excludesfile = ~/.gitignore
+[pull]
+    rebase = true
 [push]
 	default = simple
 [diff]
