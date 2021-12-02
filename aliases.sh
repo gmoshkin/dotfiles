@@ -1,13 +1,9 @@
 alias g='git'
-{
-    git config --global --get-regexp '^alias.' |
-        raku -ne '.words.first.split(".").tail.&{"alias g$_='\''git $_'\''"}.say';
-    raku -e '"/usr/lib/git-core".IO.dir.grep({.x and !.d}).map: {
-        .basename.subst("git-").&{"alias g$_='\''git $_'\''"}.say
-    }';
-} | while read git_alias; do
-        eval $git_alias;
-    done
+cargo run --manifest-path $HOME/dotfiles/scripts/aliases/Cargo.toml \
+    2>/dev/null |
+        while read alias; do
+            eval $alias;
+        done
 
 alias pst='ps Tf'
 alias psl='ps -A f | less'
@@ -26,25 +22,11 @@ alias rwp='rlwrap perl6'
 alias rb="ruby -I$HOME/dotfiles/scripts -rmine"
 alias irb="irb -I$HOME/dotfiles/scripts -rmine"
 
-{
-    raku -e '<build clippy new init run search update>.map: {
-        say "alias c{.substr(0, 1)}=\"cargo $_\""
-    }';
-    cargo --list |
-        raku -ne '
-            when /Installed/ { next };
-            my $c = .words.first;
-            next if $c eq <d>;
-            say "alias c$c=\"cargo $c\""
-        ';
-} | while read cargo_alias; do
-        eval $cargo_alias;
-    done
 alias ct='cargo test -- --test-threads='$(nproc)
 
 alias cbr='cargo build --release'
 
-NJOBS="$(raku -e 'say ceiling qx[nproc] * .6')"
+NJOBS="$(( ( $(nproc) * 3 + 5 - 1 ) / 5 ))" # (x * a + b - 1) / b == ceiling(x * a/b)
 
 alias cmgui="cmake \
     -DCMAKE_BUILD_TYPE=Debug \
