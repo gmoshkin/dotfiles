@@ -76,6 +76,7 @@ export WORKON_HOME="${HOME}/.virtualenvs"
 [ -f /usr/bin/virtualenvwrapper.sh ] && source /usr/bin/virtualenvwrapper.sh
 [ -d "${WORKON_HOME}" ] || mkdir "${WORKON_HOME}"
 
-eval "$(pip completion --zsh)"
+# too slow
+# eval "$(pip completion --zsh)"
 
 # End of lines added by compinstall
