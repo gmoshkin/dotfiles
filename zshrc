@@ -41,6 +41,7 @@ appendToPath "$DOTFILES/rakudobrew/bin"
 appendToPath "$HOME/.local/bin"
 appendToPath "$HOME/code/table-driven-testing-tool/target/debug"
 appendToPath "$HOME/gocode/bin"
+prependToPath "/opt/homebrew/bin"
 
 source "$DOTFILES/rakudobrew_init.zsh"
 rakudobrew switch &>/dev/null
@@ -52,6 +53,8 @@ local hlfiles=(
     /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
     /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
     /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+    /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+    /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh
 )
 for hlfile in  ${hlfiles[@]};
     [ -f "$hlfile" ] && source "$hlfile"
