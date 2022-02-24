@@ -1,3 +1,9 @@
+#[cfg(target_os = "linux")]
+const GIT_CORE: &str = "/usr/lib/git-core";
+
+#[cfg(target_os = "macos")]
+const GIT_CORE: &str = "/Library/Developer/CommandLineTools/usr/libexec/git-core";
+
 fn main() {
     // git aliases
     let output = std::process::Command::new("git")
@@ -18,7 +24,7 @@ fn main() {
         println!("alias g{a}='git {a}'", a=alias)
     }
     // git commands
-    let git_commands = std::fs::read_dir("/usr/lib/git-core")
+    let git_commands = std::fs::read_dir(GIT_CORE)
         .unwrap()
         .filter_map(|f| f.ok())
         .filter(|f|
