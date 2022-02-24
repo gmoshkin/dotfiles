@@ -59,7 +59,7 @@ local hlfiles=(
 for hlfile in  ${hlfiles[@]};
     [ -f "$hlfile" ] && source "$hlfile"
 
-grep -i wsl /proc/version &>/dev/null && {
+{ grep -i wsl /proc/version &>/dev/null || [[ "$OSTYPE" == darwin* ]] } && {
     export ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=8";
 } || {
     export ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=10";
