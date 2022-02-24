@@ -89,3 +89,9 @@ alias winsh='/mnt/c/msys64/usr/bin/bash.exe'
 alias wgf="winsh -c 'git fetch'"
 alias wgpu="winsh -c 'git push -u origin \$(git rev-parse --abbrev-ref HEAD)'"
 alias wgpf="winsh -c 'git push -f'"
+
+alias carkill="cartridge stop"
+alias carstart="cartridge start"
+alias carinfo="cartridge status"
+alias carbuild="cartridge build"
+alias carreplicasets="cartridge replicasets"
