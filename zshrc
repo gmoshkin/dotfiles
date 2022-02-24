@@ -20,7 +20,8 @@ select-word-style bash
 
 source "$DOTFILES/commands.sh"
 
-eval `dircolors ~/.dir_colors/dircolors`
+2>/dev/null hash dircolors && eval `dircolors ~/.dir_colors/dircolors`
+2>/dev/null hash gdircolors && eval `gdircolors ~/.dir_colors/dircolors`
 zstyle ':completion:*:default' list-colors ${(s.:.)LS_COLORS}
 
 alias SZ="source ~/.zshrc && source ~/.zshenv"

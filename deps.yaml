@@ -26,3 +26,5 @@ fzf:
   - ripgrep
 zsh:
   - zsh-syntax-highlighting
+mac:
+  - coreutils
