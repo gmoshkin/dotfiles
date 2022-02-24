@@ -22,11 +22,23 @@ alias rwp='rlwrap perl6'
 alias rb="ruby -I$HOME/dotfiles/scripts -rmine"
 alias irb="irb -I$HOME/dotfiles/scripts -rmine"
 
-alias ct='cargo test -- --test-threads='$(nproc)
+case $OSTYPE in
+    darwin*)
+        NPROC=$(sysctl -n hw.ncpu)
+        ;;
+    linux*)
+        NPROC=$(nproc)
+        ;;
+    *)
+        >&2 echo === Uknown OSTYPE: $OSTYPE ===;
+        NPROC=4 # let's hope for the best
+esac
+
+alias ct="cargo test -- --test-threads=${NPROC}"
 
 alias cbr='cargo build --release'
 
-NJOBS="$(( ( $(nproc) * 3 + 5 - 1 ) / 5 ))" # (x * a + b - 1) / b == ceiling(x * a/b)
+NJOBS="$(( ( ${NPROC} * 3 + 5 - 1 ) / 5 ))" # (x * a + b - 1) / b == ceiling(x * a/b)
 
 alias cmgui="cmake \
     -DCMAKE_BUILD_TYPE=Debug \
