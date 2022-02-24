@@ -1,7 +1,9 @@
 #!/bin/bash
 
 DIRNAME="$(dirname $0)"
-CWD="$(readlink -f $DIRNAME)"
+>/dev/null pushd $DIRNAME || { >&2 echo === WTF ===; exit 1; }
+CWD="$(pwd)"
+>/dev/null popd
 HOME=${HOME:-~}
 
 function backup_original {
