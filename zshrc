@@ -44,6 +44,7 @@ appendToPath "$HOME/code/table-driven-testing-tool/target/debug"
 appendToPath "$HOME/gocode/bin"
 appendToPath "$HOME/.rocks/bin"
 prependToPath "/opt/homebrew/bin"
+prependToPath "/opt/homebrew/opt/llvm/bin"
 
 source "$DOTFILES/rakudobrew_init.zsh"
 rakudobrew switch &>/dev/null
@@ -86,3 +87,9 @@ export WORKON_HOME="${HOME}/.virtualenvs"
 # eval "$(pip completion --zsh)"
 
 # End of lines added by compinstall
+
+HOMEBREW_LLVM_PATH=/opt/homebrew/opt/llvm
+[ -d "${HOMEBREW_LLVM_PATH}" ] && {
+    export LDFLAGS="-L${HOMEBREW_LLVM_PATH}/lib"
+    export CPPFLAGS="-I${HOMEBREW_LLVM_PATH}/include"
+}
