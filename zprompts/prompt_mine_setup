@@ -28,6 +28,14 @@ prompt_mine_setup () {
     prompt_gfx_blc='╰'
     prompt_gfx_hyphen='─'
 
+    if (( ${#prompt_gfx_blc} > 1 )); then
+        # no adequate unicode support
+        prompt_gfx_tlc='/'
+        prompt_gfx_mlc='|'
+        prompt_gfx_blc='\'
+        prompt_gfx_hyphen='-'
+    fi
+
     # Colour scheme
     prompt_mine_clr_delim=${1:-'black'}
     prompt_mine_clr_cwd=${2:-'blue'}
