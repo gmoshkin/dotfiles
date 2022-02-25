@@ -43,8 +43,8 @@ appendToPath "$HOME/.local/bin"
 appendToPath "$HOME/code/table-driven-testing-tool/target/debug"
 appendToPath "$HOME/gocode/bin"
 appendToPath "$HOME/.rocks/bin"
-prependToPath "/opt/homebrew/bin"
 prependToPath "/opt/homebrew/opt/llvm/bin"
+prependToPath "/opt/homebrew/bin"
 
 source "$DOTFILES/rakudobrew_init.zsh"
 rakudobrew switch &>/dev/null
