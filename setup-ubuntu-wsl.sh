@@ -34,6 +34,7 @@ sudo apt install \
     vim \
     ruby \
     python3 python3-pip python-is-python3 \
+    luajit libluajit-5.1-dev luarocks \
     || die "failed to get apt packages"
 
 ################################################################################
