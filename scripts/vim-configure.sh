@@ -1,4 +1,7 @@
 #!/bin/bash
+
+LOCAL_PREFIX="${HOME}/.local"
+
 FEATURE="--with-features=huge"
 FEATURES=(
     "cscope"
@@ -31,9 +34,28 @@ for feature in ${FEATURES[@]}; do
     ENABLEFEATURES="${ENABLEFEATURES} --enable-${feature}"
 done
 
-LUAJIT="--with-luajit" # requires lib-luajit-5.1-dev
+function warn {
+    echo -e "\x1b[33m=== WARNING === $@\x1b[0m"
+}
 
-PREFIX="--prefix=$HOME/.local"
+# luajit #######################################################################
+
+LUAJIT="--with-luajit" # requires lib-luajit-5.1-dev AND luajit
+
+LUAJIT_HEADER="$(find /usr/include -name luajit.h | head -1)"
+[ -z "${LUAJIT_HEADER}" ] && {
+    warn "Couldn't find luajit.h in /usr/include/...";
+} || [ -f /usr/include/luajit.h ] || {
+    warn "No luajit.h in /usr/include/, gonna try to link it";
+    sudo ln -s "$(dirname ${LUAJIT_HEADER})"/l*.h* /usr/include;
+}
+
+# ./configure ##################################################################
+
+PREFIX="--prefix=${LOCAL_PREFIX}"
 
 rm -f src/auto/config.cache
-./configure $PREFIX $FEATURE $ENABLEFEATURES $ENABLEINTERPS $GUI $PYTHON3COMMAND $PYTHON3CONF $LUAJIT $@
+./configure $PREFIX $FEATURE $ENABLEFEATURES $ENABLEINTERPS $GUI \
+        $PYTHON3COMMAND $PYTHON3CONF \
+        $LUAJIT \
+        $@
