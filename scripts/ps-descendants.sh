@@ -23,7 +23,7 @@ descendants() {
     done
 }
 
-export FUNCNEST=10
+export FUNCNEST=20
 
 if [ -n "$2" ]; then
     descendants ${PID}
