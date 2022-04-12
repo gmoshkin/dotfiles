@@ -23,9 +23,9 @@ fi
 # Emacs style key-bindings
 # gsettings set org.gnome.desktop.interface gtk-key-theme "Emacs"
 
-appendToPath "$DOTFILES/rakudobrew/bin"
-source "$DOTFILES/rakudobrew_init.bash"
-rakudobrew switch &>/dev/null
+appendToPath "$DOTFILES/rakubrew/bin"
+source "$DOTFILES/rakubrew_init.bash"
+rakubrew switch &>/dev/null
 
 source "$DOTFILES/env.sh"
 source "$DOTFILES/aliases.sh"

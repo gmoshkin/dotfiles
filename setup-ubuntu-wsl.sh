@@ -194,21 +194,32 @@ for target in \
 }
 
 ################################################################################
-## rakudobrew
+## rakubrew
+
+# XXX: latest changes aren't tested yet
+
+RAKU_TOOL=rakubrew
+RAKU_URL="https://${RAKU_TOOL}.org/install-on-perl.sh"
+RAKU_ROOT="$HOME/.${RAKU_TOOL}"
+RAKU_INIT="$HOME/dotfiles/${RAKU_TOOL}_init.bash"
 
 [ hash raku 2>/dev/null ] && {
     info "'raku' exists, won't build";
 } || {
-    export PATH="$PATH:$HOME/dotfiles/rakudobrew/bin";
-    source ~/dotfiles/rakudobrew_init.bash;
+    [ -d "${RAKU_ROOT}" ] || {
+        curl "${RAKU_URL}" | sh \
+            || die "failed to download ${RAKU_TOOL}";
+    };
+    export PATH="$PATH:${RAKU_ROOT}/bin";
+    source "$RAKU_INIT";
 
-    [ -d ~/dotfiles/rakudobrew/versions/moar-blead ] && {
+    [ -d "${RAKU_ROOT}/versions/moar-blead" ] && {
         info "raku moar-blead already built";
     } || {
-        rakudobrew build moar-blead \
+        "$RAKU_TOOL" build moar-blead \
             || die "failed to build 'raku moar-blead'";
     }
-    rakudobrew switch moar-blead;
-    rakudobrew build-zef \
+    "$RAKU_TOOL" switch moar-blead;
+    "$RAKU_TOOL" build-zef \
         || die "failed to build 'zef'";
 }

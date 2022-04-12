@@ -38,7 +38,7 @@ appendToPath "$DOTFILES/scripts"
 prependToPath "$HOME/.cargo/bin"
 appendToPath "$HOME/.perl6/bin"
 prependToPath "$HOME/.local/share/perl6/site/bin"
-appendToPath "$DOTFILES/rakudobrew/bin"
+appendToPath "$HOME/.rakubrew/bin"
 prependToPath "$HOME/.local/bin"
 appendToPath "$HOME/code/table-driven-testing-tool/target/debug"
 prependToPath "$HOME/gocode/bin"
@@ -46,8 +46,8 @@ appendToPath "$HOME/.rocks/bin"
 prependToPath "/opt/homebrew/opt/llvm/bin"
 prependToPath "/opt/homebrew/bin"
 
-source "$DOTFILES/rakudobrew_init.zsh"
-rakudobrew switch &>/dev/null
+source "$DOTFILES/rakubrew_init.zsh"
+rakubrew switch &>/dev/null
 
 source "$DOTFILES/aliases.sh"
 
