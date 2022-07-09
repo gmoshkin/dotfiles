@@ -45,6 +45,7 @@ prependToPath "$HOME/gocode/bin"
 appendToPath "$HOME/.rocks/bin"
 prependToPath "/opt/homebrew/opt/llvm/bin"
 prependToPath "/opt/homebrew/bin"
+prependToPath "$HOME/.nimble/bin"
 
 source "$DOTFILES/rakubrew_init.zsh"
 rakubrew switch &>/dev/null
