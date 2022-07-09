@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+# github.com/nsf/termbox
 import termbox
 from random import randint, random, choice
 from math import pi, sin, cos, ceil
 from itertools import zip_longest
 from argparse import ArgumentParser
 from collections import defaultdict
+# pip install Pillow
 from PIL import Image
 from time import sleep
 from datetime import datetime
