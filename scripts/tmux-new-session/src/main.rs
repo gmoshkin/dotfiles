@@ -22,7 +22,7 @@ fn body() -> Result<(), Box<dyn std::error::Error>> {
         .collect::<std::collections::HashMap<_, _>>();
 
     for n in 1.. {
-        let session = filename.split(|c: char| !c.is_alphabetic())
+        let session = filename.split(|c: char| !c.is_alphanumeric())
             .flat_map(|s| s.get(0..(n.min(s.len()))))
             .collect::<Vec<_>>()
             .join("");
