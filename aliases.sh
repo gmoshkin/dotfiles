@@ -95,3 +95,5 @@ alias carstart="cartridge start"
 alias carinfo="cartridge status"
 alias carbuild="cartridge build"
 alias carreplicasets="cartridge replicasets"
+
+alias ipython3.10="python3.10 -m IPython"
