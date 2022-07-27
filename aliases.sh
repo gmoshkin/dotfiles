@@ -38,6 +38,8 @@ alias ct="cargo test -- --test-threads=${NPROC}"
 
 alias cbr='cargo build --release'
 
+alias cwr='cargo metadata --format-version=1 | jq ".workspace_root" -r'
+
 NJOBS="$(( ( ${NPROC} * 3 + 5 - 1 ) / 5 ))" # (x * a + b - 1) / b == ceiling(x * a/b)
 
 alias cmgui="cmake \
