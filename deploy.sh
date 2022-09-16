@@ -175,6 +175,13 @@ function deploy_nvim {
     link nvim ~/.config
 }
 
+function deploy_cargo {
+    # who wrote this??!?
+    link cargo/config.toml ~/.cargo config.toml
+    #    ^^^^^^^^^^^^^^^^^ ^^^^^^^^ ^^^^^^^^^^^
+    #    src file          dst dir  dst filename
+}
+
 function print_help {
     cat << EOF
 Usage:
@@ -213,6 +220,7 @@ modules=(
     zsh
     kak
     nvim
+    cargo
 )
 
 function deploy_all {
