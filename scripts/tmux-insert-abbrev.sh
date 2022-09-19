@@ -22,6 +22,7 @@ match_default() {
         ['(>']='⊃'
         ['(&']='∩'
         ['(|']='∪'
+        ['zw']='​'
     )
     tmux send-keys ${ABBREVS["$1"]}
 }
