@@ -46,6 +46,8 @@ appendToPath "$HOME/.rocks/bin"
 prependToPath "/opt/homebrew/opt/llvm/bin"
 prependToPath "/opt/homebrew/bin"
 prependToPath "$HOME/.nimble/bin"
+prependToPath "$HOME/.cargo-target/release"
+prependToPath "$HOME/.cargo-target/debug"
 
 source "$DOTFILES/rakubrew_init.zsh"
 rakubrew switch &>/dev/null
@@ -94,3 +96,5 @@ HOMEBREW_LLVM_PATH=/opt/homebrew/opt/llvm
     export LDFLAGS="-L${HOMEBREW_LLVM_PATH}/lib"
     export CPPFLAGS="-I${HOMEBREW_LLVM_PATH}/include"
 }
+
+export LUA_CPATH="$HOME/.cargo-target/debug/lib?.so;$HOME/.cargo-target/release/lib?.so"
