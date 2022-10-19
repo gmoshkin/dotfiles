@@ -1,0 +1,4 @@
+{
+    "coc.preferences.useQuickfixForLocations": true,
+    "Lua.workspace.preloadFileSize": 1000
+}
