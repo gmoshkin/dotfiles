@@ -4,12 +4,12 @@ fn body() -> Result<(), Box<dyn std::error::Error>> {
 
     let path = std::path::Path::new(raw.trim());
 
-    let full_path = path.to_str().ok_or_else(|| format!("{path:?} is not str"))?;
+    let full_path = path.to_str().ok_or_else(|| format!("{:?} is not str", path))?;
 
     let filename = path.file_name()
-        .ok_or_else(|| format!("{path:?} has no filename"))?
+        .ok_or_else(|| format!("{:?} has no filename", path))?
         .to_str()
-        .ok_or_else(|| format!("{path:?}.filename is not str"))?;
+        .ok_or_else(|| format!("{:?}.filename is not str", path))?;
 
     let raw = std::process::Command::new("tmux")
         .args(["display", "-p", "#{S:#{P:#{?#{==:#P,0},#S:#{pane_current_path};,}}}"])
@@ -38,7 +38,7 @@ fn body() -> Result<(), Box<dyn std::error::Error>> {
                 break
             }
             Some(p) => {
-                println!("{p} != {full_path}, trying again");
+                println!("{} != {}, trying again", p, full_path);
                 continue
             }
         }
