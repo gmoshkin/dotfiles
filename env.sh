@@ -26,3 +26,4 @@ if type rg &>/dev/null; then
 fi
 
 export CLICOLOR=YES
+export RUST_BACKTRACE=1
