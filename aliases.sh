@@ -34,7 +34,9 @@ case $OSTYPE in
         NPROC=4 # let's hope for the best
 esac
 
-alias ct="cargo test -- --test-threads=${NPROC}"
+# doesn't work with custom test binaries
+# alias ct="cargo test -- --test-threads=${NPROC}"
+alias ct="cargo test --"
 
 alias cbr='cargo build --release'
 
