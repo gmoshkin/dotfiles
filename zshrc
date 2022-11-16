@@ -81,6 +81,10 @@ source "$DOTFILES/fzf-init.sh" && {
     echo 'fzf is not installed'
 }
 
+source "$DOTFILES/asdf/asdf.sh" || {
+    echo 'asdf.sh failed, update submodules or something'
+}
+
 [ -f /usr/share/z/z.sh ] && source /usr/share/z/z.sh
 
 export WORKON_HOME="${HOME}/.virtualenvs"
