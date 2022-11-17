@@ -187,3 +187,18 @@ function M {
 function md {
     mkdir -p $1 && cd $1
 }
+
+function rep {
+    [ "$#" = 0 ] && { echo provide a command pls; return 1 }
+    while $@; do
+        echo
+        echo '\x1b[35m██████▄   ██████  ██████▄   ██████   █████   ██████\x1b[0m'
+        echo '\x1b[35m██    ██  ██      ██    ██  ██      ██   ██    ██\x1b[0m'
+        echo '\x1b[35m██    ██  ██      ██    ██  ██      ██   ██    ██\x1b[0m'
+        echo '\x1b[35m███████   ██████  ██████▀   ██████  ███████    ██\x1b[0m'
+        echo '\x1b[35m██    ██  ██      ██        ██      ██   ██    ██\x1b[0m'
+        echo '\x1b[35m██    ██  ██      ██ REPEAT ██      ██   ██    ██\x1b[0m'
+        echo '\x1b[35m██    ██  ██████  ██        ██████  ██   ██    ██\x1b[0m'
+        echo
+    done
+}
