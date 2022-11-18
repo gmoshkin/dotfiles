@@ -12,6 +12,8 @@
 	cb          = rev-parse --abbrev-ref HEAD
 	curhash     = rev-parse --verify HEAD
 	cp          = cherry-pick
+	cpc         = cherry-pick --continue
+	cpa         = cherry-pick --abort
 	d           = diff
 	dc          = diff --cached
 	f           = fetch
