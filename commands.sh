@@ -211,3 +211,8 @@ function crep {
         tmux clear-history -t "$TMUX_PANE"
     done
 }
+
+function tclear {
+    clear
+    tmux clear-history -t "$TMUX_PANE"
+}
