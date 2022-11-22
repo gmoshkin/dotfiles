@@ -203,3 +203,11 @@ function rep {
         echo
     done
 }
+
+function crep {
+    [ "$#" = 0 ] && { echo provide a command pls; return 1 }
+    while $@; do
+        clear
+        tmux clear-history -t "$TMUX_PANE"
+    done
+}
