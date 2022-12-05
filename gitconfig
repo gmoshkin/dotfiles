@@ -29,6 +29,7 @@
 	ri          = rebase --interactive
 	rc          = rebase --continue
 	ra          = rebase --abort
+	ro          = rebase --onto
 	lg          = log --graph
 	logg        = log --graph
 	l1          = log --oneline
