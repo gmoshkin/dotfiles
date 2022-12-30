@@ -1,5 +1,7 @@
 alias g='git'
-cargo run --manifest-path $HOME/dotfiles/scripts/aliases/Cargo.toml \
+cargo \
+    --config 'build.target-dir="/tmp/aliases"' \
+    run --manifest-path $HOME/dotfiles/scripts/aliases/Cargo.toml \
     2>/dev/null |
         while read alias; do
             eval $alias;
