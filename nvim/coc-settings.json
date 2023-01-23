@@ -1,4 +1,6 @@
 {
-    "coc.preferences.useQuickfixForLocations": true,
-    "Lua.workspace.preloadFileSize": 1000
+    "Lua.workspace.preloadFileSize": 1000,
+    "Lua.runtime.version": "LuaJIT",
+    "Lua.diagnostics.disable": [ "redefined-local" ],
+    "coc.preferences.useQuickfixForLocations": true
 }
