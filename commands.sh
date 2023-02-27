@@ -216,3 +216,8 @@ function tclear {
     clear
     tmux clear-history -t "$TMUX_PANE"
 }
+
+function wpath {
+    echo $1 | sed 's|^/mnt/d|D:|g;s|^/mnt/c|C:|g;s|/|\\\\|g'
+}
+
