@@ -11,6 +11,9 @@ cscope.*
 .clangd
 tags
 Cargo.lock
+.cache/clangd
+.vim/coc-settings.json
+.luarc.json
 
 ed/diff/tools/data/
 lde/diff2/
