@@ -1,0 +1,261 @@
+use std::collections::HashMap;
+use std::os::unix::net::UnixStream;
+use std::io::Read;
+use std::io::Write;
+
+#[derive(Debug, serde::Deserialize)]
+#[allow(dead_code)]
+struct Resp<T> {
+    msg_type: u32,
+    sync: u32,
+    err: Option<(i32, String)>,
+    value: T,
+}
+
+const MSG_TYPE_REQ: u32 = 0;
+
+#[derive(Debug, serde::Serialize)]
+struct Req {
+    msg_type: u32,
+    sync: u32,
+    proc: &'static str,
+    args: Vec<Value>,
+}
+
+impl Req {
+    fn arg(mut self, a: impl Into<Value>) -> Self {
+        self.args.push(a.into());
+        self
+    }
+}
+
+macro_rules! req {
+    ($proc:expr $(,$arg:expr)* $(,)?) => {
+        Req {
+            msg_type: MSG_TYPE_REQ,
+            sync: 420,
+            proc: $proc,
+            args: vec![ $( $arg.into() ),* ],
+        }
+    }
+}
+
+macro_rules! tmux {
+    ($($arg:expr),+ $(,)?) => {{
+        let cmd_out = std::process::Command::new("tmux")
+            .args([$($arg, )+])
+            .output().unwrap();
+        String::from_utf8_lossy(&cmd_out.stdout).trim().to_string()
+    }}
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+enum Value {
+    Str(String),
+    Int(i64),
+    Ext(Ext),
+    Bool(bool),
+}
+
+#[derive(Debug)]
+struct Ext {
+    kind: u8,
+    bytes: Vec<u8>,
+}
+
+impl Ext {
+    const KIND_BUF: u8 = 0;
+    const KIND_WIN: u8 = 1;
+
+    fn buf(&self) -> Option<i64> {
+        if self.kind != Self::KIND_BUF {
+            return None;
+        }
+        Some(rmp_serde::from_slice(&self.bytes).unwrap())
+    }
+
+    fn win(&self) -> Option<i64> {
+        if self.kind != Self::KIND_WIN {
+            return None;
+        }
+        Some(rmp_serde::from_slice(&self.bytes).unwrap())
+    }
+}
+
+impl serde::Serialize for Ext {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        #[derive(serde::Serialize)]
+        struct _ExtStruct((u8, serde_bytes::ByteBuf));
+        _ExtStruct((self.kind, serde_bytes::ByteBuf::from(&*self.bytes))).serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Ext {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        struct _ExtStruct((u8, serde_bytes::ByteBuf));
+
+        let _ExtStruct((kind, bytes)) = serde::Deserialize::deserialize(deserializer)?;
+        let bytes = bytes.into_vec();
+        Ok(Ext { kind, bytes })
+    }
+}
+
+
+impl<'a> From<&'a str> for Value { fn from(v: &'a str) -> Self { Self::Str(v.into()) } }
+impl     From<String > for Value { fn from(v: String ) -> Self { Self::Str(v)        } }
+impl     From<i64    > for Value { fn from(v: i64    ) -> Self { Self::Int(v)        } }
+impl     From<bool   > for Value { fn from(v: bool   ) -> Self { Self::Bool(v)       } }
+
+fn main() {
+    let mut args = std::env::args();
+    args.next();
+    let mut open_file_line_col = None;
+    while let Some(arg) = args.next() {
+        // dbg!(&arg);
+        match &*arg {
+            "open" => {
+                let arg = args.next().expect("expected argument after 'open'");
+                let mut iter = arg.split(':');
+                let filename = iter.next().expect("expected a filename");
+                if filename.is_empty() {
+                    // TODO: read copy_cursor_line, copy_cursor_column
+                    panic!("expected non empty filename")
+                }
+                let mut file_line_col = (filename.to_owned(), None, None);
+                if let Some(line) = iter.next() {
+                    let line = line.parse::<u64>().expect("expected line number after <filename>:{here}");
+                    file_line_col.1 = Some(line);
+                }
+                if let Some(col) = iter.next() {
+                    let col = col.parse::<u64>().expect("expected column number after <file>:<line>:{here}");
+                    file_line_col.2 = Some(col);
+                }
+                open_file_line_col = Some(file_line_col);
+            }
+            unknown => {
+                panic!("unknown command: '{unknown}'");
+            }
+        }
+    }
+
+    let my_pane_id =
+        if let Ok(tmux_pane) = std::env::var("TMUX_PANE") {
+            tmux_pane
+        } else {
+            tmux!["display", "-p", "#D"]
+        };
+    // dbg!(&my_pane_id);
+
+    let cmd_out = tmux!["list-panes", "-aF", "#D:#S"];
+    let mut my_sess_name = "";
+    let mut sess_by_pane_id = HashMap::new();
+    for line in cmd_out.lines() {
+        let (pane_id, sess_name) = line.split_once(':').unwrap();
+        sess_by_pane_id.insert(pane_id, sess_name);
+        if pane_id == my_pane_id {
+            my_sess_name = sess_name;
+        }
+    }
+
+    let mut nvim_conn_and_pane = None;
+    for dir_entry in std::fs::read_dir("/tmp").unwrap() {
+        let dir_entry = dir_entry.unwrap();
+        if !dir_entry.file_type().unwrap().is_dir() {
+            continue;
+        }
+        let file_path = dir_entry.path();
+        let file_name = file_path.file_name().unwrap();
+        if !file_name.to_str().unwrap().starts_with("nvim") {
+            continue;
+        }
+
+        let sock_path = file_path.join("0");
+        if !sock_path.try_exists().unwrap() {
+            continue;
+        }
+
+        let res = UnixStream::connect(&sock_path);
+        let Ok(mut conn) = res else {
+            continue;
+        };
+        // conn.set_read_timeout(Some(std::time::Duration::from_millis(500))).unwrap();
+        let req = Req {
+            msg_type: MSG_TYPE_REQ,
+            sync: 420,
+            proc: "nvim_eval",
+            args: vec!["$TMUX_PANE".into()],
+        };
+
+        let nvim_pane: String = rpc(&mut conn, &req);
+        let Some(nvim_sess) = sess_by_pane_id.get(&*nvim_pane) else {
+            eprintln!("'{}' is not a known tmux pane", nvim_pane);
+            continue;
+        };
+
+        if *nvim_sess == my_sess_name {
+            println!("socket: {}", sock_path.display());
+            nvim_conn_and_pane = Some((conn, nvim_pane));
+            break;
+        }
+    }
+
+    let Some((mut nvim_conn, nvim_pane)) = nvim_conn_and_pane else {
+        panic!("nvim is not running in current tmux session '{my_sess_name}'");
+    };
+
+    if let Some((file, line, col)) = open_file_line_col {
+        let mut cmd = "e ".to_owned();
+        if !file.starts_with("/") && !file.starts_with("~") {
+            let dir = tmux!["display", "-p", "#{pane_current_path}"];
+            cmd.push_str(&format!("{dir}/{file}"));
+        } else {
+            cmd.push_str(&file);
+        }
+        if let Some(line) = line { cmd.push_str(&format!(" | {line}")); }
+        if let Some(col) = col { cmd.push_str(&format!(" | normal {col}|")); }
+        let req = req!("nvim_exec", cmd, 0);
+        let resp: Value = rpc(&mut nvim_conn, &req);
+        // dbg!(resp);
+
+        tmux!["select-pane", "-t", &nvim_pane];
+    } else {
+        panic!("no command")
+    }
+}
+
+#[track_caller]
+fn rpc<R>(conn: &mut UnixStream, req: &Req) -> R
+where
+    for<'a> R: serde::Deserialize<'a>,
+{
+    conn.write_all(&rmp_serde::to_vec(&req).unwrap()).unwrap();
+    let mut data = vec![0_u8; 1024 * 1024];
+    let mut n_bytes_received = 0;
+    let response: Resp<Option<R>> = loop {
+        n_bytes_received += conn.read(&mut data).unwrap();
+        let data_so_far = &data[0..n_bytes_received];
+        let res = rmp_serde::from_slice(data_so_far);
+        match res {
+            Ok(resp) => { break resp; }
+            Err(rmp_serde::decode::Error::InvalidDataRead(_) | rmp_serde::decode::Error::InvalidMarkerRead(_)) => {
+                // ignore
+                continue;
+            }
+            Err(e) => {
+                panic!("ERROR: {e}\ngot: {:?}\nraw: {:#02x?}", rmp_serde::from_slice::<rmpv::Value>(data_so_far).unwrap(), data_so_far);
+            }
+        }
+    };
+    if let Some((code, msg)) = response.err {
+        panic!("{code}: {msg}");
+    }
+    response.value.unwrap()
+}
