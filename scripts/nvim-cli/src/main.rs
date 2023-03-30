@@ -123,22 +123,46 @@ fn main() {
         match &*arg {
             "open" => {
                 let arg = args.next().expect("expected argument after 'open'");
-                let mut iter = arg.split(':');
-                let filename = iter.next().expect("expected a filename");
-                if filename.is_empty() {
-                    // TODO: read copy_cursor_line, copy_cursor_column
-                    panic!("expected non empty filename")
+                if !arg.is_empty() {
+                    let mut iter = arg.split(':');
+                    let filename = iter.next().expect("expected a filename");
+                    let mut file_line_col = (filename.to_owned(), None, None);
+                    if let Some(line) = iter.next() {
+                        let line = line.parse::<u64>().expect("expected line number after <filename>:{here}");
+                        file_line_col.1 = Some(line);
+                    }
+                    if let Some(col) = iter.next() {
+                        let col = col.parse::<u64>().expect("expected column number after <file>:<line>:{here}");
+                        file_line_col.2 = Some(col);
+                    }
+
+                    open_file_line_col = Some(file_line_col);
+                // } else {
+                //     let out = tmux!["display", "-p", "#{copy_cursor_x}@#{copy_cursor_line}"];
+                //     let (col, line_contents) = out.split_once("@").unwrap();
+                //     if line_contents.is_empty() {
+                //         panic!("expected non empty filename")
+                //     }
+
+                //     let col = col.parse::<usize>().unwrap();
+                //     let mut filename = String::from("");
+                //     if let Some(first) = line_contents.find(|c| !is_file_loc_char(c)) {
+
+                //     }
+                //     else {
+                //         // whole line is a file loc <file>:<line>:<col>
+                //         filename = line_contents.into();
+                //     };
+
+                //     dbg!(first);
+                //     if first > col {
+                //         dbg!(&line_contents[0..first]);
+                //     }
+
+                //     dbg!(col, line_contents);
+                //     // TODO: read copy_cursor_line, copy_cursor_x
+                //     panic!("expected non empty filename")
                 }
-                let mut file_line_col = (filename.to_owned(), None, None);
-                if let Some(line) = iter.next() {
-                    let line = line.parse::<u64>().expect("expected line number after <filename>:{here}");
-                    file_line_col.1 = Some(line);
-                }
-                if let Some(col) = iter.next() {
-                    let col = col.parse::<u64>().expect("expected column number after <file>:<line>:{here}");
-                    file_line_col.2 = Some(col);
-                }
-                open_file_line_col = Some(file_line_col);
             }
             unknown => {
                 panic!("unknown command: '{unknown}'");
@@ -258,4 +282,9 @@ where
         panic!("{code}: {msg}");
     }
     response.value.unwrap()
+}
+
+// <file>:<line>:<col>
+fn is_file_loc_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '-' || c == '_' || c == '/' || c == ':' || c == '.'
 }
