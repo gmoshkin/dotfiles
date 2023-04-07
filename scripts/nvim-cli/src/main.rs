@@ -122,47 +122,65 @@ fn main() {
         // dbg!(&arg);
         match &*arg {
             "open" => {
+                let file_line_col_raw: String;
+
                 let arg = args.next().expect("expected argument after 'open'");
-                if !arg.is_empty() {
-                    let mut iter = arg.split(':');
-                    let filename = iter.next().expect("expected a filename");
-                    let mut file_line_col = (filename.to_owned(), None, None);
-                    if let Some(line) = iter.next() {
+                'get_file_line_col_raw: {
+                    if arg.is_empty() {
+                        let out = tmux!["display", "-p", "#{copy_cursor_x}@#{copy_cursor_line}"];
+                        let (crsr_col, line_contents) = out.split_once("@").unwrap();
+                        if line_contents.is_empty() {
+                            panic!("empty line")
+                        }
+
+                        let crsr_col = crsr_col.parse::<usize>().unwrap();
+                        let Some(first) = line_contents.find(|c| !is_file_loc_char(c)) else {
+                            // whole line is a file loc <file>:<line>:<col>
+                            file_line_col_raw = line_contents.into();
+                            break 'get_file_line_col_raw;
+                        };
+
+                        let mut start = 0;
+                        let mut end = first;
+                        let line_end = line_contents.len();
+                        loop {
+                            dbg!(start..end, &line_contents[start..end], crsr_col);
+                            if start > crsr_col {
+                                panic!("couldn't find filename in line '{line_contents}'")
+                            }
+                            if end > crsr_col {
+                                file_line_col_raw = line_contents[start..end].into();
+                                break 'get_file_line_col_raw;
+                            }
+                            let Some(new_start) = line_contents[end + 1..].find(|c| is_file_loc_char(c)) else {
+                                panic!("couldn't find filename in line '{line_contents}'")
+                            };
+                            start = end + 1 + new_start;
+                            let new_end = line_contents[start..].find(|c| !is_file_loc_char(c)).unwrap_or_else(|| line_end - start);
+                            end = start + new_end;
+                        }
+                    } else {
+                        file_line_col_raw = arg.into();
+                    }
+                }
+
+                let mut iter = file_line_col_raw.split(':');
+                let filename = iter.next().expect("expected a filename");
+                let mut file_line_col = (filename.to_owned(), None, None);
+                if let Some(line) = iter.next() {
+                    if !line.is_empty() {
                         let line = line.parse::<u64>().expect("expected line number after <filename>:{here}");
                         file_line_col.1 = Some(line);
                     }
-                    if let Some(col) = iter.next() {
+                }
+                if let Some(col) = iter.next() {
+                    if !col.is_empty() {
                         let col = col.parse::<u64>().expect("expected column number after <file>:<line>:{here}");
                         file_line_col.2 = Some(col);
                     }
-
-                    open_file_line_col = Some(file_line_col);
-                // } else {
-                //     let out = tmux!["display", "-p", "#{copy_cursor_x}@#{copy_cursor_line}"];
-                //     let (col, line_contents) = out.split_once("@").unwrap();
-                //     if line_contents.is_empty() {
-                //         panic!("expected non empty filename")
-                //     }
-
-                //     let col = col.parse::<usize>().unwrap();
-                //     let mut filename = String::from("");
-                //     if let Some(first) = line_contents.find(|c| !is_file_loc_char(c)) {
-
-                //     }
-                //     else {
-                //         // whole line is a file loc <file>:<line>:<col>
-                //         filename = line_contents.into();
-                //     };
-
-                //     dbg!(first);
-                //     if first > col {
-                //         dbg!(&line_contents[0..first]);
-                //     }
-
-                //     dbg!(col, line_contents);
-                //     // TODO: read copy_cursor_line, copy_cursor_x
-                //     panic!("expected non empty filename")
                 }
+
+                open_file_line_col = Some(file_line_col);
             }
             unknown => {
                 panic!("unknown command: '{unknown}'");
@@ -286,5 +304,5 @@ where
 
 // <file>:<line>:<col>
 fn is_file_loc_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '-' || c == '_' || c == '/' || c == ':' || c == '.'
+    c.is_alphanumeric() || c == '-' || c == '_' || c == '/' || c == ':' || c == '.' || c == '~'
 }
