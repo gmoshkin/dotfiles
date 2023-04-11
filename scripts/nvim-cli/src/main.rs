@@ -167,17 +167,38 @@ fn main() {
                 let mut iter = file_line_col_raw.split(':');
                 let filename = iter.next().expect("expected a filename");
                 let mut file_line_col = (filename.to_owned(), None, None);
-                if let Some(line) = iter.next() {
-                    if !line.is_empty() {
-                        let line = line.parse::<u64>().expect("expected line number after <filename>:{here}");
-                        file_line_col.1 = Some(line);
+                let mut line_str = "";
+                let mut col_str = "";
+                let mut col_sep = "";
+                if let Some(after_file) = iter.next() {
+                    if let Some((line, col)) = after_file.split_once(',') {
+                        line_str = line;
+                        col_str = col;
+                        col_sep = ",";
+                    } else {
+                        line_str = after_file;
                     }
                 }
-                if let Some(col) = iter.next() {
-                    if !col.is_empty() {
-                        let col = col.parse::<u64>().expect("expected column number after <file>:<line>:{here}");
-                        file_line_col.2 = Some(col);
+                if col_str.is_empty() {
+                    if let Some(col) = iter.next() {
+                        col_str = col;
+                        col_sep = ":";
                     }
+                }
+                if !line_str.is_empty() {
+                    let line = line_str.parse::<u64>().expect("expected line number after <filename>:{here}");
+                    file_line_col.1 = Some(line);
+                }
+                if !col_str.is_empty() {
+                    let col = match col_str.parse::<u64>() {
+                        Ok(col) => col,
+                        Err(e) => {
+                            println!("{e}");
+                            println!("expected column number after <file>:<line>{col_sep}{{here}}");
+                            std::process::exit(1);
+                        }
+                    };
+                    file_line_col.2 = Some(col);
                 }
 
                 open_file_line_col = Some(file_line_col);
@@ -302,7 +323,7 @@ where
     response.value.unwrap()
 }
 
-// <file>:<line>:<col>
+// <file>:<line>:<col> | or <file>:<line>,<col> like in Jai
 fn is_file_loc_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '-' || c == '_' || c == '/' || c == ':' || c == '.' || c == '~'
+    c.is_alphanumeric() || c == '-' || c == '_' || c == '/' || c == ':' || c == '.' || c == '~' || c == ','
 }
