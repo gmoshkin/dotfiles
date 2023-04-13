@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::os::unix::net::UnixStream;
 use std::io::Read;
 use std::io::Write;
+use std::process::exit;
 
 #[derive(Debug, serde::Deserialize)]
 #[allow(dead_code)]
@@ -152,7 +153,16 @@ fn main() {
                                 file_line_col_raw = line_contents[start..end].into();
                                 break 'get_file_line_col_raw;
                             }
-                            let Some(new_start) = line_contents[end + 1..].find(|c| is_file_loc_char(c)) else {
+                            // need to do this because line_contents[end + 1..]
+                            // may panic if end + 1 points in the middle of a
+                            // multibyte unicode character
+                            let Some(end_char) = line_contents.chars().skip(end).next() else {
+                                println!("couldn't find filename in line '{line_contents}'");
+                                exit(1);
+                            };
+                            let end_char_len = end_char.len_utf8();
+                            let line_tail = &line_contents[end + end_char_len..];
+                            let Some(new_start) = line_tail.find(|c| is_file_loc_char(c)) else {
                                 panic!("couldn't find filename in line '{line_contents}'")
                             };
                             start = end + 1 + new_start;
