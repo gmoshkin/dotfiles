@@ -74,6 +74,9 @@ message_loop_goto_def :: (args: Commandline_Arguments) {
                 }
 
                 goto_def_ident :: (ident: *Code_Ident) -> should_continue := false {
+                    // TODO: polymorphic procs (and procs with overloads)
+                    // don't work currently, it jumps to the first matched proc
+                    // with the same name
                     decl := ident.resolved_declaration;
                     decl_loc := decl.location;
                     decl_file := "";
@@ -381,18 +384,6 @@ location_contains_line_and_col :: (using loc: Code_Node.Location, line: s32, col
     return true;
 }
 
-is_absolute_path :: (path: string) -> bool {
-    if !path return false;
-
-    if path[0] == #char "/"   return true;
-    if path[0] == #char "\\"  return true;
-    #if OS == .WINDOWS {
-        if path.count > 2 && path[1] == #char ":"  return true;
-    }
-
-    return false;
-}
-
 println :: () #expand {
     print("\n");
 }
@@ -436,7 +427,15 @@ parse_cli_args :: (args: *Commandline_Arguments, argv: [] string) {
     if mode_str == {
     case "goto_def"; args.mode = .GOTO_DEF;
     case "type_info"; args.mode = .TYPE_INFO;
-    case; println("mode '%' is not supported yet", mode_str); exit(1);
+    case;
+        println("mode '%' is not supported yet", mode_str);
+        enun_names := type_info(type_of(args.mode)).names;
+        printable_names := array_copy(array_view(enun_names, 1));
+        for printable_names {
+            to_lower_in_place(it);
+        }
+        println("choose one of these: %", printable_names);
+        exit(1);
     }
 
     argi += 1;
@@ -472,5 +471,6 @@ parse_cli_args :: (args: *Commandline_Arguments, argv: [] string) {
 
 #import "Program_Print";
 #import "Basic";
+#import "String";
 #import "File";
 #import "Compiler";
