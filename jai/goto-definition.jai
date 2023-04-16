@@ -17,55 +17,29 @@
     argv := opts.compile_time_command_line;
     println("args: %", argv);
 
-    argi := 0;
-    if argv.count < argi + 1 { println("expected a modename as first argument"); exit(1); }
-    mode_str := argv[argi];
-    mode : enum {
-        GOTO_DEF;
-        TYPE_INFO;
-    };
-    if mode_str == {
-    case "goto_def"; mode = .GOTO_DEF;
-    case "type_info"; mode = .TYPE_INFO;
-    case; println("mode '%' is not supported yet", mode_str); exit(1);
-    }
-
-    argi += 1;
-    if argv.count < argi + 1 { println("expected a filename as an argument"); exit(1); }
-    source_filename := argv[argi];
-    if !is_absolute_path(source_filename) {
-        cwd := get_working_directory();
-        source_filename = tprint("%/%", cwd, source_filename);
-    }
-
-    argi += 1;
-    if argv.count < argi + 1 { println("expected a line number, after filename"); exit(1); }
-    line_str := argv[argi];
-    num, ok := string_to_int(line_str, T = s32);
-    if !ok { println("expected a line number, got '%'", line_str); exit(1); }
-    line := num;
-
-    argi += 1;
-    if argv.count < argi + 1 { println("expected a column number, after line number"); exit(1); }
-    col_str := argv[argi];
-    num, ok = string_to_int(col_str, T = s32);
-    if !ok { println("expected a column number, got '%'", col_str); exit(1); }
-    col := num;
-
-    argi += 1;
-    if argv.count > argi {
-        println("WARNING: ignoring the rest of the args: %", array_view(argv, argi));
-    }
+    args : Commandline_Arguments;
+    parse_cli_args(*args, argv);
 
     compiler_begin_intercept(w);
     // TODO: probably here is where I can break the recursion, when running
     // this meta-program on itself. It's likely super simple to do, but I don't
     // see it yet
-    add_build_file(source_filename, w);
+    add_build_file(args.fully_pathed_filename, w);
 
     contexts_pushed : [..] Code_Push_Context;
     array_reserve(*contexts_pushed, 16);
 
+    if args.mode == {
+    case .GOTO_DEF; message_loop_goto_def(args);
+    case .TYPE_INFO; message_loop_type_info(args);
+    }
+
+    // println("args were: % % %", source_filename, line, col);
+
+    compiler_end_intercept(w);
+}
+
+message_loop_goto_def :: (args: Commandline_Arguments) {
     while true {
         msg := compiler_wait_for_message();
 
@@ -76,8 +50,7 @@
 
         case .TYPECHECKED; {
             msg_tc := cast(*Message_Typechecked) msg;
-            if mode == {
-              case .GOTO_DEF; for msg_tc.all for it.subexpressions {
+            for msg_tc.all for it.subexpressions {
                 expr := it;
 
                 // // TODO: #add_context doesn't seem to show up in here
@@ -93,10 +66,10 @@
                 if expr.enclosing_load {
                     filename = expr.enclosing_load.fully_pathed_filename;
                 }
-                if filename != source_filename {
+                if filename != args.fully_pathed_filename {
                     continue;
                 }
-                if !location_contains_line_and_col(expr.location, line, col) {
+                if !location_contains_line_and_col(expr.location, args.line, args.col) {
                     continue;
                 }
 
@@ -148,23 +121,42 @@
                     expr.kind,
                 );
 
-                if location_contains_line_and_col(loc, line, col) {
+                if location_contains_line_and_col(loc, args.line, args.col) {
                     println(" \e[32mcursor is here\e[0m");
                 } else {
                     println();
                 }
-              }
-              case .TYPE_INFO; for msg_tc.all for it.subexpressions {
+            }
+        }
+
+        case;
+            // println("ignoring msg: %", <<msg);
+        }
+    }
+}
+
+message_loop_type_info :: (args: Commandline_Arguments) {
+    while true {
+        msg := compiler_wait_for_message();
+
+        if msg.kind == {
+
+        case .COMPLETE;
+            break;
+
+        case .TYPECHECKED; {
+            msg_tc := cast(*Message_Typechecked) msg;
+            for msg_tc.all for it.subexpressions {
                 expr := it;
 
                 filename := "(?)";
                 if expr.enclosing_load {
                     filename = expr.enclosing_load.fully_pathed_filename;
                 }
-                if filename != source_filename {
+                if filename != args.fully_pathed_filename {
                     continue;
                 }
-                if !location_contains_line_and_col(expr.location, line, col) {
+                if !location_contains_line_and_col(expr.location, args.line, args.col) {
                     continue;
                 }
 
@@ -208,18 +200,17 @@
                     // continue;
                 }
 
-                loc := enclosing_location(expr);
-                print("[%:%,% .. %,%] %",
-                    filename, loc.l0, loc.c0, loc.l1, loc.c1,
-                    expr.kind,
-                );
+                // loc := enclosing_location(expr);
+                // print("[%:%,% .. %,%] %",
+                //     filename, loc.l0, loc.c0, loc.l1, loc.c1,
+                //     expr.kind,
+                // );
 
-                if location_contains_line_and_col(loc, line, col) {
-                    println(" \e[32mcursor is here\e[0m");
-                } else {
-                    println();
-                }
-              }
+                // if location_contains_line_and_col(loc, args.line, args.col) {
+                //     println(" \e[32mcursor is here\e[0m");
+                // } else {
+                //     println();
+                // }
             }
         }
 
@@ -227,10 +218,6 @@
             // println("ignoring msg: %", <<msg);
         }
     }
-
-    // println("args were: % % %", source_filename, line, col);
-
-    compiler_end_intercept(w);
 }
 
 enclosing_location :: (node: *Code_Node, depth := 0) -> result: Code_Node.Location {
@@ -432,6 +419,55 @@ println :: (
     }
 }
 
+Commandline_Arguments :: struct {
+    mode: enum {
+        INVALID;
+        GOTO_DEF;
+        TYPE_INFO;
+    };
+    fully_pathed_filename: string;
+    line: s32;
+    col: s32;
+}
+parse_cli_args :: (args: *Commandline_Arguments, argv: [] string) {
+    argi := 0;
+    if argv.count < argi + 1 { println("expected a modename as first argument"); exit(1); }
+    mode_str := argv[argi];
+    if mode_str == {
+    case "goto_def"; args.mode = .GOTO_DEF;
+    case "type_info"; args.mode = .TYPE_INFO;
+    case; println("mode '%' is not supported yet", mode_str); exit(1);
+    }
+
+    argi += 1;
+    if argv.count < argi + 1 { println("expected a filename as an argument"); exit(1); }
+    source_filename := argv[argi];
+    // TODO: expand `~`
+    if !is_absolute_path(source_filename) {
+        cwd := get_working_directory();
+        source_filename = tprint("%/%", cwd, source_filename);
+    }
+    args.fully_pathed_filename = source_filename;
+
+    argi += 1;
+    if argv.count < argi + 1 { println("expected a line number, after filename"); exit(1); }
+    line_str := argv[argi];
+    num, ok := string_to_int(line_str, T = s32);
+    if !ok { println("expected a line number, got '%'", line_str); exit(1); }
+    args.line = num;
+
+    argi += 1;
+    if argv.count < argi + 1 { println("expected a column number, after line number"); exit(1); }
+    col_str := argv[argi];
+    num, ok = string_to_int(col_str, T = s32);
+    if !ok { println("expected a column number, got '%'", col_str); exit(1); }
+    args.col = num;
+
+    argi += 1;
+    if argv.count > argi {
+        println("WARNING: ignoring the rest of the args: %", array_view(argv, argi));
+    }
+}
 
 
 #import "Program_Print";
