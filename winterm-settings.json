@@ -4,8 +4,112 @@
     "actions":
     [
         {
+            "command":
+            {
+                "action": "splitPane",
+                "split": "auto",
+                "splitMode": "duplicate"
+            }
+        },
+        {
             "command": "unbound",
             "keys": "ctrl+comma"
+        },
+        {
+            "command": "unbound",
+            "keys": "alt+shift+d"
+        },
+        {
+            "command": "unbound",
+            "keys": "alt+down"
+        },
+        {
+            "command": "unbound",
+            "keys": "alt+left"
+        },
+        {
+            "command": "unbound",
+            "keys": "alt+right"
+        },
+        {
+            "command": "unbound",
+            "keys": "ctrl+alt+left"
+        },
+        {
+            "command": "unbound",
+            "keys": "alt+up"
+        },
+        {
+            "command": "unbound",
+            "keys": "ctrl+alt+comma"
+        },
+        {
+            "command": "unbound",
+            "keys": "alt+space"
+        },
+        {
+            "command": "unbound",
+            "keys": "alt+shift+down"
+        },
+        {
+            "command": "unbound",
+            "keys": "alt+shift+left"
+        },
+        {
+            "command": "unbound",
+            "keys": "alt+shift+right"
+        },
+        {
+            "command": "unbound",
+            "keys": "alt+shift+up"
+        },
+        {
+            "command": "unbound",
+            "keys": "ctrl+alt+1"
+        },
+        {
+            "command": "unbound",
+            "keys": "ctrl+alt+2"
+        },
+        {
+            "command": "unbound",
+            "keys": "ctrl+alt+3"
+        },
+        {
+            "command": "unbound",
+            "keys": "ctrl+alt+4"
+        },
+        {
+            "command": "unbound",
+            "keys": "ctrl+alt+5"
+        },
+        {
+            "command": "unbound",
+            "keys": "alt+shift+plus"
+        },
+        {
+            "command": "unbound",
+            "keys": "alt+shift+minus"
+        },
+        {
+            "command": "unbound",
+            "keys": "ctrl+alt+6"
+        },
+        {
+            "command": "unbound",
+            "keys": "ctrl+alt+7"
+        },
+        {
+            "command": "unbound",
+            "keys": "ctrl+alt+8"
+        },
+        {
+            "command": "unbound",
+            "keys": "ctrl+alt+9"
+        },
+        {
+            "command": "paste",
+            "keys": "ctrl+shift+v"
         },
         {
             "command":
@@ -18,26 +122,13 @@
         {
             "command": "find",
             "keys": "ctrl+shift+f"
-        },
-        {
-            "command": "paste",
-            "keys": "ctrl+shift+v"
-        },
-        {
-            "command":
-            {
-                "action": "splitPane",
-                "split": "auto",
-                "splitMode": "duplicate"
-            },
-            "keys": "alt+shift+d"
         }
     ],
     "alwaysShowTabs": false,
     "copyFormatting": "none",
     "copyOnSelect": false,
-    "defaultProfile": "{07b52e3e-de2c-5db4-bd2d-ba144ed6c273}",
-    "launchMode": "fullscreen",
+    "defaultProfile": "{0b0daf75-7385-5b34-8e13-55755bdb082c}",
+    "launchMode": "default",
     "profiles":
     {
         "defaults": {},
@@ -55,24 +146,22 @@
             },
             {
                 "altGrAliasing": false,
-                "bellStyle": "none",
+                "bellStyle": "taskbar",
                 "colorScheme": "Tango Dark",
-                "commandline": "wsl.exe -d Ubuntu-20.04 -- sh -c 'cd ~; zsh'",
-                "experimental.retroTerminalEffect": false,
+                "commandline": "C:\\WINDOWS\\system32\\wsl.exe -d Ubuntu-20 -u gmoshkin -- sh -c 'cd ~; zsh'",
                 "font":
                 {
                     "face": "Cascadia Code PL",
-                    "size": 9
+                    "size": 8.0
                 },
-                "guid": "{07b52e3e-de2c-5db4-bd2d-ba144ed6c273}",
+                "guid": "{0b0daf75-7385-5b34-8e13-55755bdb082c}",
                 "hidden": false,
                 "historySize": 999999990,
                 "intenseTextStyle": "all",
                 "name": "Ubuntu-20.04",
-                "opacity": 100,
                 "padding": "0",
                 "source": "Windows.Terminal.Wsl",
-                "useAcrylic": false
+                "scrollbarState": "hidden"
             },
             {
                 "guid": "{b453ae62-4e3d-5e58-b989-0a998ec441b8}",
@@ -84,7 +173,7 @@
                 "altGrAliasing": false,
                 "bellStyle": "none",
                 "colorScheme": "Tango Dark",
-                "commandline": "wsl.exe -d Ubuntu-20.04 -- sh -c 'cd ~; zsh'",
+                "commandline": "wsl.exe -d Ubuntu-20-- sh -c 'cd ~; zsh'",
                 "experimental.retroTerminalEffect": false,
                 "font":
                 {
@@ -102,10 +191,16 @@
                 "useAcrylic": false
             },
             {
-                "guid": "{5a069d55-87bd-57cf-8a07-2726b203d3e5}",
+                "guid": "{e2367897-5e1e-5acc-8f7f-b10d5c591c34}",
                 "hidden": false,
-                "name": "Ubuntu 20.04.4 LTS",
-                "source": "CanonicalGroupLimited.Ubuntu20.04LTS_79rhkp1fndgsc"
+                "name": "Developer Command Prompt for VS 2022",
+                "source": "Windows.Terminal.VisualStudio"
+            },
+            {
+                "guid": "{16208362-94fc-5b1f-a491-5b2624d5ab56}",
+                "hidden": true,
+                "name": "Visual Studio Debug Console",
+                "source": "VSDebugConsole"
             }
         ]
     },
@@ -342,6 +437,8 @@
             "yellow": "#808000"
         }
     ],
-    "startOnUserLogin": true,
+    "themes": [],
+    "startOnUserLogin": false,
     "tabWidthMode": "compact"
 }
+
