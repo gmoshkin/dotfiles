@@ -78,6 +78,7 @@ message_loop_goto_def :: (args: Commandline_Arguments) {
                     // don't work currently, it jumps to the first matched proc
                     // with the same name
                     decl := ident.resolved_declaration;
+                    if !decl return true;
                     decl_loc := decl.location;
                     decl_file := "";
                     if decl.enclosing_load
