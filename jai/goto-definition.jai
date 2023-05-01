@@ -48,6 +48,17 @@ message_loop_goto_def :: (args: Commandline_Arguments) {
         case .COMPLETE;
             break;
 
+        // case .FILE;
+        //     msg_file := cast(*Message_File) msg;
+        //     println("Message_File:");
+        //     println("  %", msg_file.fully_pathed_filename);
+        //     if msg_file.enclosing_import
+        //         println("  enclosing_import: %", <<msg_file.enclosing_import);
+        //     else
+        //         println("  enclosing_import: (null)");
+        //     if msg_file.from_a_string
+        //         println("  comes from a string");
+
         case .TYPECHECKED; {
             msg_tc := cast(*Message_Typechecked) msg;
             for msg_tc.all for it.subexpressions {
@@ -73,30 +84,45 @@ message_loop_goto_def :: (args: Commandline_Arguments) {
                     continue;
                 }
 
-                goto_def_ident :: (ident: *Code_Ident) -> should_continue := false {
-                    // TODO: polymorphic procs (and procs with overloads)
-                    // don't work currently, it jumps to the first matched proc
-                    // with the same name
-                    decl := ident.resolved_declaration;
-                    if !decl return true;
-                    decl_loc := decl.location;
-                    decl_file := "";
-                    if decl.enclosing_load
-                        decl_file = decl.enclosing_load.fully_pathed_filename;
+                goto_def_of_node :: (using node: *Code_Node) -> should_continue := false {
+                    file := "";
+                    if enclosing_load
+                        file = enclosing_load.fully_pathed_filename;
+                    if !file return should_continue = true;
 
-                    if !decl_file return true;
-
+                    print("\e[36m");
                     print(":VIM_CMD_START:");
-                    print("e % | call setpos('.',[0,%,%,0,0])", decl_file, decl_loc.l0, decl_loc.c0);
-                    println(":VIM_CMD_END:");
+                    print("e % | call setpos('.',[0,%,%,0,0])", file, location.l0, location.c0);
+                    print(":VIM_CMD_END:");
+                    println("\e[0m");
 
                     return;
                 }
 
                 if expr.kind == {
+                // TODO: add support for going into the module source file when
+                // on a #load or a #import directive
                 case .IDENT;
                     ident := cast(*Code_Ident) expr;
-                    should_continue := goto_def_ident(ident);
+                    // I'm guessing this is just a bug, but currently
+                    // this identifier will have it's resolved_declaration
+                    // pointing to a wrong polymorph/overload instance.
+                    // So because of that I handle this identifier in
+                    // case .PROCEDURE_CALL. This also means that I will report
+                    // a location of the procedure header instead of the
+                    // identifier bound to it, which is a bummer.
+                    decl := ident.resolved_declaration;
+                    if !decl  continue;
+                    println("ident resolved to expression %", <<decl.expression);
+                    if decl.expression.kind == .PROCEDURE_HEADER  continue;
+
+                    should_continue := goto_def_of_node(decl);
+                    if should_continue continue;
+
+                case .PROCEDURE_CALL;
+                    call := cast(*Code_Procedure_Call) expr;
+                    resolved := call.resolved_procedure_expression;
+                    should_continue := goto_def_of_node(resolved);
                     if should_continue continue;
 
                 case .CONTEXT;
