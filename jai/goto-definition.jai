@@ -113,6 +113,11 @@ message_loop_goto_def :: (args: Commandline_Arguments) {
                     // identifier bound to it, which is a bummer.
                     decl := ident.resolved_declaration;
                     if !decl  continue;
+                    // TODO: check also the type spec, duh
+                    if !decl.expression {
+                        println("ident resolved to expression (null)");
+                        continue;
+                    }
                     println("ident resolved to expression %", <<decl.expression);
                     if decl.expression.kind == .PROCEDURE_HEADER  continue;
 
