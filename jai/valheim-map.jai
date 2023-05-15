@@ -32,29 +32,6 @@ main :: () {
     get_rect_theme := GetRect.default_theme_procs[GetRect.Default_Themes.Default]();
     GetRect.set_default_theme(get_rect_theme);
 
-    min_biome := 0xffff;
-    max_biome := 0;
-
-    show_biome := true;
-
-    min_height := FLOAT32_INFINITY;
-    max_height := -FLOAT32_INFINITY;
-
-    start_height := -10.0;
-    end_height := 150.0;
-    ocean_height := 28.9;
-    void_height := -100.0;
-
-    show_height := true;
-
-    min_forest := FLOAT32_INFINITY;
-    max_forest := -FLOAT32_INFINITY;
-
-    start_forest := 0.0;
-    end_forest := 0.0;
-
-    show_forest := false;
-
     // biomes : Table(u16, s64);
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -107,13 +84,17 @@ main :: () {
     current_file_index := 0;
     batch_index := 0;
 
-    map_data := NewArray(elements_per_map, TileElement);
+    time_last_texture_update := time_start_work;
+    version_last_texture_update := U64_MAX;
+
+    map_data = NewArray(elements_per_map, TileElement);
     tile_data := NewArray(tile_file_size, u8);
 
     init_locations(locations_json);
 
     while !quit {
-        time_start := get_time();
+        time_start_frame := get_time();
+
         /////////////////////////////////////////////////////////////////////////////////
         // Read input
         Input.update_window_events();
@@ -146,7 +127,7 @@ main :: () {
             }
         }
 
-        GetRect.ui_per_frame_update(window, window_width_s32, window_height_s32, time_start);
+        GetRect.ui_per_frame_update(window, window_width_s32, window_height_s32, time_start_frame);
         Simp.update_window(window);
         Simp.clear_render_target(0.1, 0.1, 0.1, 1);
 
@@ -241,18 +222,14 @@ main :: () {
                 status_message = tprint("reading file #%: %", current_file_index, filename);
 
                 if current_file_index == all_files.count {
-                    log("biome %..%", min_biome, max_biome);
-                    log("height %..%", min_height, max_height);
-                    log("forest %..%", min_forest, max_forest);
-
                     start_forest = 1.15;
                     end_forest = 1.75;
 
-                    // log("biomes:"); for biomes log("  %: %", it_index, it);
-
-                    state = .GENERATING_BITMAP;
+                    // state = .GENERATING_BITMAP;
+                    state = .DONE;
                     batch_index = 0;
 
+                    #assert bitmap_size * bitmap_size == elements_per_map;
                     bitmap_data = NewArray(bitmap_size * bitmap_size, RGBA, initialized = false);
                     bitmap = Bitmap.{
                         data = xx bitmap_data,
@@ -264,7 +241,26 @@ main :: () {
                     // Spawn threads.
                     num_threads := get_number_of_processors() - 1;
                     log("spawning % threads", num_threads);
-
+                    array_resize(*threads, num_threads, initialize = true);
+                    each_one_gets := elements_per_map / num_threads;
+                    last_one_gets_extra := elements_per_map % num_threads;
+                    // TODO: might have some data races if num_threads doesn't
+                    // divide elements_per_map, since batch boundaries aren't
+                    // going to be aligned small unrelated portions would get
+                    // overwritten on cahce line boundaries.
+                    // But this will have pretty minor effects, right??
+                    for 0..num_threads-1 {
+                        t := *threads[it];
+                        t.data.start = each_one_gets * it;
+                        t.data.count = each_one_gets;
+                        if it == num_threads-1 {
+                            t.data.count += last_one_gets_extra;
+                        }
+                        t.data.version = U64_MAX;
+                        t.thread.data = *t.data;
+                        thread_init(*t.thread, generator_thread_proc);
+                        thread_start(*t.thread);
+                    }
                 }
 
             /////////////////////////////////////////////////////////////////////////////
@@ -285,8 +281,6 @@ main :: () {
                 // changed. Super simple.
                 batch_size := elements_per_tile / 2;
                 n_batches := elements_per_map / batch_size;
-
-                if quit exit(0);
 
                 for 0..batch_size-1 {
                     index := batch_index * batch_size + it;
@@ -394,26 +388,23 @@ main :: () {
                 }
         }
 
+        min_current_version := U64_MAX;
+        for threads if it.data.version < min_current_version
+            min_current_version = it.data.version;
+        if
+            min_current_version != bitmap_version ||
+            min_current_version != version_last_texture_update
+        {
+            time_last_texture_update = time_start_frame;
+            version_last_texture_update = min_current_version;
+            Simp.texture_load_from_bitmap(*texture, *bitmap);
+        }
+
+        mouse_was_handled_by_get_rect := false;
+
         /////////////////////////////////////////////////////////////////////////////////
         // Draw bitmap
         if bitmap.width {
-            image_scale_log_2 += 0.1 * Input.mouse_delta_z / 120;
-            image_scale = pow(2, image_scale_log_2);
-            if GetRect.ui_get_button_state(.MOUSE_BUTTON_LEFT) == .DOWN {
-                // So as the debug boxes show we need to have an original
-                // unscaled offset, multiply it by scale and add the mouse
-                // delta. That way zooming will keep the point at mid screen
-                // in place. But because in this case I just unscale the mouse
-                // delta, add to unscaled offset and than scale it back up, so
-                // the result is X_scaled = X_0 * scale + mouse_delta.
-                //
-                // Also Input.mouse_delta is a tiny bit off, and I really should
-                // compute it myself. That's a TODO I guess
-                image_ofs_unscaled.x += Input.mouse_delta_x / image_scale;
-                image_ofs_unscaled.y -= Input.mouse_delta_y / image_scale;
-            }
-            image_ofs_screen_space = image_ofs_unscaled * image_scale;
-
             Simp.set_shader_for_images(*texture);
             Simp.immediate_begin();
             window_size := min(window_height, window_width);
@@ -456,10 +447,12 @@ main :: () {
 
             theme := get_rect_theme.label_theme;
             GetRect.label(mrect, status_message, *theme);
+            mrect.y -= 20;
         }
 
         {
-            GetRect.slider(lrect, *image_scale_log_2, -8.0, 16, prefix = "zoom", spinbox_step = .5, theme = *slider_theme);
+            mouse_was_handled_by_get_rect |= GetRect.slider(lrect, *image_scale_log_2, -8.0, 16, prefix = "zoom", spinbox_step = .5, theme = *slider_theme);
+            image_scale = pow(2, image_scale_log_2);
             lrect.y -= 22;
             // GetRect.slider(lrect, *image_ofs_screen_space.x, xx -window_width, xx window_width, prefix = "ofs x", spinbox_step = .5, theme = *slider_theme);
             // lrect.y -= 22;
@@ -520,6 +513,8 @@ main :: () {
                 pressed := GetRect.base_checkbox(lrect, "color picker", show_color_picker, theme = *checkbox_theme, 0);
                 show_color_picker ^= pressed;
                 lrect.y -= 22;
+
+                mouse_was_handled_by_get_rect |= pressed;
             }
 
             if show_color_picker {
@@ -527,15 +522,20 @@ main :: () {
                 cp_rect.h = cp_rect.w * 1.2;
                 cp_rect.y -= cp_rect.h - 22;
                 theme := *get_rect_theme.color_picker_theme;
-                GetRect.color_picker(cp_rect, *color_picker_color, theme);
+                applied, still_dragging := GetRect.color_picker(cp_rect, *color_picker_color, theme);
                 lrect.y -= cp_rect.h;
+
+                mouse_was_handled_by_get_rect |= applied || still_dragging;
             }
+
+            mouse_was_handled_by_get_rect |= changed;
 
             if changed && state != .LOADING_FILES {
                 // TODO: this doesn't work
                 if state == .DONE time_start_work = 0;
 
-                state = .GENERATING_BITMAP;
+                // state = .GENERATING_BITMAP;
+                bitmap_version += 1;
                 batch_index = 0;
             }
 
@@ -558,9 +558,14 @@ main :: () {
                     // This would be an optimization.
                     l.show ^= pressed;
                     trect.y -= trect.h;
+
+                    mouse_was_handled_by_get_rect |= pressed;
                 }
 
+                scroll_before := locations_toggles_scroll;
                 GetRect.end_scrollable_region(region, rect_out.x + rect_out.w, trect.y + trect.h, *locations_toggles_scroll);
+
+                mouse_was_handled_by_get_rect |= scroll_before != locations_toggles_scroll;
             }
 
             ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -640,9 +645,33 @@ main :: () {
 
         Simp.swap_buffers(window);
 
+        // Lagging by one frame
+        //
+        // TODO: also it's not quite right as holding a scroll bar and moving
+        // mouse horizontally still registers as moving the map.
+        // I should instead catch the "mouse was up, became down" moment and if
+        // GetRect didn't handle it, I start moving the map.
+        if !mouse_was_handled_by_get_rect {
+            image_scale_log_2 += 0.1 * Input.mouse_delta_z / 120;
+            image_scale = pow(2, image_scale_log_2);
+            if GetRect.ui_get_button_state(.MOUSE_BUTTON_LEFT) == .DOWN {
+                // So as the debug boxes show we need to have an original
+                // unscaled offset, multiply it by scale and add the mouse
+                // delta. That way zooming will keep the point at mid screen
+                // in place. But because in this case I just unscale the mouse
+                // delta, add to unscaled offset and than scale it back up, so
+                // the result is X_scaled = X_0 * scale + mouse_delta.
+                //
+                // Also Input.mouse_delta is a tiny bit off, and I really should
+                // compute it myself. That's a TODO I guess
+                image_ofs_unscaled.x += Input.mouse_delta_x / image_scale;
+                image_ofs_unscaled.y -= Input.mouse_delta_y / image_scale;
+            }
+            image_ofs_screen_space = image_ofs_unscaled * image_scale;
+        }
 
         time_end := get_time();
-        millis_spent_on_frame := 1000 * (time_end - time_start);
+        millis_spent_on_frame := 1000 * (time_end - time_start_frame);
         millis_expected_to_spend := 1000 / 60;
         millis_left_to_sleep := millis_expected_to_spend - millis_spent_on_frame;
         if millis_left_to_sleep > 0 {
@@ -685,11 +714,116 @@ bitmap_size :: TileRowCount * TileSideCount;
 
 // ]] Consts
 
+map_data : [] TileElement;
+
 TileElement :: struct {
     biome: Biome;
     height: float32;
     forest: float32;
 }
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Bitmap generation [[
+
+min_biome := 0xffff;
+max_biome := 0;
+
+show_biome := true;
+
+min_height :=  FLOAT32_INFINITY;
+max_height := -FLOAT32_INFINITY;
+
+start_height := -10.0;
+end_height := 150.0;
+ocean_height := 28.9;
+void_height := -100.0;
+
+show_height := true;
+
+min_forest :=  FLOAT32_INFINITY;
+max_forest := -FLOAT32_INFINITY;
+
+start_forest := 0.0;
+end_forest := 0.0;
+
+show_forest := false;
+
+bitmap_version : u64 = 0;
+generator_thread_proc : Thread_Proc : (thread: *Thread) -> s64 {
+    data := cast(*type_of(Thread_With_Data.data)) thread.data;
+    last_seen_version : u64 = 0;
+
+    while true {
+        last_seen_version = bitmap_version;
+
+        for 0..data.count-1 {
+            index := data.start + it;
+            using map_data[index];
+            pixel := *bitmap_data[index];
+
+            <<pixel = #run RGBA_from_hex("#ffffff");
+
+            if show_biome then <<pixel = biome_RGBA(biome);
+
+            if show_height {
+                h := clamp(height, start_height, end_height);
+                h = (h - start_height) / (end_height - start_height);
+                // h := (height - min_height) * (max_height - min_height) * 0xff;
+                pixel.r = xx (pixel.r * h);
+                pixel.g = xx (pixel.g * h);
+                pixel.b = xx (pixel.b * h);
+                if height < ocean_height {
+                    pixel.b = 0xee;
+                }
+                if height < void_height {
+                    << pixel = .{ /* black */ a = 0x00 };
+                }
+            }
+
+            if show_forest {
+                f := clamp(forest, start_forest, end_forest);
+                f = (f - start_forest) / (end_forest - start_forest);
+                pixel.r = xx (pixel.r * f);
+                pixel.b = xx (pixel.b * f);
+            }
+
+            // h := cast(float) (biome - min_biome) * (max_biome - min_biome) * 360;
+            // // v := (height - min_height) * (max_height - min_height);
+            // // s := (forest - min_forest) * (max_forest - min_forest);
+            // r, g, b := hsv_to_rgb(h, s, v);
+            // bitmap_data[index] = .{
+            //     r = xx (r * 255),
+            //     g = xx (g * 255),
+            //     b = xx (b * 255),
+            // };
+
+            // if height < 32
+            //     bitmap_data[index] = .{ g = 0xff };
+            // else
+            //     bitmap_data[index] = .{ b = 0xff };
+        }
+
+        atomic_swap(*data.version, last_seen_version);
+
+        while last_seen_version == bitmap_version {
+            sleep_milliseconds(5);
+        }
+    }
+
+    return 0;
+}
+
+Thread_With_Data :: struct {
+    thread: Thread;
+    data: struct {
+        start: s32;
+        count: s32;
+        version: u64;
+    };
+}
+threads : [..] Thread_With_Data;
+
+// ]] Bitmap generation
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1842,3 +1976,5 @@ Input :: #import "Input";
 #import "Hash_Table";
 #import "jason";
 #import "Sort";
+#import "Thread"(LOAD_THREAD_GROUP = false);
+#import "Atomics";
