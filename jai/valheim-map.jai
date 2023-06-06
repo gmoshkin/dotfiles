@@ -15,10 +15,10 @@ main :: () {
     locations_json, ok := read_entire_file(locations_full_filename);
 
     #if OS == .WINDOWS {
+        Windows :: #import "Windows";
         Windows.SetProcessDPIAware();
 
         // Windows is very bad at thread-switching by default unless you do this. Sad.
-        Windows :: #import "Windows";
         Windows.timeBeginPeriod(1);
     }
     window_width_s32 = 1920 / 2;
@@ -148,6 +148,8 @@ main :: () {
             /////////////////////////////////////////////////////////////////////////////
             case .LOADING_FILES;
                 // TODO: load data in a separate thread
+                // TODO: don't do this everytime, just save the unpacked data as
+                // a single file and map it directly on startup
                 full_path_to_file := all_files[current_file_index];
                 path := parse_path(full_path_to_file);
                 filename := path.words[path.words.count - 1];
@@ -192,15 +194,15 @@ main :: () {
                         + row_in_tile * TileRowCount * TileSideCount
                         + col_in_tile
                     );
-                    biome  := << cast(*u16) (tile_data.data + it * 10);
-                    height := << cast(*float32) (tile_data.data + it * 10 + 2);
-                    forest := << cast(*float32) (tile_data.data + it * 10 + 6);
+                    biome  := (cast(*u16) (tile_data.data + it * 10)).*;
+                    height := (cast(*float32) (tile_data.data + it * 10 + 2)).*;
+                    forest := (cast(*float32) (tile_data.data + it * 10 + 6)).*;
 
                     // biome_count := table_find_pointer(*biomes, biome);
                     // if !biome_count {
                     //     table_add(*biomes, biome, 1);
                     // } else {
-                    //     <<biome_count += 1;
+                    //     biome_count.* += 1;
                     // }
 
                     if biome > max_biome  max_biome = biome;
@@ -287,9 +289,9 @@ main :: () {
                     using map_data[index];
                     pixel := *bitmap_data[index];
 
-                    <<pixel = #run RGBA_from_hex("#ffffff");
+                    pixel.* = #run RGBA_from_hex("#ffffff");
 
-                    if show_biome then <<pixel = biome_RGBA(biome);
+                    if show_biome then pixel.* = biome_RGBA(biome);
 
                     if show_height {
                         h := clamp(height, start_height, end_height);
@@ -302,7 +304,7 @@ main :: () {
                             pixel.b = 0xee;
                         }
                         if height < void_height {
-                            << pixel = .{ /* black */ a = 0x00 };
+                            pixel.* = .{ /* black */ a = 0x00 };
                         }
                     }
 
@@ -419,6 +421,14 @@ main :: () {
             );
             Simp.immediate_flush();
         }
+
+        /////////////////////////////////////////////////////////////////////////////////
+        // TODO:
+        // Add ability to specify base locations (where we have portals and
+        // stuff) and to show nearby locations of interest
+        //
+        // TODO: save the specified locations (and other settings) on disk for
+        // persistency
 
         /////////////////////////////////////////////////////////////////////////////////
         // Draw locations
@@ -761,9 +771,9 @@ generator_thread_proc : Thread_Proc : (thread: *Thread) -> s64 {
             using map_data[index];
             pixel := *bitmap_data[index];
 
-            <<pixel = #run RGBA_from_hex("#ffffff");
+            pixel.* = #run RGBA_from_hex("#ffffff");
 
-            if show_biome then <<pixel = biome_RGBA(biome);
+            if show_biome then pixel.* = biome_RGBA(biome);
 
             if show_height {
                 h := clamp(height, start_height, end_height);
@@ -776,7 +786,7 @@ generator_thread_proc : Thread_Proc : (thread: *Thread) -> s64 {
                     pixel.b = 0xee;
                 }
                 if height < void_height {
-                    << pixel = .{ /* black */ a = 0x00 };
+                    pixel.* = .{ /* black */ a = 0x00 };
                 }
             }
 
