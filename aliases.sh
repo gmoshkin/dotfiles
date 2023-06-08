@@ -38,7 +38,7 @@ esac
 
 # doesn't work with custom test binaries
 # alias ct="cargo test -- --test-threads=${NPROC}"
-alias ct="cargo test --"
+alias ct="cargo test"
 
 alias cbr='cargo build --release'
 
