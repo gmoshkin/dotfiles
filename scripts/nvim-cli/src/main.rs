@@ -128,6 +128,21 @@ fn main() {
                 let arg = args.next().expect("expected argument after 'open'");
                 'get_file_line_col_raw: {
                     if arg.is_empty() {
+                        // TODO: what if file path starts on previous line and
+                        // wraps to the one the cursor is in, or vice versa.
+                        // Example:
+                        // ```
+                        // oi mate, you done fucked up at this loc bruv: path/to\n
+                        // /the/file.ext:420:69
+                        // ```
+                        // Looks like a pain in my ass to implement this.
+                        // copy_cursor_line aint gon help. Gotta tmux
+                        // capture-pane and read lines above (or below). Do I
+                        // arbitrarily limmit the length of the file if it spans
+                        // more than 2 lines? Yes probably, if it's more than 10
+                        // lines definitely go fuck yourself, bruv.
+                        //
+                        // Also maybe lets rewrite this in jai, ye?
                         let out = tmux!["display", "-p", "#{copy_cursor_x}@#{copy_cursor_line}"];
                         let (crsr_col, line_contents) = out.split_once("@").unwrap();
                         if line_contents.is_empty() {
