@@ -1,5 +1,6 @@
 alias g='git'
 cargo \
+    --offline \
     --config 'build.target-dir="/tmp/aliases"' \
     run --manifest-path $HOME/dotfiles/scripts/aliases/Cargo.toml \
     2>/dev/null |
