@@ -353,7 +353,7 @@ mp_encode_struct_to_builder :: (builder: *String_Builder, v: $T) {
 
         info := cast(*Type_Info_Struct) type_info(T);
 
-        encoding : enum { AUTO; MAP; ARRAY; } = .AUTO;
+        encoding : enum { AUTO; MAP; ARRAY; CUSTOM; } = .AUTO;
         for info.notes {
             if it == "EncodeAsMap"   { encoding = .MAP;   break; }
             if it == "EncodeAsArray" { encoding = .ARRAY; break; }
@@ -361,8 +361,12 @@ mp_encode_struct_to_builder :: (builder: *String_Builder, v: $T) {
 
         non_const_field_names : [..] string;
         defer array_reset(*non_const_field_names);
-        for info.members if !(it.flags & .CONSTANT) {
-            array_add(*non_const_field_names, it.name);
+        for info.members {
+            if !(it.flags & .CONSTANT) {
+                array_add(*non_const_field_names, it.name);
+            } else if it.name == "mp_encode_to_builder" && it.type.type == .PROCEDURE {
+                encoding = .CUSTOM;
+            }
         }
         field_count := non_const_field_names.count;
 
@@ -391,7 +395,8 @@ mp_encode_struct_to_builder :: (builder: *String_Builder, v: $T) {
                     print_to_builder(*builder, "    mp_encode_to_builder(builder, v.%);\n", it);
                 }
                 append(*builder, "}\n");
-
+            case .CUSTOM;
+                append(*builder, "inline T.mp_encode_to_builder(builder, v);\n");
         }
         res := builder_to_string(*builder);
         return res;

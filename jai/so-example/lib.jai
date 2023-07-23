@@ -139,6 +139,26 @@ test_msgpack :: () {
         context.encode_struct_as_map = true;
         check_mp(S.{ a = 48, b = "sup", c = false }, "\x84\xa1a\x30\xa1b\xa3sup\xa1c\xc2\xa1d\x93\x01\x02\x03");
     }
+
+    {
+        MP_Bytes_Wrapper :: struct {
+            mp: [] u8;
+            mp_encode_to_builder :: (builder: *String_Builder, x: MP_Bytes_Wrapper) {
+                append(builder, x.mp.data, x.mp.count);
+            };
+        };
+        #assert size_of(MP_Bytes_Wrapper) == 16;
+        s : MP_Bytes_Wrapper;
+        s.mp = xx "\xc3\x03210";
+        check_mp(s, xx s.mp);
+
+        S :: struct {
+            bytes: MP_Bytes_Wrapper;
+            x, y: int;
+            name: string;
+        };
+        check_mp(S.{ bytes = s, x = 13, y = 37, name = "foo" }, "\x84\xa5bytes\xc3\x03210\xa1x\x0d\xa1y\x25\xa4name\xa3foo");
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
