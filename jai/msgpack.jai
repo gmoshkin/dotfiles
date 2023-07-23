@@ -1,52 +1,52 @@
 MP_MARKER :: enum u8 {
-    FIXPOSINT;
-    FIXMAP;
-    FIXARR;
-    FIXSTR;
+    FIXPOSINT :: 0x00;
+    FIXMAP    :: 0x80;
+    FIXARR    :: 0x90;
+    FIXSTR    :: 0xa0;
 
-    NIL;
-    UNUSED;
-    FALSE;
-    TRUE;
+    NIL    :: 0xc0;
+    UNUSED :: 0xc1;
+    FALSE  :: 0xc2;
+    TRUE   :: 0xc3;
 
-    BIN8;
-    BIN16;
-    BIN32;
+    BIN8  :: 0xc4;
+    BIN16 :: 0xc5;
+    BIN32 :: 0xc6;
 
-    EXT8;
-    EXT16;
-    EXT32;
+    EXT8  :: 0xc7;
+    EXT16 :: 0xc8;
+    EXT32 :: 0xc9;
 
-    FLOAT32;
-    FLOAT64;
+    FLOAT32 :: 0xca;
+    FLOAT64 :: 0xcb;
 
-    UINT8;
-    UINT16;
-    UINT32;
-    UINT64;
+    UINT8  :: 0xcc;
+    UINT16 :: 0xcd;
+    UINT32 :: 0xce;
+    UINT64 :: 0xcf;
 
-    INT8;
-    INT16;
-    INT32;
-    INT64;
+    INT8  :: 0xd0;
+    INT16 :: 0xd1;
+    INT32 :: 0xd2;
+    INT64 :: 0xd3;
 
-    FIXEXT1;
-    FIXEXT2;
-    FIXEXT4;
-    FIXEXT8;
-    FIXEXT16;
+    FIXEXT1  :: 0xd4;
+    FIXEXT2  :: 0xd5;
+    FIXEXT4  :: 0xd6;
+    FIXEXT8  :: 0xd7;
+    FIXEXT16 :: 0xd8;
 
-    STR8;
-    STR16;
-    STR32;
+    STR8  :: 0xd9;
+    STR16 :: 0xda;
+    STR32 :: 0xdb;
 
-    ARR16;
-    ARR32;
+    ARR16 :: 0xdc;
+    ARR32 :: 0xdd;
 
-    MAP16;
-    MAP32;
+    MAP16 :: 0xde;
+    MAP32 :: 0xdf;
 
-    FIXNEGINT;
+    FIXNEGINT :: 0xe0;
 };
 
 MP_MARKER_TABLE :: MP_MARKER.[
@@ -289,21 +289,21 @@ mp_encode_string_to_builder :: (builder: *String_Builder, s: string) {
 }
 
 mp_encode_array_to_builder :: inline (builder: *String_Builder, a: [] $T) {
-    mp_encode_array_len_to_builder(builder, a.count);
+    mp_encode_array_count_to_builder(builder, a.count);
     for a {
         mp_encode_to_builder(builder, it);
     }
 }
 
 mp_encode_hash_table_to_builder :: inline (builder: *String_Builder, t: HT.Table) {
-    mp_encode_map_len_to_builder(builder, t.count);
+    mp_encode_map_count_to_builder(builder, t.count);
     for t {
         mp_encode_to_builder(builder, it_index);
         mp_encode_to_builder(builder, it);
     }
 }
 
-mp_encode_array_len_to_builder :: (builder: *String_Builder, _count: s64) {
+mp_encode_array_count_to_builder :: (builder: *String_Builder, _count: s64) {
     header : [5] u8;
     count := _count;
     if count <= 0 {
@@ -325,7 +325,7 @@ mp_encode_array_len_to_builder :: (builder: *String_Builder, _count: s64) {
     }
 }
 
-mp_encode_map_len_to_builder :: (builder: *String_Builder, _count: s64) {
+mp_encode_map_count_to_builder :: (builder: *String_Builder, _count: s64) {
     header : [5] u8;
     count := _count;
     if count <= 0 {
@@ -372,25 +372,25 @@ mp_encode_struct_to_builder :: (builder: *String_Builder, v: $T) {
 
         if encoding == {
             case .MAP;
-                print_to_builder(*builder, "mp_encode_map_len_to_builder(builder, %);\n", field_count);
+                print_to_builder(*builder, "mp_encode_map_count_to_builder(builder, %);\n", field_count);
                 for non_const_field_names {
                     print_to_builder(*builder, "mp_encode_to_builder(builder, \"%\");\n", it);
                     print_to_builder(*builder, "mp_encode_to_builder(builder, v.%);\n", it);
                 }
             case .ARRAY;
-                print_to_builder(*builder, "mp_encode_array_len_to_builder(builder, %);\n", field_count);
+                print_to_builder(*builder, "mp_encode_array_count_to_builder(builder, %);\n", field_count);
                 for non_const_field_names {
                     print_to_builder(*builder, "mp_encode_to_builder(builder, v.%);\n", it);
                 }
             case .AUTO;
                 append(*builder, "if context.encode_struct_as_map {\n");
-                print_to_builder(*builder, "    mp_encode_map_len_to_builder(builder, %);\n", field_count);
+                print_to_builder(*builder, "    mp_encode_map_count_to_builder(builder, %);\n", field_count);
                 for non_const_field_names {
                     print_to_builder(*builder, "    mp_encode_to_builder(builder, \"%\");\n", it);
                     print_to_builder(*builder, "    mp_encode_to_builder(builder, v.%);\n", it);
                 }
                 append(*builder, "} else {\n");
-                print_to_builder(*builder, "    mp_encode_array_len_to_builder(builder, %);\n", field_count);
+                print_to_builder(*builder, "    mp_encode_array_count_to_builder(builder, %);\n", field_count);
                 for non_const_field_names {
                     print_to_builder(*builder, "    mp_encode_to_builder(builder, v.%);\n", it);
                 }
@@ -415,6 +415,37 @@ mp_encode_void_to_builder :: inline (builder: *String_Builder) {
 ////////////////////////////////////////////////////////////////////////////////
 // decode
 ////////////////////////////////////////////////////////////////////////////////
+
+mp_decode_into :: inline (s: *string, _res: *$T) -> ok: bool {
+    handle_result :: (code: Code) #expand {
+        ok, res := #insert code;
+        _res.* = res;
+        `return ok;
+    }
+
+    type_tag :: #run type_info(T).type;
+    #if type_tag == .BOOL {
+        handle_result(mp_decode_bool(s));
+    } else #if type_tag == .STRING {
+        handle_result(mp_decode_string(s));
+    } else #if type_tag == .INTEGER {
+        #if #run type_info(T).signed {
+            handle_result(mp_decode_s64(s));
+        } else {
+            handle_result(mp_decode_u64(s));
+        }
+    } else #if type_tag == .STRUCT {
+        return mp_decode_struct_into(s, _res);
+    } else {
+        return false;
+    }
+}
+
+mp_decode :: inline (s: *string, $T: Type) -> (ok: bool, res: T) {
+    res : T = ---;
+    ok := mp_decode_into(s, *res);
+    return ok, res;
+}
 
 mp_decode_bool :: inline (s: *string) -> ok: bool, res: bool {
     res : bool = ---;
@@ -444,31 +475,331 @@ mp_decode_string :: inline (s: *string) -> ok: bool, res: string {
         advance(s, count + 1);
         return true, res;
     } else if c == 0xd9 { // STR8
-        count : u8 = ---;
-        memcpy(*s.*[1], *count, size_of(type_of(count)));
-        byte_swap_in_place(*count);
+        count := read_big_endian(s.data + 1, u8);
         res.data = s.data + 1 + size_of(type_of(count));
         res.count = count;
         advance(s, count + 1 + size_of(type_of(count)));
         return true, res;
     } else if c == 0xda { // STR16
-        count : u16 = ---;
-        memcpy(*s.*[1], *count, size_of(type_of(count)));
-        byte_swap_in_place(*count);
+        count := read_big_endian(s.data + 1, u16);
         res.data = s.data + 1 + size_of(type_of(count));
         res.count = count;
         advance(s, count + 1 + size_of(type_of(count)));
         return true, res;
     } else if c == 0xdb { // STR32
-        count : u32 = ---;
-        memcpy(*s.*[1], *count, size_of(type_of(count)));
-        byte_swap_in_place(*count);
+        count := read_big_endian(s.data + 1, u32);
         res.data = s.data + 1 + size_of(type_of(count));
         res.count = count;
         advance(s, count + 1 + size_of(type_of(count)));
         return true, res;
     }
     return false, res;
+}
+
+mp_decode_s64 :: (s: *string) -> (ok: bool, res: s64) {
+    res : s64 = ---;
+    c := s.*[0];
+    if c >= 0xe0 && c <= 0xff { // FIXNEGINT
+        advance(s, 1);
+        return true, xx 0xffff_ffff_ffff_ff00 | c;
+    } else if c == {
+        case 0xd0; // INT8
+            v := read_big_endian(s.data + 1, s8);
+            advance(s, 1 + size_of(type_of(v)));
+            return true, v;
+        case 0xd1; // INT16
+            v := read_big_endian(s.data + 1, s16);
+            advance(s, 1 + size_of(type_of(v)));
+            return true, v;
+        case 0xd2; // INT32
+            v := read_big_endian(s.data + 1, s32);
+            advance(s, 1 + size_of(type_of(v)));
+            return true, v;
+        case 0xd3; // INT64
+            v := read_big_endian(s.data + 1, s64);
+            advance(s, 1 + size_of(type_of(v)));
+            return true, v;
+    }
+
+    ok, res_u64 := mp_decode_u64(s);
+    if ok && res_u64 < 0x8000_0000_0000_0000 {
+        return ok, xx,no_check res_u64;
+    }
+
+    return false, res;
+}
+
+mp_decode_u64 :: (s: *string) -> (ok: bool, res: u64) {
+    res : u64 = ---;
+    c := s.*[0];
+    if c <= 0x7f { // FIXPOSINT
+        advance(s, 1);
+        return true, c;
+    } else if c == {
+        case 0xcc; // UINT8
+            v := read_big_endian(s.data + 1, u8);
+            advance(s, 1 + size_of(type_of(v)));
+            return true, v;
+        case 0xcd; // UINT16
+            v := read_big_endian(s.data + 1, u16);
+            advance(s, 1 + size_of(type_of(v)));
+            return true, v;
+        case 0xce; // UINT32
+            v := read_big_endian(s.data + 1, u32);
+            advance(s, 1 + size_of(type_of(v)));
+            return true, v;
+        case 0xcf; // UINT64
+            v := read_big_endian(s.data + 1, u64);
+            advance(s, 1 + size_of(type_of(v)));
+            return true, v;
+    }
+    return false, res;
+}
+
+// If `false` is returned, both `s` and `v` can be partially changed.
+mp_decode_struct_into :: (s: *string, v: *$T) -> (ok: bool) {
+    #assert type_info(T).type == .STRUCT;
+
+    field_count :: #run -> s64 {
+        res : s64 = 0;
+        info := cast(*Type_Info_Struct) T;
+        for info.members {
+            if it.flags & .CONSTANT continue;
+            res += 1;
+        }
+        return res;
+    };
+
+    count := mp_decode_map_count(s);
+    is_map := true;
+    if count < 0 {
+        count = mp_decode_array_count(s);
+        is_map = false;
+    }
+    if count < 0 return false;
+    if count != field_count return false;
+
+    if count == 0 {
+        // String was advanced already so we consumed all there was for this struct
+        return true;
+    }
+
+    if is_map {
+        for 1..count {
+            ok, field_name := mp_decode_string(s);
+            if !ok return false;
+
+            // TODO: implement checking that all fields are unique
+            #insert #run -> string {
+                builder : String_Builder;
+
+                append(*builder, "if field_name == {\n");
+                info := cast(*Type_Info_Struct) T;
+                for info.members {
+                    if it.flags & .CONSTANT continue;
+                    print_to_builder(*builder, "    case \"%1\"; ok = mp_decode_into(s, *v.%1);\n", it.name);
+                }
+                append(*builder, "    case; ok = false;\n");
+                append(*builder, "}\n");
+
+                return builder_to_string(*builder);
+            };
+            if !ok return false;
+        }
+    } else {
+        #insert #run -> string {
+            builder : String_Builder;
+
+            info := cast(*Type_Info_Struct) T;
+            for info.members {
+                if it.flags & .CONSTANT continue;
+                print_to_builder(*builder, "if !mp_decode_into(s, *v.%) return false;\n", it.name);
+            }
+
+            return builder_to_string(*builder);
+        };
+    }
+    return true;
+}
+
+mp_decode_map_count :: inline (s: *string) -> s64 {
+    c := s.*[0];
+    if c >= 0x80 && c <= 0x8f { // FIXMAP
+        advance(s, 1);
+        return c - 0x80;
+    } else if c == {
+        case 0xde; // MAP16
+            count := read_big_endian(s.data + 1, u16);
+            advance(s, 1 + size_of(type_of(count)));
+            return count;
+        case 0xdf; // MAP32
+            count := read_big_endian(s.data + 1, u32);
+            advance(s, 1 + size_of(type_of(count)));
+            return count;
+    }
+    return -1;
+}
+
+mp_decode_array_count :: inline (s: *string) -> s64 {
+    c := s.*[0];
+    if c >= 0x90 && c <= 0x9f { // FIXARR
+        advance(s, 1);
+        return c - 0x90;
+    } else if c == {
+        case 0xdc; // ARR16
+            count := read_big_endian(s.data + 1, u16);
+            advance(s, 1 + size_of(type_of(count)));
+            return count;
+        case 0xdd; // ARR32
+            count := read_big_endian(s.data + 1, u32);
+            advance(s, 1 + size_of(type_of(count)));
+            return count;
+    }
+    return -1;
+}
+
+read_big_endian :: (p: *void, $T: Type) -> T {
+    size :: size_of(T);
+    res : T = ---;
+    memcpy(*res, p, size);
+    byte_swap_in_place(*res);
+    return res;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// mp_print
+////////////////////////////////////////////////////////////////////////////////
+
+mp_print :: inline (s: *string) {
+    builder : String_Builder;
+    mp_print_to_builder(*builder, s);
+    write_builder(*builder);
+}
+
+mp_print_to_builder :: (builder: *String_Builder, s: *string, depth : u8 = 0, is_map_value := false) {
+    print_indent :: (depth: u8) #expand {
+        for 1..depth append(builder, "  ");
+    }
+
+    c := s.*[0];
+    marker := MP_MARKER_TABLE[c];
+    if marker == {
+
+        case .FIXPOSINT;
+            advance(s, 1);
+            if !is_map_value print_indent(depth);
+            append(builder, "FIXPOSINT(");
+            print_integer(builder, .{ value = c });
+            append(builder, ")");
+
+        case .NIL;
+            advance(s, 1);
+            if !is_map_value print_indent(depth);
+            append(builder, "nil");
+
+        case .UNUSED;
+            advance(s, 1);
+            if !is_map_value print_indent(depth);
+            append(builder, "unused");
+
+        case .FALSE;
+            advance(s, 1);
+            if !is_map_value print_indent(depth);
+            append(builder, "false");
+
+        case .TRUE;
+            advance(s, 1);
+            if !is_map_value print_indent(depth);
+            append(builder, "true");
+
+        case .UINT8;
+            advance(s, 1);
+            if !is_map_value print_indent(depth);
+            v : u8;
+            memcpy(*v, s.data, size_of(type_of(v)));
+            // byte_swap_in_place(*v); // calling this would be silly
+            write_nonnegative_number(v);
+
+        case .UINT16;
+            advance(s, 1);
+            if !is_map_value print_indent(depth);
+            v : u16;
+            memcpy(*v, s.data, size_of(type_of(v)));
+            byte_swap_in_place(*v);
+            write_nonnegative_number(v);
+
+        case .UINT32;
+            advance(s, 1);
+            if !is_map_value print_indent(depth);
+            v : u32;
+            memcpy(*v, s.data, size_of(type_of(v)));
+            byte_swap_in_place(*v);
+            write_nonnegative_number(v);
+
+        case .UINT64;
+            advance(s, 1);
+            if !is_map_value print_indent(depth);
+            v : u64;
+            memcpy(*v, s.data, size_of(type_of(v)));
+            byte_swap_in_place(*v);
+            write_nonnegative_number(v);
+
+        case; {
+            if marker >= 0xa0 && marker <= 0xbf { // FIXSTR
+                count := c - 0xa0;
+                if !is_map_value print_indent(depth);
+                append(builder, "FIXSTR<");
+                fixstr : string = ---;
+                fixstr.data = s.data + 1;
+                fixstr.count = count;
+                append(builder, fixstr);
+                append(builder, ">");
+                advance(s, 1 + count);
+            } else if marker >= 0x90 && marker <= 0x9f { // FIXARR
+                count := c - 0x90;
+                advance(s, 1);
+                if !is_map_value print_indent(depth);
+                append(builder, "FIXARR[");
+                for 1..count {
+                    append(builder, "\n");
+                    mp_print_to_builder(builder, s, depth + 1);
+                    append(builder, ",");
+                }
+                if count {
+                    append(builder, "\n");
+                    print_indent(depth);
+                }
+                append(builder, "]");
+            } else if marker >= 0x80 && marker <= 0x8f { // FIXMAP
+                count := c - 0x80;
+                advance(s, 1);
+                print_indent(depth);
+                append(builder, "FIXMAP{");
+                for 1..count {
+                    append(builder, "\n");
+                    mp_print_to_builder(builder, s, depth + 1);
+                    append(builder, ": ");
+                    mp_print_to_builder(builder, s, depth + 1, is_map_value = true);
+                    append(builder, ",");
+                }
+                if count {
+                    append(builder, "\n");
+                    print_indent(depth);
+                }
+                append(builder, "}");
+            }
+        }
+    }
+}
+
+MP_Printable :: #type,distinct string;
+
+mp_struct_printer :: (builder: *String_Builder, any: Any, data: *void) -> handled: bool {
+    if any.type != type_info(MP_Printable) return false;
+
+    s := << cast(*string) any.value_pointer;
+    mp_print_to_builder(builder, *s);
+    return true;
 }
 
 #scope_file
