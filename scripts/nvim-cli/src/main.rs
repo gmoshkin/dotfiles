@@ -190,8 +190,15 @@ fn main() {
                 }
 
                 let mut iter = file_line_col_raw.split(':');
-                let filename = iter.next().expect("expected a filename");
-                let mut file_line_col = (filename.to_owned(), None, None);
+                let mut filename = iter.next().expect("expected a filename").to_owned();
+                if filename.len() == 1 && filename[0..1].chars().all(|c| c.is_alphabetic()) {
+                    filename.push(':');
+                    let Some(rest_of_filepath) = iter.next() else {
+                        panic!("expected rest of file path after windows volume '{}'", filename);
+                    };
+                    filename.push_str(&rest_of_filepath);
+                }
+                let mut file_line_col = (filename, None, None);
                 let mut line_str = "";
                 let mut col_str = "";
                 let mut col_sep = "";
@@ -301,7 +308,14 @@ fn main() {
 
     if let Some((file, line, col)) = open_file_line_col {
         let mut cmd = "e ".to_owned();
-        if !file.starts_with("/") && !file.starts_with("~") {
+        if file[0..1].chars().all(|c| c.is_alphabetic()) && &file[1..2] == ":" {
+            // Windows path
+            let mut linux_filepath = String::new();
+            linux_filepath.push_str("/mnt/");
+            linux_filepath.push_str(&file[0..1].to_lowercase());
+            linux_filepath.push_str(&file[2..].replace('\\', "/"));
+            cmd.push_str(&linux_filepath);
+        } else if !file.starts_with("/") && !file.starts_with("~") {
             let dir = tmux!["display", "-p", "#{pane_current_path}"];
             cmd.push_str(&format!("{dir}/{file}"));
         } else {
