@@ -105,3 +105,4 @@ HOMEBREW_LLVM_PATH=/opt/homebrew/opt/llvm
 export LUA_PATH="$DOTFILES/scripts/?.lua;/usr/share/luajit-2.1.0-beta3/?.lua"
 export LUA_CPATH="$HOME/.cargo-target/debug/lib?.so;$HOME/.cargo-target/release/lib?.so"
 export PYTHONPATH="$DOTFILES/scripts"
+export DISPLAY="$(/sbin/ip route | awk '/^default/ { print $3 }'):0"
