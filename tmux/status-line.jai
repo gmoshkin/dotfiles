@@ -15,8 +15,7 @@ main :: () {
 }
 
 status_line_left :: () {
-    segments : [..] Segment;
-    array_add(*segments, ...[
+    segments_raw := Segment.[
         .{
             text = join(
                 "#{?client_prefix,#[fg=colour4]☻, } ",
@@ -32,18 +31,19 @@ status_line_left :: () {
         .{ proc = git_staged },
         .{ proc = git_unstaged },
         .{ proc = git_untracked },
-    ]);
+    ];
 
     {
         ok, out := command("tmux", "display", "-p", "#{pane_current_path}");
         if ok pane_current_path = out;
     }
 
-    for *segments {
+    segments : [..] Segment;
+    for *segments_raw {
         if it.proc != no_proc {
             it.text, it.attr = it.proc();
         }
-        if !it.text remove it;
+        if it.text array_add(*segments, it.*);
     }
 
     sb : String_Builder;
@@ -61,23 +61,23 @@ status_line_left :: () {
 }
 
 status_line_right :: () {
-    segments : [..] Segment;
-    array_add(*segments, ...[
+    segments_raw := Segment.[
         // maybe lan/wan address? do I need it even?
         .{ proc = battery },
         .{ proc = date_time },
-    ]);
+    ];
 
     {
         ok, out := command("tmux", "display", "-p", "#{pane_current_path}");
         if ok pane_current_path = out;
     }
 
-    for *segments {
+    segments : [..] Segment;
+    for *segments_raw {
         if it.proc != no_proc {
             it.text, it.attr = it.proc();
         }
-        if !it.text remove it;
+        if it.text array_add(*segments, it.*);
     }
 
     sb : String_Builder;
