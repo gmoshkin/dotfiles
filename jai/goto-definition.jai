@@ -127,6 +127,7 @@ message_loop_goto_def :: (args: Commandline_Arguments) {
                 case .PROCEDURE_CALL;
                     call := cast(*Code_Procedure_Call) expr;
                     resolved := call.resolved_procedure_expression;
+                    if !resolved continue;
                     should_continue := goto_def_of_node(resolved);
                     if should_continue continue;
 
