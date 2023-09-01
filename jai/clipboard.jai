@@ -25,7 +25,12 @@ main :: () {
             data := file_read_until_eof(file_stdin());
             os_clipboard_set_text(data);
         case .PASTE;
-            write_string(os_clipboard_get_text());
+            text := os_clipboard_get_text();
+            text = replace(text, "\r\n", "\n");
+            for 0..text.count-1 {
+                if text[it] == #char "\r" then text[it] = #char "\n";
+            }
+            write_string(text);
     }
 }
 
