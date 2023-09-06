@@ -27,7 +27,7 @@ status_line_left :: () {
         .{ text = "#S:#I.#P",   attr = .{"colour233", "colour240"} },
         .{ text = "#H",         attr = .{"colour233", "colour237"} },
         .{ proc = git_branch },
-        // TODO: compare to upstream
+        .{ proc = git_compare_to_upstream },
         .{ proc = git_staged },
         .{ proc = git_unstaged },
         .{ proc = git_untracked },
@@ -111,6 +111,11 @@ git_branch :: () -> string, Attr {
     Check_Ok(ok);
 
     return tprint(" %", trim(out)), .{"colour15", "colour4"};
+}
+
+git_compare_to_upstream :: () -> string, Attr {
+    // TODO: git status -sb | grep '^##'
+    return "", .{};
 }
 
 git_staged :: () -> string, Attr {
