@@ -205,7 +205,7 @@ f2 :: (v: int) -> FormatInt #expand {
 }
 
 
-weekday_short := string.[ "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" ];
+weekday_short := string.[ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" ];
 
 //
 // }}} segments
