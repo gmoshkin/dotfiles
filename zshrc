@@ -50,8 +50,9 @@ prependToPath "$HOME/.nimble/bin"
 prependToPath "$HOME/.cargo-target/release"
 prependToPath "$HOME/.cargo-target/debug"
 
-source "$DOTFILES/rakubrew_init.zsh"
-rakubrew switch &>/dev/null
+# too slow
+# source "$DOTFILES/rakubrew_init.zsh"
+# rakubrew switch &>/dev/null
 
 source "$DOTFILES/aliases.sh"
 
