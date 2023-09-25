@@ -3,7 +3,7 @@ stty -ixon
 
 source "$DOTFILES/utils.sh"
 
-PROMPT=${PROMPT:-fancy}
+PROMPT=${PROMPT:-simple}
 # color_prompt
 if [[ "$TERM" == *color ]]; then
     case "$PROMPT" in

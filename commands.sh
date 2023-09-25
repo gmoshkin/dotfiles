@@ -189,7 +189,7 @@ function md {
 }
 
 function rep {
-    [ "$#" = 0 ] && { echo provide a command pls; return 1 }
+    [ "$#" = 0 ] && { echo provide a command pls; return 1; }
     while $@; do
         echo
         echo '\x1b[34m     \x1b[31m▄█████▄▄   \x1b[32m▄▄████▀  \x1b[33m▄█████▄▄  \x1b[00m \x1b[34m▄▄████▀ \x1b[35m  ▄████▄ \x1b[36m▀██████▄\x1b[0m'
@@ -205,7 +205,7 @@ function rep {
 }
 
 function crep {
-    [ "$#" = 0 ] && { echo provide a command pls; return 1 }
+    [ "$#" = 0 ] && { echo provide a command pls; return 1; }
     while $@; do
         clear
         tmux clear-history -t "$TMUX_PANE"
