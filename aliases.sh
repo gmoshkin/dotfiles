@@ -1,12 +1,25 @@
+set -e
+
 alias g='git'
-cargo \
-    --offline \
-    --config 'build.target-dir="/tmp/aliases"' \
-    run --manifest-path $HOME/dotfiles/scripts/aliases/Cargo.toml \
-    2>/dev/null |
-        while read alias; do
-            eval $alias;
-        done
+case $OSTYPE in
+    darwin*)
+        cargo \
+            --offline \
+            --config 'build.target-dir="/tmp/aliases"' \
+            run --manifest-path $HOME/dotfiles/scripts/aliases/Cargo.toml \
+            2>/dev/null |
+                while read alias; do
+                    eval $alias;
+                done
+        ;;
+    linux*)
+        "$HOME/dotfiles/jai/aliases-linux" |
+            while read alias; do
+                eval $alias;
+            done
+        ;;
+esac
+
 
 alias pst='ps Tf'
 alias psl='ps -A f | less'
@@ -104,3 +117,5 @@ alias carbuild="cartridge build"
 alias carreplicasets="cartridge replicasets"
 
 alias ipython3.10="python3.10 -m IPython"
+
+set +e
