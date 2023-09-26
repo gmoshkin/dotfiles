@@ -152,3 +152,17 @@ tuple storage, tuple = msgpack. От него мы уже никогда не и
 - Параметрический полиморфизм
    - следствие: PushGuard<LuaTable<PushGuard<LuaFunction<PushGuard<...>>>>>
 - Push[One][Into] _no_err
+
+
+
+## tlua
+    - PushGuard isn't flexible enough, cause: Parametric Polymorphism
+    - LuaRead doesn't work with LuaTable as function parameters, cause: Parametric Polymorphism + borrow checker
+    - trait Push is a mess, cause: type driven compile time checking
+    - too many wrapper types, cause: trait system limitations
+    - ViaMsgpack, cause: serde sucks + trait system
+
+## msgpack
+    - ToTupleBuffer & Encode: trait system limitations
+    - RawBytes, RawByteBuf: trait system limitations + overabstraction
+
