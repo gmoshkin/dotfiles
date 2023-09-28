@@ -114,7 +114,48 @@ git_branch :: () -> string, Attr {
 }
 
 git_compare_to_upstream :: () -> string, Attr {
-    // TODO: git status -sb | grep '^##'
+    Check_Ok(pane_current_path);
+
+    ok, out := command("git", "status", "-sb", cwd = pane_current_path);
+    if !ok return "", .{}; // Probably not a git directory
+
+    my_line: string;
+    for split(out, cast(u8) #char "\n")
+        if starts_with(it, "##") {
+            my_line = it;
+            break;
+        }
+    if !my_line return "", .{};
+
+    i := find_index_from_right(my_line, #char "[");
+    if i < 0 return "", .{};
+
+    ahead_behind := slice(my_line, i, 0xffff); // get rest of line
+    sb: String_Builder;
+    Return :: () #expand { `return builder_to_string(*sb), .{"colour15", "colour5"}; }
+    while true {
+        token :: #bake_arguments parse_token(delimiters = "[,]");
+
+        t, ok := token(*ahead_behind);
+        if !ok Return();
+
+        if t == {
+        case "ahead";
+            t, ok := token(*ahead_behind);
+            if !ok Return();
+
+            print_to_builder(*sb, " ↑ %", t);
+        case "behind";
+            t, ok := token(*ahead_behind);
+            if !ok Return();
+
+            print_to_builder(*sb, " ↓ %", t);
+        case;
+            // skip
+        }
+    }
+
+    // unreachable tho
     return "", .{};
 }
 
