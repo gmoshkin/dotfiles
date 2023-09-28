@@ -62,7 +62,7 @@ main :: () {
     long :: string.[
         "add", "bench", "check", "clean", "config", "doc", "expand", "fetch",
         "fix", "fmt", "generate-lockfile", "help", "init", "install", "login",
-        "logout", "metadata", "miri", "owner", "package", "pkgid", "publish",
+        "logout", "metadata", "miri", "new", "owner", "package", "pkgid", "publish",
         "read", "remove", "report", "rm", "run", "rustc", "rustdoc", "search",
         "test", "tree", "uninstall", "update", "vendor", "verify", "version",
         "yank",
