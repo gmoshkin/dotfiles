@@ -559,3 +559,16 @@
 ```
 
 
+<div style="page-break-after: always;"></div>
+
+
+    Bonus meme
+
+```rust
+
+    // Что должно произойти?
+    let x: i32 = lua.eval("return 3.14").unwrap();
+
+```
+
+
