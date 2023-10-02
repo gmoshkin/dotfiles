@@ -175,22 +175,28 @@ tuple storage, tuple = msgpack. От него мы уже никогда не и
 <div style="page-break-after: always;"></div>
 
 - хотел рассказать про то, почему в тарантул модуле так сложно работать с луа,
-  почему столько плохо работающих мест, и пока думал пришёл к выводу, что во
-  всём виноват раст
+  почему столько плохо работающих мест, и смог надумать 2 основных вывода:
 
-- понятно, что вопрос выбора языа на место раста у нас не стоит, поэтому к концу
-  рассказа попробую предложить какой-от набор подходов, который позволит
-  упростить нашу жизнь
+1. Раст и Луа это максимально несовместимые языки, что сильно усложняет задачу
+   интеропа между ними.
 
-- кто я такой и как смею такое говорить? может это плохому танцору ноги мешают?
+- Модели данных и принципы и идеи заложенные в язык практически лежат на разных
+  концах спектра.
 
-- пришёл в пикодату, потому что искал работу на расте, на плюсах не хотел
-  писать, потому что там ситуация очень плачевная
+2. Раст это язык максимально несовместимый с решением сложных задач.
 
-- !!-- я в пикодате разрабатываю библиотеку и продукт. В обоих проектах я потрогал
-  практически каждый кусок. По-мимо этого я делаю патчи в кору. Я пишу очень
-  много кода, и реализую довольно большие фичи. По этим причинам мою точку
-  зрения стоит принять во внимание --!!
+- Идеи, заложенные в основу языка, и которые пропагандируются сообществом
+  приводят к неоправданному усложнению процесса разработки и замедляют как
+  развитие самого языка, так и любого проекта на нём написанного.
+
+- К таким выводам я пришёл не сразу, и от слушателей в общем-то не ожидаю
+  согласия со мной. В этом докладе я попробую максимально продуктивно изложить
+  свою точку зрения а главное попробую предложить набор альтернативных подходов
+  и принципов, которые на мой взгляд позволят вам более успешно делать свою
+  работу, и которые можно применять в общем-то не только в расте.
+
+- Такие довольно громкие заявления я попробую обосновать в этом докладе, но у
+  меня на самом деле нет цели вас убедить
 
 - как мы сюда попали?
 
@@ -200,11 +206,289 @@ tuple storage, tuple = msgpack. От него мы уже никогда не и
   бенчмаркам, которые занимают топы -- там всегда внутри unsafe код, с сырыми
   указателями и машинными операциями
 
-- отсюда вывод: unsafe код не стоит бояться, его стоит понимать и уметь
-  использовать
+- что такое unsafe? документация первым же пунктом упоминает разыменование
+  "сырых" указателей. Для меня как для человека пришедшего из С/С++ это в
+  общем-то довольно забавно, потому по такому определению весь код, который я
+  там писал это unsafe. Но это так же значит, что я изначально к этой концепции
+  отношусь более спокойно, чем человек, который например в раст пришёл из
+  питона. По этому первая идея, которую хочу до вас донести -- unsafe !=
+  страшно, это просто значит, что в этом месте нужно быть немного более
+  осторожным.
 
-- а производительность нужна не всегда, часто лучше выбрать безопасность
-  давайте посмотрим как раст нам в этом поможет
+- к тому же в силу особенностей нашей платформы, usnafe у нас неизбежен, так как
+  мы взаимодействуем с тарантулом через ffi
+
+- но для этого есть библиотека! Она должна предоставлять безопасные обёртки,
+  чтобы пользователи могли не беспокоиться о undefined behavior и писать бизнес
+  логику.
+
+- соглашусь, что там, где это возможно, библиотека должна не давать нам
+  незаметно для нас сделать ошибку. давайте тогда посмотрим, каким образом раст
+  нам предлагает это делать.
+
+- раст это не просто статически типизированный язык. Безопасность через
+  статическую типизацию -- это идея, которая сильнее всего повлияла на весь
+  язык. Борроу-чекер в расте реализован в виде статической типизации: каждая
+  ссылка в программе имеет свой тип, параметризованный областью существования
+  объекта, на который мы ссылаемся. Эта идея очень популярна не только в раст
+  коммьюнити, но и во многих других языках, которые поддерживают параметрический
+  полиморфизм -- с++ шаблоны. Корни растут из ml-подобных языков.
+
+- Тезис: compile-time error checking =/= static type checking.
+    - compile-time error checking == good
+    - static type checking == good
+    - compile-time error checking via static type checking == bad!
+
+- Давайте рассмотрим примеры:
+
+- ToTupleBuffer.
+
+- Задача: ORM / STM struct-tuple mapping.
+    - Дано:
+        - box_* api принимает msgpack array
+        - бизнес логика: rust struct
+    - Хочется:
+        - box api принимало rust struct
+    - Решение:
+        - generic code! Space::insert<T>(tuple: T)
+    - Ограничение:
+        - generic code == trait
+
+    0) box_insert(space_id: u32, tuple: &[u8])
+
+    1) Space::insert(tuple: MyStruct)
+
+    2) Space::insert<T>(tuple: T)
+
+    3) Space::insert<T>(tuple: T)
+       where
+           T: serde::Serialize,
+
+    Проблема 1:
+        my_space.insert(69); // что должно произойти?
+
+    Решение невозможное:
+        Space::insert<T>(tuple: T) {
+            const if !is_serializable_as_array(T) {
+                compile_error!();
+            }
+            data = serialize_as_array(tuple);
+
+            box_insert(self.id, data);
+        }
+
+    Решение неправильное:
+        /// Only for types serializable as msgpack array.
+        trait EncodeAsTuple {}
+        Space::insert<T>(tuple: T)
+        where
+            T: EncodeAsTuple,
+        {
+            ...
+        }
+
+    Проблема 2:
+        let t: box_tuple_t = my_space.get(key);
+        other_space.insert(t); // box_tuple_t does not implement serde::Serialize
+
+    Решение невозможное:
+        Space::insert<T>(tuple: T) {
+            const if T == box_tuple_t {
+                data = box_tuple_to_buf(tuple, ...);
+            } else const if is_serializable(T) {
+                data = serialize_as_array(tuple);
+            }
+
+            box_insert(self.id, data);
+        }
+
+    Решение неправильное:
+        /// Only for types serializable as msgpack array.
+        trait AsTuple {}
+        impl<T> AsTuple for T
+        where
+            T: EncodeAsTuple {}
+
+        Space::insert<T>(tuple: T)
+        where
+            T: AsTuple,
+        {
+            ...
+        }
+
+    Проблема 3:
+        data: &[u8] = get_raw_msgpack_data();
+        my_space.insert(data); // что тут происходит?
+
+    Решение неправильное:
+        struct RawBytes([u8]);
+        impl AsTuple for RawBytes {...}
+
+
+    Решение единственно правильное для всех случаев:
+        Space::insert_raw(tuple: &[u8]) {
+            box_insert(self.id, tuple) // тарантул проверяет данные
+        }
+
+        Space::encode_and_insert<T: Encode>(tuple: T) {
+            data = tuple.encode_as_array();
+            box_insert(self.id, data) // тарантул проверяет данные
+        }
+
+        my_space.encode_and_insert(my_struct);
+        my_space.insert_raw(tuple.get_data());
+
+    Наказание:
+        Space::insert_raw Space::encode_and_insert
+        Space::replace_raw
+        Space::encode_and_replace
+        ...
+        NetBox::call_raw
+        NetBox::encode_and_call
+
+- принципы:
+    - runtime error checking > compile-time error checking via static type checking
+    - дубликация кода > compile-time error checking via static type checking
+
+
+aside: фичи языка, которые могли бы помочь, будь они stable (но они не будут):
+    - std::any::TypeId::of::<T>()
+        - const unstable
+        - требует 'static
+    - specialization
+
+
+- фундаментальная проблема: система трейтов слишком ограничивающая.
+    - любой дженерик код компилируется до момента специализации,
+      то есть с ним можно делать только то, что объявлено в виде trait bounds.
+    - это должно было помочь со временем компиляции и читаемостью ошибок, но нет
+
+
+- давайте теперь посмотрим на lua. Луа изначально позиционируется, как эмбедабл
+  язык для того, чтобы использовать его внутри других приложений: например игр
+  или субд тарантул. Для этого есть стэковый ffi апи:
+
+- вот пример, как что-то такое реализовать через апи
+
+```lua
+        a = f("how", t.x, 14)
+```
+```rust
+unsafe {
+    lua_getfield(l, LUA_GLOBALSINDEX, c_ptr!("f")); /* function to be called */
+    lua_pushstring(l, c_ptr!("how"));                        /* 1st argument */
+    lua_getfield(l, LUA_GLOBALSINDEX, c_ptr!("t"));   /* table to be indexed */
+    lua_getfield(l, -1, c_ptr!("x"));        /* push result of t.x (2nd arg) */
+    lua_remove(l, -2);                          /* remove 't' from the stack */
+    lua_pushinteger(l, 14);                                  /* 3rd argument */
+    lua_call(l, 3, 1);             /* call 'f' with 3 arguments and 1 result */
+    lua_setfield(l, LUA_GLOBALSINDEX, c_ptr!("a"));        /* set global 'a' */
+}
+```
+
+- я думаю, что мало кому захочется на таком апи писать каждый день. Давай
+  попробуем спроектировать "безопасное" апи поверх этого
+
+- упростим пример, пусть нам надо сделать аналог вот такого
+    -
+        some_func(420)
+
+    - в идеале мы бы хотели иметь вызов
+        lua.call_func("some_func", 420)
+
+        Lua::call_func(&self, name: &str, arg: i32) {
+            lua_getfield(self.l, LUA_GLOBALSINDEX, name);
+            lua_pushinteger(self.l, arg);
+            lua_call(self.l, 1, 0);
+        }
+
+    - или
+        lua.call_func("some_func", "foobar")
+
+        Lua::call_func(&self, name: &str, arg: &str) {
+            lua_getfield(self.l, LUA_GLOBALSINDEX, name);
+            lua_pushstring(self.l, arg);
+            lua_call(self.l, 1, 0);
+        }
+
+    - или
+        lua.call_func("some_func", my_variable)
+
+        Lua::call_func<T>(&self, name: &str, arg: &T)
+        where
+            T: LuaPush,
+        {
+            lua_getfield(self.l, LUA_GLOBALSINDEX, name);
+            LuaPush::push(self.l, arg);
+            lua_call(self.l, 1, 0);
+        }
+
+    - вопрос: что принимает LuaPush::push: &self или self?
+
+    - если &self: что делать с
+        - userdata/cdata
+        - cfunction: FnOnce/FnMut
+
+    - если self: что если данные мне ещё нужны?
+        - clone на каждый вызов функции, чтобы просто дропнуть значения при выходе
+
+    - как поддержать оба варианта?
+        ???
+
+        Lua::call_func<T>(&self, name: &str, arg: T) // T by value
+
+        impl LuaPush for i32 {}
+        impl LuaPush for &i32 {}
+        impl LuaPush for String {}
+        impl LuaPush for &str {}
+        impl LuaPush for MyStruct {}
+        impl LuaPush for &MyStruct {}
+
+
+    - что если несколько аргументов?
+        lua.call_func("some_func", a, b, c) // compile error
+
+    - (A, B, C) == несколько значений на стеке
+        lua.call_func("some_func", (a, b, c))
+
+        Lua::call_func<T>(&self, name: &str, arg: &T)
+        where
+            T: LuaPush,
+        {
+            lua_getfield(self.l, LUA_GLOBALSINDEX, name);
+            LuaPush::push(self.l, arg);
+            lua_call(self.l, ?, 0);
+        }
+
+        Lua::call_func<T>(&self, name: &str, arg: &T)
+        where
+            T: LuaPush,
+        {
+            lua_getfield(self.l, LUA_GLOBALSINDEX, name);
+            n = LuaPush::push(self.l, arg);
+            lua_call(self.l, n, 0);
+        }
+
+        - btw serde_rmp: (A, B, C) == [A, B, C]
+
+        - struct MyStruct { a: i32, b: (f32, f32, f32), }
+
+        - что делать в других случаях?
+            value = lua_table.get(key);
+
+            // а что если?
+            value = lua_table.get((a, b, c)); // что произойдёт?
+
+        - правильный ответ
+            res = lua_table.get((a, b, c));
+            res == Err(PushedTooManyValues);
+
+        - неправильный ответ
+            trait LuaPushOne: LuaPush {}
+
+    - 
+
+
 
 - раст и луа это фундаментально несовместимые языки
     - луа -- максимально динамический:
