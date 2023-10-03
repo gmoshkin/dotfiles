@@ -562,20 +562,13 @@
 <div style="page-break-after: always;"></div>
 
 
-    Bonus meme
+        Пример 2.
 
-```rust
-
-    // Что должно произойти?
-    let x: i32 = lua.eval("return 3.14").unwrap();
-
-```
+    lua api
 
 
 <div style="page-break-after: always;"></div>
 
-
-    lua api
 
 ```lua
     some_func(1337)
@@ -584,35 +577,11 @@
     lua_getfield(l, LUA_GLOBALSINDEX, c_ptr!("some_func"));
     lua_pushinteger(l, 1337);
     lua_call(l, 1, 0);
-    //          ^  ^
-    //          |  nret
-    //          nargs
 ```
 
 
 <div style="page-break-after: always;"></div>
 
-
-    lua api
-
-```lua
-    some_func(1337)
-```
-```rust
-    let l = lua_newstate();
-    lua_getfield(l, LUA_GLOBALSINDEX, c_ptr!("some_func"));
-    lua_pushinteger(l, 1337);
-    lua_call(l, 1, 0);
-    //          ^  ^
-    //          |  nret
-    //          nargs
-```
-
-
-<div style="page-break-after: always;"></div>
-
-
-    lua api
 
 ```lua
     some_func(1337)
@@ -626,12 +595,45 @@
 <div style="page-break-after: always;"></div>
 
 
+```lua
+    some_func(1337)
+```
 ```rust
     fn Lua::call_func(&self, name: &str, integer: i32) {
         lua_getfield(self.l, LUA_GLOBALSINDEX, name);
         lua_pushinteger(self.l, integer);
         lua_call(self.l, 1, 0);
     }
+```
+
+
+<div style="page-break-after: always;"></div>
+
+
+```lua
+    some_func(any_value)
+```
+```rust
+    fn Lua::call_func<T>(&self, name: &str, value: T)
+    where
+        T: LuaPush,
+    {
+        lua_getfield(self.l, LUA_GLOBALSINDEX, name);
+        LuaPush::push(self.l, value);
+        lua_call(self.l, 1, 0);
+    }
+```
+
+
+<div style="page-break-after: always;"></div>
+
+
+```lua
+    some_func(a, b, c)
+```
+```rust
+    let lua = lua_state();
+    lua.call_func("some_func", a, b, c); // так нельзя!
 ```
 
 
@@ -682,4 +684,17 @@
     ...
     impl LuaPush for MyStruct {}
     impl LuaPush for &MyStruct {}
+```
+
+
+<div style="page-break-after: always;"></div>
+
+
+    Bonus meme
+
+```rust
+
+    // Что должно произойти?
+    let x: i32 = lua.eval("return 3.14").unwrap();
+
 ```
