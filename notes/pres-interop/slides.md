@@ -572,3 +572,114 @@
 ```
 
 
+<div style="page-break-after: always;"></div>
+
+
+    lua api
+
+```lua
+    some_func(1337)
+```
+```rust
+    lua_getfield(l, LUA_GLOBALSINDEX, c_ptr!("some_func"));
+    lua_pushinteger(l, 1337);
+    lua_call(l, 1, 0);
+    //          ^  ^
+    //          |  nret
+    //          nargs
+```
+
+
+<div style="page-break-after: always;"></div>
+
+
+    lua api
+
+```lua
+    some_func(1337)
+```
+```rust
+    let l = lua_newstate();
+    lua_getfield(l, LUA_GLOBALSINDEX, c_ptr!("some_func"));
+    lua_pushinteger(l, 1337);
+    lua_call(l, 1, 0);
+    //          ^  ^
+    //          |  nret
+    //          nargs
+```
+
+
+<div style="page-break-after: always;"></div>
+
+
+    lua api
+
+```lua
+    some_func(1337)
+```
+```rust
+    let lua = lua_state();
+    lua.call_func("some_func", 1337);
+```
+
+
+<div style="page-break-after: always;"></div>
+
+
+```rust
+    fn Lua::call_func(&self, name: &str, integer: i32) {
+        lua_getfield(self.l, LUA_GLOBALSINDEX, name);
+        lua_pushinteger(self.l, integer);
+        lua_call(self.l, 1, 0);
+    }
+```
+
+
+<div style="page-break-after: always;"></div>
+
+
+```rust
+    fn Lua::call_func<T>(&self, name: &str, value: &?T) // &T или T ?
+    where
+        T: LuaPush,
+    {
+        lua_getfield(self.l, LUA_GLOBALSINDEX, name);
+        LuaPush::push(self.l, value);
+        lua_call(self.l, 1, 0);
+    }
+```
+
+
+<div style="page-break-after: always;"></div>
+
+
+    by reference `&T`?
+
+    - что если данные должны move'аться на луа стэк?
+
+    - userdata/cdata
+    - cfunction: FnOnce/FnMut
+
+
+<div style="page-break-after: always;"></div>
+
+
+    by value `T`?
+
+    - что если данные ещё пригодятся?
+
+    - клонировать при каждом вызове? `Vec<BigData>`
+
+
+<div style="page-break-after: always;"></div>
+
+
+```rust
+    fn LuaPush::push(self) {}
+
+    impl LuaPush for i32 {}
+    impl LuaPush for &i32 {}
+    ...
+    impl LuaPush for MyStruct {}
+    impl LuaPush for &MyStruct {}
+```
