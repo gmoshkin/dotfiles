@@ -96,7 +96,7 @@
 <div style="page-break-after: always;"></div>
 
 
-            Вывод 1.
+        Вывод 1.
 
     - unsafe не надо бояться
 
@@ -550,13 +550,10 @@
 <div style="page-break-after: always;"></div>
 
 
-    Вывод 4.
+        Вывод 4.
 
-```rust
 
     - дублирование простого кода > мета-программирование на типах
-
-```
 
 
 <div style="page-break-after: always;"></div>
@@ -641,6 +638,38 @@
 
 
 ```rust
+    let lua = lua_state();
+    lua.call_func("some_func", (a, b, c)); // так?
+    lua.call_func("some_func", MultipleValues((a, b, c))); // или так?
+```
+
+
+<div style="page-break-after: always;"></div>
+
+
+```rust
+    #[derive(serde::Serialize, LuaPush)]
+    struct MyStruct {
+        a: i32,
+        v: (f32, f32, f32), // <- разный смысл
+    }
+```
+
+
+<div style="page-break-after: always;"></div>
+
+
+```rust
+    let lua = lua_state();
+    lua.tuple_mode(TupleIsMultipleValues);
+    lua.call_func("some_func", (a, b, c));
+```
+
+
+<div style="page-break-after: always;"></div>
+
+
+```rust
     fn Lua::call_func<T>(&self, name: &str, value: &?T) // &T или T ?
     where
         T: LuaPush,
@@ -685,6 +714,20 @@
     impl LuaPush for MyStruct {}
     impl LuaPush for &MyStruct {}
 ```
+
+
+<div style="page-break-after: always;"></div>
+
+
+    Итоги:
+
+    1. Ищите простые решения!
+
+    2. Избегайте generic код
+
+    3. Избегайте &mut
+
+    4. Не бойтесь unsafe
 
 
 <div style="page-break-after: always;"></div>
