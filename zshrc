@@ -1,3 +1,23 @@
+#
+# Function-level profiling
+#
+# zmodload zsh/zprof
+
+#
+# Command-level profiling
+#
+# Source: https://stackoverflow.com/a/4351664/2103996
+#
+# {{{
+
+# zmodload zsh/datetime
+# setopt promptsubst
+# PS4='[$EPOCHREALTIME] %N:%i> '
+# exec 3>&2 2> /tmp/prof-cmd.$$
+# setopt xtrace prompt_subst
+
+# }}}
+
 # Lines configured by zsh-newuser-install
 setopt appendhistory autocd extendedglob nomatch notify histignorealldups
 setopt interactivecomments
@@ -103,3 +123,6 @@ export LUA_PATH="$DOTFILES/scripts/?.lua;/usr/share/luajit-2.1.0-beta3/?.lua"
 export LUA_CPATH="$HOME/.cargo-target/debug/lib?.so;$HOME/.cargo-target/release/lib?.so"
 export PYTHONPATH="$DOTFILES/scripts"
 export DISPLAY="$(/sbin/ip route | awk '/^default/ { print $3 }'):0"
+
+# Dump the function-level profiling info.
+# zprof > /tmp/prof-func.$$
