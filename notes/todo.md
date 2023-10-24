@@ -1,6 +1,5 @@
 # picodata
-- investigate flakiness/lagginess in test_acl_from_snapshot : IN PROGRESS
-- investigate flakiness/bugs in test_bucket_rebalancing..   : IN PROGRESS
+- investigate flaky tests : TODO
 
 ## Big snapshots
 - actual behavior                    : ON REVIEW
@@ -11,13 +10,14 @@
 - network-client: handle packet size overflow : IN PROGRESS
 - benchmark bulk inserts against lua          : TODO
 - benchmark bulk selects against lua          : TODO
+    - figure out getting RDPMC from rust
+    - figure out getting cache miss info from rust
 
 ## life
 
 - dad:
    - fix laptop charging port for mom's laptop
    - by battery for mom's laptop
-   - install memory into dad's laptop
 
 - driver's license:
    - get appointment with instructor
