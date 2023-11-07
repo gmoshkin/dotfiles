@@ -3,8 +3,10 @@
 - manual master switchover : IN PROGRESS
 - benchmark governor/raft log propagation : TODO
 - simulate big cluster : TODO
+- API to change replicaset master : TODO
 
 # tarantool-module
+- define_str_enum: add support for numeric values : ON REVIEW
 - export log::init_default                    : IN PROGRESS
 - rename test-runner                          : IN PROGRESS
 - network-client: handle packet size overflow : IN PROGRESS
@@ -15,9 +17,11 @@
 
 ## life
 
+- mom:
+    - find a service to repair laptop charging port
+
 - dad:
-   - fix laptop charging port for mom's laptop
    - by battery for mom's laptop
 
-- driver's license:
-   - get appointment with instructor
+- dasha:
+    - gaming laptop
