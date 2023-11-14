@@ -1,4 +1,4 @@
-export EDITOR="$(which nvim)"
+export EDITOR="$(which vim)"
 export GDBHISTFILE="$HOME/.gdb_history"
 
 export VIMFILES="$HOME/.vim"
