@@ -1,8 +1,8 @@
 # picodata
 - investigate flaky tests : TODO
-
-## Big snapshots
-- actual behavior                    : ON REVIEW
+- manual master switchover : IN PROGRESS
+- benchmark governor/raft log propagation : TODO
+- simulate big cluster : TODO
 
 # tarantool-module
 - export log::init_default                    : IN PROGRESS
