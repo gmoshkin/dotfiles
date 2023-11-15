@@ -1,4 +1,4 @@
-export EDITOR="$(which vim)"
+2>/dev/null hash vim && export EDITOR="$(which vim)"
 export GDBHISTFILE="$HOME/.gdb_history"
 
 export VIMFILES="$HOME/.vim"

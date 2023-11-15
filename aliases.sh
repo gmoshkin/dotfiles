@@ -13,10 +13,10 @@ case $OSTYPE in
                 done
         ;;
     linux*)
-        "$HOME/dotfiles/jai/aliases-linux" |
-            while read alias; do
-                eval $alias;
-            done
+        source <("$HOME/dotfiles/jai/aliases-linux")
+        ;;
+    msys*)
+        source <("$HOME/dotfiles/jai/aliases-msys.exe")
         ;;
 esac
 
@@ -42,7 +42,7 @@ case $OSTYPE in
     darwin*)
         NPROC=$(sysctl -n hw.ncpu)
         ;;
-    linux*)
+    linux* | msys*)
         NPROC=$(nproc)
         ;;
     *)

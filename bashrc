@@ -38,15 +38,13 @@ if type "thefuck" &> /dev/null; then
     eval $(thefuck -a)
 fi
 
-eval `dircolors ~/.dir_colors/dircolors`
+eval `dircolors -b ~/.dir_colors/dircolors`
 
 source "$DOTFILES/commands.sh"
 
 if [ -f ~/.cmus-vars ]; then
     source ~/.cmus-vars
 fi
-
-source "$DOTFILES/bash-it/completion/available/tmux.completion.bash"
 
 alias SB='source ~/.bashrc'
 

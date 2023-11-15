@@ -2,7 +2,7 @@
     #if OS == .LINUX {
         set_build_options_dc(.{ output_executable_name = "aliases-linux" });
     } else {
-        #assert false, "not implemented";
+        set_build_options_dc(.{ output_executable_name = "aliases-msys" });
     }
     #import "Compiler";
 }
@@ -34,16 +34,19 @@ main :: () {
 # git commands
 #
     END);
-    for cmd: file_list("/usr/lib/git-core") {
+    #if OS == .LINUX {
+        git_core := "/usr/lib/git-core";
+    } else {
+        git_core := "C:/msys64/usr/lib/git-core";
+    }
+    for cmd: file_list(git_core) {
         if is_directory(cmd) continue;
-        fs: stat_t;
-        result := stat(temp_c_string(cmd), *fs);
-        if result continue;
-        if !(fs.st_mode & oct("111")) continue;
+        if !file_is_executable(cmd) continue;
 
         path := parse_path(cmd);
         filename := path.words[path.words.count - 1];
         if starts_with(filename, "git-") advance(*filename, "git-".count);
+        filename = path_strip_extension(filename);
         print("alias g%1='git %1'\n", filename);
     }
 
@@ -77,8 +80,13 @@ Void : void;
 oct :: ($o: string) -> int #expand { return #run string_to_int(o, base=8); }
 
 command :: (args: .. string, cwd := "") -> ok: bool, out: string {
-    res, out := run_command(..args, capture_and_return_output = true, working_directory = cwd);
-    if res.type != .EXITED || res.exit_code != 0 return false, out;
+    res, out, err := run_command(..args, capture_and_return_output = true, working_directory = cwd);
+    if res.type != .EXITED || res.exit_code != 0 {
+        log_error("%, '%', '%'", res, out, err);
+        ec, em := get_error_value_and_string();
+        log_error("[%] %", ec, em);
+        return false, out;
+    }
     return true, trim(out);
 }
 
@@ -88,8 +96,44 @@ next_exit_code :: () -> s32 {
     return exit_code;
 }
 
+file_is_executable :: (full_path: string) -> bool {
+    #if OS == .LINUX {
+        #import "POSIX";
+        fs: stat_t;
+        result := stat(temp_c_string(full_path), *fs);
+        if result return false;
+        is_executable := fs.st_mode & oct("111");
+        return xx is_executable;
+    } else {
+        #import "Windows";
+        shell32 :: #system_library "shell32";
+        SHFILEINFOA :: struct {
+            hIcon: HICON;
+            iIcon: s32;
+            dwAttributes: DWORD;
+            szDisplayName: [MAX_PATH] s8;
+            szTypeName: [80] s8;
+        };
+        SHGFI :: enum_flags u32 {
+            EXETYPE :: 0x000002000;
+        }
+        SHGetFileInfoA :: (
+            pszPath: LPCSTR,
+            dwFileAttributes: DWORD,
+            psfi: *SHFILEINFOA,
+            cbFileInfo: u32,
+            uFlags: SHGFI
+        ) -> *DWORD #foreign shell32;
+
+        sh_file_info: SHFILEINFOA;
+        result := SHGetFileInfoA(temp_c_string(full_path), 0, *sh_file_info, size_of(SHFILEINFOA), .EXETYPE);
+
+        return result != null;
+    }
+}
+
 #import "Basic";
 #import "Process";
 #import "String";
 #import "File_Utilities";
-#import "POSIX";
+#import "System";
