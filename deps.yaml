@@ -15,6 +15,11 @@ misc:
   - rustup
   - cmake
   - rlwrap
+  - automake
+  - autoreconf
+  - libtool
+  - g++
+  - binutils
 vim:
   - libpython3-dev
   - libx11-dev
