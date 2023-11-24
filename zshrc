@@ -39,6 +39,19 @@ prompt mine
 autoload -U select-word-style
 select-word-style bash
 
+
+/usr/bin/df -B1024 | awk \
+'   /C:\\/ {
+        if ($4 < 10 * 1024 * 1024) {
+            print("\x1b[31m################################################################")
+            print("!!!         Disk C:\\ has less then 10G of space left         !!!")
+            print("!!!         Only ", $4 / 1024, "M is left                           !!!")
+            print("################################################################\x1b[0m")
+        }
+    }
+'
+
+
 source "$DOTFILES/commands.sh"
 
 2>/dev/null hash dircolors && eval `dircolors ~/.dir_colors/dircolors`
