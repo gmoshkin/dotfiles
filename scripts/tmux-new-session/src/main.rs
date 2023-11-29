@@ -22,12 +22,13 @@ fn body() -> Result<(), Box<dyn std::error::Error>> {
         .collect::<std::collections::HashMap<_, _>>();
 
     for n in 1.. {
-        let session = filename.split(|c: char| !c.is_alphanumeric())
-            .flat_map(|s| s.get(0..(n.min(s.len()))))
-            .collect::<Vec<_>>()
-            .join("");
+        // let session = filename.split(|c: char| !c.is_alphanumeric())
+        //     .flat_map(|s| s.get(0..(n.min(s.len()))))
+        //     .collect::<Vec<_>>()
+        //     .join("");
+        let session = filename;
 
-        match sessions.get(&session.as_str()).copied() {
+        match sessions.get(&session).copied() {
             Some(p) if p == full_path => {
                 run("tmux", ["switch-client", "-t", &session])?;
                 break;
