@@ -261,44 +261,81 @@ fn main() {
     }
 
     let mut nvim_conn_and_pane = None;
-    for dir_entry in std::fs::read_dir("/tmp").unwrap() {
-        let dir_entry = dir_entry.unwrap();
-        if !dir_entry.file_type().unwrap().is_dir() {
-            continue;
+    if let Ok(entries) = std::fs::read_dir("/run/user") {
+        'outer: for dir_entry in entries {
+            let Ok(dir_entry) = dir_entry else { continue; };
+            if !dir_entry.file_type().unwrap().is_dir() { continue; }
+
+            let Ok(entries) = std::fs::read_dir(dir_entry.path()) else { continue; };
+            for dir_entry in entries {
+                let Ok(dir_entry) = dir_entry else { continue; };
+
+                let file_path = dir_entry.path();
+                let file_name = file_path.file_name().unwrap();
+                let file_name = file_name.to_str().unwrap();
+                if !file_name.starts_with("nvim") { continue; }
+                if !file_name.ends_with(".0") { continue; }
+
+                let sock_path = file_path;
+                let res = UnixStream::connect(&sock_path);
+                let Ok(mut conn) = res else { continue; };
+
+                let req = Req {
+                    msg_type: MSG_TYPE_REQ,
+                    sync: 420,
+                    proc: "nvim_eval",
+                    args: vec!["$TMUX_PANE".into()],
+                };
+
+                let nvim_pane: String = rpc(&mut conn, &req);
+                let Some(nvim_sess) = sess_by_pane_id.get(&*nvim_pane) else {
+                    eprintln!("'{}' is not a known tmux pane", nvim_pane);
+                    continue;
+                };
+
+                if *nvim_sess == my_sess_name {
+                    println!("socket: {}", sock_path.display());
+                    nvim_conn_and_pane = Some((conn, nvim_pane));
+                    break 'outer;
+                }
+            }
         }
-        let file_path = dir_entry.path();
-        let file_name = file_path.file_name().unwrap();
-        if !file_name.to_str().unwrap().starts_with("nvim") {
-            continue;
-        }
+    }
 
-        let sock_path = file_path.join("0");
-        if !sock_path.try_exists().unwrap() {
-            continue;
-        }
+    if nvim_conn_and_pane.is_none() {
+        for dir_entry in std::fs::read_dir("/tmp").unwrap() {
+            let dir_entry = dir_entry.unwrap();
+            if !dir_entry.file_type().unwrap().is_dir() { continue; }
 
-        let res = UnixStream::connect(&sock_path);
-        let Ok(mut conn) = res else {
-            continue;
-        };
-        // conn.set_read_timeout(Some(std::time::Duration::from_millis(500))).unwrap();
-        let req = Req {
-            msg_type: MSG_TYPE_REQ,
-            sync: 420,
-            proc: "nvim_eval",
-            args: vec!["$TMUX_PANE".into()],
-        };
+            let file_path = dir_entry.path();
+            let file_name = file_path.file_name().unwrap();
+            if !file_name.to_str().unwrap().starts_with("nvim") { continue; }
 
-        let nvim_pane: String = rpc(&mut conn, &req);
-        let Some(nvim_sess) = sess_by_pane_id.get(&*nvim_pane) else {
-            eprintln!("'{}' is not a known tmux pane", nvim_pane);
-            continue;
-        };
+            let sock_path = file_path.join("0");
+            if !sock_path.try_exists().unwrap() { continue; }
 
-        if *nvim_sess == my_sess_name {
-            println!("socket: {}", sock_path.display());
-            nvim_conn_and_pane = Some((conn, nvim_pane));
-            break;
+            let res = UnixStream::connect(&sock_path);
+            let Ok(mut conn) = res else { continue; };
+
+            // conn.set_read_timeout(Some(std::time::Duration::from_millis(500))).unwrap();
+            let req = Req {
+                msg_type: MSG_TYPE_REQ,
+                sync: 420,
+                proc: "nvim_eval",
+                args: vec!["$TMUX_PANE".into()],
+            };
+
+            let nvim_pane: String = rpc(&mut conn, &req);
+            let Some(nvim_sess) = sess_by_pane_id.get(&*nvim_pane) else {
+                eprintln!("'{}' is not a known tmux pane", nvim_pane);
+                continue;
+            };
+
+            if *nvim_sess == my_sess_name {
+                println!("socket: {}", sock_path.display());
+                nvim_conn_and_pane = Some((conn, nvim_pane));
+                break;
+            }
         }
     }
 
