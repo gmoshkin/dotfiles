@@ -9,8 +9,9 @@ EXE_NAME :: "ruler";
 
 // TODO:
 // - redraw while resizing, see: https://github.com/cmuratori/dtc
-// - customizable DPI https://stackoverflow.com/questions/12652835/getting-actual-screen-dpi-ppi-under-windows
 // - transparent background
+// - render to an upscaled texture and downscale for subpixel rendering
+// - customizable DPI
 
 main :: () {
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -42,6 +43,30 @@ main :: () {
     my_font := Simp.get_font_at_size(font_data, 28);
 
     // Init
+
+    system_screen_width, system_screen_height: float;
+    system_dpi_x, system_dpi_y: float;
+    #if OS == .WINDOWS {
+        // Requires win8+
+        shcore :: #system_library "Shcore";
+        GetDpiForMonitor :: (m: Windows.HMONITOR, t: Windows.MONITOR_DPI_TYPE, dpiX: *u32, dpiY: *u32) -> Windows.HRESULT #foreign shcore;
+
+        dpi_x, dpi_y: u32;
+        monitor := Windows.MonitorFromWindow(window, Windows.MONITOR_DEFAULTTONEAREST);
+        ok := GetDpiForMonitor(monitor, .MDT_RAW_DPI, *dpi_x, *dpi_y);
+        assert(ok == 0);
+
+        system_dpi_x = cast(float) dpi_x;
+        system_dpi_y = cast(float) dpi_y;
+
+        info: Windows.MONITORINFO;
+        info.cbSize = size_of(type_of(info));
+        success := Windows.GetMonitorInfoW(monitor, *info);
+        if success {
+            system_screen_width  = xx (info.rcMonitor.right  - info.rcMonitor.left);
+            system_screen_height = xx (info.rcMonitor.bottom - info.rcMonitor.top);
+        }
+    }
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Game loop
@@ -130,24 +155,25 @@ main :: () {
         Simp.clear_render_target(bg_color.x, bg_color.y, bg_color.z, bg_color.w);
 
 
-        width_pixels := 1960.0;
-        height_pixels := 1080.0;
+        width_pixels  := ifx system_screen_width  then system_screen_width  else 1960.0;
+        height_pixels := ifx system_screen_height then system_screen_height else 1080.0;
         diagonal_pixels := sqrt(pow(width_pixels, 2) + pow(height_pixels, 2));
-        aspect_ration := width_pixels / height_pixels;
 
         diagonal_inches := 17.3;
-        pixels_per_inch := diagonal_pixels / diagonal_inches;
-        inches_per_pixel := diagonal_inches / diagonal_pixels;
-        height_inches := sqrt(pow(diagonal_inches, 2) / (1 + pow(aspect_ration, 2)));
-        width_inches := sqrt(pow(diagonal_inches, 2) - pow(height_inches, 2));
 
-        centimeters_per_inch := 2.54;
-        centimeters_per_pixel := centimeters_per_inch / pixels_per_inch;
-        pixels_per_centimeter := 1 / centimeters_per_pixel;
+        px_per_in_x := ifx system_dpi_x then system_dpi_x else diagonal_pixels / diagonal_inches;
+        px_per_in_y := ifx system_dpi_y then system_dpi_y else diagonal_pixels / diagonal_inches;
+
+        in_per_px_x := 1 / px_per_in_x;
+        in_per_px_y := 1 / px_per_in_y;
+
+        cm_per_in := 2.54;
+        cm_per_px_x := cm_per_in / px_per_in_x;
+        cm_per_px_y := cm_per_in / px_per_in_y;
+        px_per_cm_x := px_per_in_x / cm_per_in;
+        px_per_cm_y := px_per_in_y / cm_per_in;
 
         {
-            // TODO: could render to an upscaled texture and downscale for
-            // subpixel rendering...
             cm_mark_length := 10.0;
             cm_mark_width := 3.0;
             mm_mark_length := 6.0;
@@ -165,13 +191,13 @@ main :: () {
 
                     mm_mark_pos := cm_mark_pos;
                     for 1..9 {
-                        mm_mark_pos -= .1 * pixels_per_centimeter;
+                        mm_mark_pos -= .1 * px_per_cm_y;
                         x := window_size.x - mm_mark_length;
                         y := mm_mark_pos - mm_mark_width / 2;
                         immediate_rect(x, y, mm_mark_length, mm_mark_width, fg_color);
                     }
 
-                    cm_mark_pos -= pixels_per_centimeter;
+                    cm_mark_pos -= px_per_cm_y;
                 }
             }
 
@@ -187,13 +213,13 @@ main :: () {
 
                     mm_mark_pos := cm_mark_pos;
                     for 1..9 {
-                        mm_mark_pos += .1 * pixels_per_centimeter;
+                        mm_mark_pos += .1 * px_per_cm_x;
                         x := mm_mark_pos - mm_mark_width / 2;
                         y := 0.0;
                         immediate_rect(x, y, mm_mark_width, mm_mark_length, fg_color);
                     }
 
-                    cm_mark_pos += pixels_per_centimeter;
+                    cm_mark_pos += px_per_cm_x;
                 }
             }
         }
@@ -216,13 +242,13 @@ main :: () {
 
                     eigth_mark_pos := inch_mark_pos;
                     for 1..7 {
-                        eigth_mark_pos -= .125 * pixels_per_inch;
+                        eigth_mark_pos -= .125 * px_per_in_y;
                         x := 0.0;
                         y := eigth_mark_pos - eigth_mark_width / 2;
                         immediate_rect(x, y, eigth_mark_length, eigth_mark_width, fg_color);
                     }
 
-                    inch_mark_pos -= pixels_per_inch;
+                    inch_mark_pos -= px_per_in_y;
                 }
             }
 
@@ -238,13 +264,13 @@ main :: () {
 
                     eigth_mark_pos := inch_mark_pos;
                     for 1..7 {
-                        eigth_mark_pos += .125 * pixels_per_inch;
+                        eigth_mark_pos += .125 * px_per_in_x;
                         x := eigth_mark_pos - eigth_mark_width / 2;
                         y := window_size.y - eigth_mark_length;
                         immediate_rect(x, y, eigth_mark_width, eigth_mark_length, fg_color);
                     }
 
-                    inch_mark_pos += pixels_per_inch;
+                    inch_mark_pos += px_per_in_x;
                 }
             }
         }
@@ -269,8 +295,8 @@ main :: () {
             Simp.draw_text(my_font, xx x, xx y, px_text, fg_color);
             y_pos -= y_ofs;
 
-            in_w := window_size.x * inches_per_pixel;
-            in_h := window_size.y * inches_per_pixel;
+            in_w := window_size.x * in_per_px_x;
+            in_h := window_size.y * in_per_px_y;
             in_d := sqrt(pow(in_w, 2) + pow(in_h, 2));
             in_text := tprint("inches: % x % / %", ff(in_w), ff(in_h), ff(in_d));
             x = outer_margin + inner_margin;
@@ -278,8 +304,8 @@ main :: () {
             Simp.draw_text(my_font, xx x, xx y, in_text, fg_color);
             y_pos -= y_ofs;
 
-            cm_w := window_size.x * centimeters_per_pixel;
-            cm_h := window_size.y * centimeters_per_pixel;
+            cm_w := window_size.x * cm_per_px_x;
+            cm_h := window_size.y * cm_per_px_y;
             cm_d := sqrt(pow(cm_w, 2) + pow(cm_h, 2));
             cm_text := tprint("centimeters: % x % / %", ff(cm_w), ff(cm_h), ff(cm_d));
             x = outer_margin + inner_margin;
@@ -288,6 +314,7 @@ main :: () {
             y_pos -= y_ofs;
         }
 
+        // Invert color button
         {
             width := 200.0;
             height := 40.0;
@@ -309,6 +336,8 @@ main :: () {
             if click && mouse.x >= x0 && mouse.x <= x0 + width && mouse.y >= y0 && mouse.y <= y0 + height {
                 fg_color, bg_color = bg_color, fg_color;
             }
+
+            y_pos = y0 - y_ofs;
         }
 
         /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
