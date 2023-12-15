@@ -231,8 +231,17 @@ battery :: () -> string, Attr {
     energy_now:, ok = string_to_int(text);
     Check_Ok(ok);
 
+    ok=, status_text := command("cat", tprint("%/status", bat));
+    Check_Ok(ok);
+
+    status := "";
+    if status_text == {
+        case "Charging";    status = " ↑";
+        case "Discharging"; status = " ↓";
+    }
+
     percentage := 100 * (cast(float) energy_now) / energy_full;
-    return tprint("♥ %", cast(int) percentage), .{ "white", "red" };
+    return tprint("♥ %1%2", cast(int) percentage, status), .{ "white", "red" };
 }
 
 date_time :: () -> string, Attr {
