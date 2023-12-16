@@ -91,6 +91,7 @@ main :: () {
     mouse_absolute_at_click: Vector2;
     window_position_at_click: Vector2;
     transparent := false;
+    grid_mode : enum { OFF; CENTIMETERS; INCHES; } = .OFF;
     click_handled := false;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -100,6 +101,7 @@ main :: () {
 
     fg_color := Vector4.{ .1, .1, .1, 1 };
     bg_color := Vector4.{ .8, .8, .8, 1 };
+    off_color := Vector4.{ .5, .5, .5, 1 };
 
     while !quit {
         //
@@ -216,14 +218,15 @@ main :: () {
         px_per_cm_x := px_per_in_x / cm_per_in;
         px_per_cm_y := px_per_in_y / cm_per_in;
 
+        if grid_mode != .INCHES
         {
-            cm_mark_length := 10.0;
-            cm_mark_width := 3.0;
-            mm_mark_length := 6.0;
-            mm_mark_width := 1.0;
-
             // Vertical cm ruler
             {
+                cm_mark_length := ifx grid_mode == .CENTIMETERS then window_size.x else 10.0;
+                cm_mark_width :=  ifx grid_mode == .CENTIMETERS then           2.0 else 3.0;
+                mm_mark_length := ifx grid_mode == .CENTIMETERS then window_size.x else 6.0;
+                mm_mark_width := 1.0;
+
                 cm_mark_pos := window_size.y;
 
                 Simp.set_shader_for_color();
@@ -246,6 +249,11 @@ main :: () {
 
             // Horizontal cm ruler
             {
+                cm_mark_length := ifx grid_mode == .CENTIMETERS then window_size.y else 10.0;
+                cm_mark_width :=  ifx grid_mode == .CENTIMETERS then           2.0 else 3.0;
+                mm_mark_length := ifx grid_mode == .CENTIMETERS then window_size.y else 6.0;
+                mm_mark_width := 1.0;
+
                 cm_mark_pos := 0.0;
 
                 Simp.set_shader_for_color();
@@ -267,14 +275,15 @@ main :: () {
             }
         }
 
+        if grid_mode != .CENTIMETERS
         {
-            inch_mark_length := 10.0;
-            inch_mark_width := 3.0;
-            eigth_mark_length := 6.0;
-            eigth_mark_width := 2.0;
-
             // Vertical inch ruler
             {
+                inch_mark_length :=  ifx grid_mode == .INCHES then window_size.x else 10.0;
+                inch_mark_width :=   ifx grid_mode == .INCHES then           2.0 else 3.0;
+                eigth_mark_length := ifx grid_mode == .INCHES then window_size.x else 6.0;
+                eigth_mark_width :=  ifx grid_mode == .INCHES then           1.0 else 2.0;
+
                 inch_mark_pos := window_size.y;
 
                 Simp.set_shader_for_color();
@@ -297,6 +306,11 @@ main :: () {
 
             // Horizontal inch ruler
             {
+                inch_mark_length :=  ifx grid_mode == .INCHES then window_size.y else 10.0;
+                inch_mark_width :=   ifx grid_mode == .INCHES then           2.0 else 3.0;
+                eigth_mark_length := ifx grid_mode == .INCHES then window_size.y else 6.0;
+                eigth_mark_width :=  ifx grid_mode == .INCHES then           1.0 else 2.0;
+
                 inch_mark_pos := 0.0;
 
                 Simp.set_shader_for_color();
@@ -413,6 +427,70 @@ main :: () {
                     log_error("[%] %", code, msg);
                 }
                 assert(xx ok);
+            }
+
+            y_pos = y0 - y_ofs;
+        }
+
+        // Mode centimeter grid
+        {
+            width := 300.0;
+            height := 40.0;
+            button_inner_margin := 4.0;
+            x0 := outer_margin;
+            y0 := y_pos + y_ofs - height - button_inner_margin;
+
+            button_is_on := grid_mode == .CENTIMETERS;
+            Simp.set_shader_for_color();
+            button_color := ifx button_is_on then off_color else fg_color;
+            immediate_rect(x0, y0, width, height, button_color);
+
+            text_width := Simp.prepare_text(my_font, "Centimeter grid");
+            text_height := 22.0;
+            text_x := x0 + width / 2 - text_width / 2;
+            text_y := y0 + text_height / 2;
+            Simp.set_shader_for_text();
+            button_text_color := bg_color;
+            Simp.draw_prepared_text(my_font, xx text_x, xx text_y, button_text_color);
+
+            if click && mouse.x >= x0 && mouse.x <= x0 + width && mouse.y >= y0 && mouse.y <= y0 + height {
+                click_handled = true;
+                if grid_mode == {
+                    case .CENTIMETERS; grid_mode = .OFF;
+                    case;              grid_mode = .CENTIMETERS;
+                }
+            }
+
+            y_pos = y0 - y_ofs;
+        }
+
+        // Mode inches grid
+        {
+            width := 300.0;
+            height := 40.0;
+            button_inner_margin := 4.0;
+            x0 := outer_margin;
+            y0 := y_pos + y_ofs - height - button_inner_margin;
+
+            button_is_on := grid_mode == .INCHES;
+            Simp.set_shader_for_color();
+            button_color := ifx button_is_on then off_color else fg_color;
+            immediate_rect(x0, y0, width, height, button_color);
+
+            text_width := Simp.prepare_text(my_font, "Inches grid");
+            text_height := 22.0;
+            text_x := x0 + width / 2 - text_width / 2;
+            text_y := y0 + text_height / 2;
+            Simp.set_shader_for_text();
+            button_text_color := bg_color;
+            Simp.draw_prepared_text(my_font, xx text_x, xx text_y, button_text_color);
+
+            if click && mouse.x >= x0 && mouse.x <= x0 + width && mouse.y >= y0 && mouse.y <= y0 + height {
+                click_handled = true;
+                if grid_mode == {
+                    case .INCHES; grid_mode = .OFF;
+                    case;              grid_mode = .INCHES;
+                }
             }
 
             y_pos = y0 - y_ofs;
