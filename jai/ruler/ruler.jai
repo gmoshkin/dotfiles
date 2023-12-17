@@ -26,8 +26,26 @@ main :: () {
         Windows.timeBeginPeriod(1);
     }
 
-    window_size := Vector2.{ 480, 860 };
-    window := create_window(xx window_size.x, xx window_size.y, EXE_NAME);
+    window_position: Vector2;
+    window_size := Vector2.{ 860, 480 };
+    #if OS == .WINDOWS {
+        work_area: Windows.RECT;
+        ok1 := Windows.SystemParametersInfoW(Windows.SPI_GETWORKAREA, 0, *work_area, 0);
+        log("work_area: %", work_area);
+        if ok1 {
+            work_area_size: Vector2;
+            work_area_size.x = xx (work_area.right - work_area.left);
+            work_area_size.y = xx (work_area.bottom - work_area.top);
+            work_area_start: Vector2;
+            work_area_start.x = xx work_area.left;
+            work_area_start.y = xx work_area.top;
+
+            window_size = work_area_size / 2;
+            window_position = work_area_start + work_area_size / 2 - window_size / 2;
+        }
+    }
+
+    window := create_window(xx window_size.x, xx window_size.y, EXE_NAME, xx window_position.x, xx window_position.y);
     quit := false;
 
     Simp.set_render_target(window);
@@ -47,8 +65,8 @@ main :: () {
 
     // Init
 
-    system_screen_width, system_screen_height: float;
-    system_dpi_x, system_dpi_y: float;
+    system_screen_size: Vector2;
+    system_dpi: Vector2;
     #if OS == .WINDOWS {
         user32 :: #system_library "user32";
         SetLayeredWindowAttributes :: (hwnd: Windows.HWND, crKey: u32, bAlpha: u8, dwFlags: Windows.DWORD) -> Windows.BOOL #foreign user32;
@@ -56,16 +74,7 @@ main :: () {
         style := Windows.GetWindowLongW(window, Windows.GWL_STYLE);
         // style &= ~cast(s32) Windows.WS_CAPTION;
         Windows.SetWindowLongW(window, Windows.GWL_STYLE, style);
-        // log("%", cast(WSTYLE) style);
         ex_style := Windows.SetWindowLongW(window, Windows.GWL_EXSTYLE, Windows.WS_EX_LAYERED);
-        // log("%", cast(WSTYLE_EX) ex_style);
-        LWA_ALPHA :: 0x2;
-        ok := SetLayeredWindowAttributes(window, 0, 0xff, LWA_ALPHA);
-        if !ok {
-            code, msg := get_error_value_and_string();
-            log_error("[%] %", code, msg);
-        }
-        assert(xx ok);
 
         // Requires win8+
         shcore :: #system_library "Shcore";
@@ -76,35 +85,49 @@ main :: () {
         rc := GetDpiForMonitor(monitor, .MDT_RAW_DPI, *dpi_x, *dpi_y);
         assert(rc == 0);
 
-        system_dpi_x = cast(float) dpi_x;
-        system_dpi_y = cast(float) dpi_y;
+        system_dpi.x = xx dpi_x;
+        system_dpi.y = xx dpi_y;
 
         info: Windows.MONITORINFO;
         info.cbSize = size_of(type_of(info));
         success := Windows.GetMonitorInfoW(monitor, *info);
         if success {
-            system_screen_width  = xx (info.rcMonitor.right  - info.rcMonitor.left);
-            system_screen_height = xx (info.rcMonitor.bottom - info.rcMonitor.top);
+            system_screen_size.x = xx (info.rcMonitor.right  - info.rcMonitor.left);
+            system_screen_size.y = xx (info.rcMonitor.bottom - info.rcMonitor.top);
         }
     }
 
     mouse_absolute_at_click: Vector2;
     window_position_at_click: Vector2;
-    transparent := false;
-    grid_mode : enum { OFF; CENTIMETERS; INCHES; } = .OFF;
     click_handled := false;
 
-    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // Game loop
     time_last_frame_start : f64 = 0.0;
     time_frame_start : f64;
 
-    fg_color := Vector4.{ .1, .1, .1, 1 };
-    bg_color := Vector4.{ .8, .8, .8, 1 };
+    fg_color := Vector4.{ .8, .8, .8, 1 };
+    bg_color := Vector4.{ .1, .1, .1, 1 };
     off_color := Vector4.{ .5, .5, .5, 1 };
 
+    grid_mode : enum { OFF; CENTIMETERS; INCHES; } = .OFF;
+
+    transparent := true;
+    {
+        #if OS == .WINDOWS {
+            alpha : u8 = xx ifx transparent then 0x80 else 0xff;
+            ok := SetLayeredWindowAttributes(window, 0, alpha, LWA_ALPHA);
+            if !ok {
+                code, msg := get_error_value_and_string();
+                log_error("[%] %", code, msg);
+            }
+            assert(xx ok);
+        }
+    }
+
+    something_changed := true; // Must be true on first iteration
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Game loop
     while !quit {
-        //
         // Time
         //
         time_last_frame_start = time_frame_start;
@@ -115,7 +138,7 @@ main :: () {
         // Handle input
         Input.update_window_events();
 
-        something_changed := false;
+        defer something_changed = false;
 
         for Input.get_window_resizes() {
             Simp.update_window(it.window);
@@ -200,14 +223,14 @@ main :: () {
         Simp.clear_render_target(bg_color.x, bg_color.y, bg_color.z, bg_color.w);
 
 
-        width_pixels  := ifx system_screen_width  then system_screen_width  else 1960.0;
-        height_pixels := ifx system_screen_height then system_screen_height else 1080.0;
+        width_pixels  := ifx system_screen_size.x then system_screen_size.x else 1960.0;
+        height_pixels := ifx system_screen_size.y then system_screen_size.y else 1080.0;
         diagonal_pixels := sqrt(pow(width_pixels, 2) + pow(height_pixels, 2));
 
         diagonal_inches := 17.3;
 
-        px_per_in_x := ifx system_dpi_x then system_dpi_x else diagonal_pixels / diagonal_inches;
-        px_per_in_y := ifx system_dpi_y then system_dpi_y else diagonal_pixels / diagonal_inches;
+        px_per_in_x := ifx system_dpi.x then system_dpi.x else diagonal_pixels / diagonal_inches;
+        px_per_in_y := ifx system_dpi.y then system_dpi.y else diagonal_pixels / diagonal_inches;
 
         in_per_px_x := 1 / px_per_in_x;
         in_per_px_y := 1 / px_per_in_y;
@@ -335,7 +358,7 @@ main :: () {
 
         outer_margin := 25.0;
         inner_margin := 2.0;
-        y_ofs := 28;
+        y_ofs := 34;
         y_pos := window_size.y - y_ofs - outer_margin;
 
         {
@@ -375,7 +398,7 @@ main :: () {
         {
             width := 300.0;
             height := 40.0;
-            button_inner_margin := 4.0;
+            button_inner_margin := 10.0;
             x0 := outer_margin;
             y0 := y_pos + y_ofs - height - button_inner_margin;
 
@@ -402,7 +425,7 @@ main :: () {
         #if OS == .WINDOWS {
             width := 300.0;
             height := 40.0;
-            button_inner_margin := 4.0;
+            button_inner_margin := 6.0;
             x0 := outer_margin;
             y0 := y_pos + y_ofs - height - button_inner_margin;
 
@@ -436,7 +459,7 @@ main :: () {
         {
             width := 300.0;
             height := 40.0;
-            button_inner_margin := 4.0;
+            button_inner_margin := 6.0;
             x0 := outer_margin;
             y0 := y_pos + y_ofs - height - button_inner_margin;
 
@@ -468,7 +491,7 @@ main :: () {
         {
             width := 300.0;
             height := 40.0;
-            button_inner_margin := 4.0;
+            button_inner_margin := 6.0;
             x0 := outer_margin;
             y0 := y_pos + y_ofs - height - button_inner_margin;
 
@@ -598,6 +621,8 @@ WSTYLE_EX :: enum_flags u32 {
     WS_EX_COMPOSITED        :: 0x02000000;
     WS_EX_NOACTIVATE        :: 0x08000000;
 }
+
+LWA_ALPHA :: 0x2;
 
 #import "Math";
 #import "Basic";
