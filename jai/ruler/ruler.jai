@@ -100,6 +100,8 @@ main :: () {
     mouse_absolute_at_click: Vector2;
     window_position_at_click: Vector2;
     click_handled := false;
+    fullscreen := false;
+    saved_window_info: Saved_Window_Info;
 
     time_last_frame_start : f64 = 0.0;
     time_frame_start : f64;
@@ -200,6 +202,11 @@ main :: () {
 
                 if it.key_pressed && it.key_code == .F4 {
                     debug_break();
+                }
+
+                if it.key_pressed && it.key_code == .F11 {
+                    fullscreen = !fullscreen;
+                    toggle_fullscreen(window, fullscreen, *saved_window_info);
                 }
             }
         }
@@ -455,6 +462,34 @@ main :: () {
             y_pos = y0 - y_ofs;
         }
 
+        // Fullscreen toggle button
+        {
+            width := 300.0;
+            height := 40.0;
+            button_inner_margin := 6.0;
+            x0 := outer_margin;
+            y0 := y_pos + y_ofs - height - button_inner_margin;
+
+            Simp.set_shader_for_color();
+            immediate_rect(x0, y0, width, height, fg_color);
+
+            text_width := Simp.prepare_text(my_font, ifx fullscreen then "Fullscreen" else "Windowed");
+            text_height := 22.0;
+            text_x := x0 + width / 2 - text_width / 2;
+            text_y := y0 + text_height / 2;
+            Simp.set_shader_for_text();
+            button_text_color := bg_color;
+            Simp.draw_prepared_text(my_font, xx text_x, xx text_y, button_text_color);
+
+            if click && mouse.x >= x0 && mouse.x <= x0 + width && mouse.y >= y0 && mouse.y <= y0 + height {
+                click_handled = true;
+                fullscreen = !fullscreen;
+                toggle_fullscreen(window, fullscreen, *saved_window_info);
+            }
+
+            y_pos = y0 - y_ofs;
+        }
+
         // Mode centimeter grid
         {
             width := 300.0;
@@ -521,7 +556,7 @@ main :: () {
 
         // Move window
         #if OS == .WINDOWS {
-            if !click_handled && mouse_button_left_state == .DOWN {
+            if !fullscreen && !click_handled && mouse_button_left_state == .DOWN {
                 position_offset := mouse_absolute - mouse_absolute_at_click;
                 new_position := window_position_at_click + position_offset;
                 x0 := new_position.x;
