@@ -1,12 +1,14 @@
 EXE_NAME :: "ruler";
+RELEASE :: #run -> bool {
+    for get_toplevel_command_line() if it == "-release" then return true;
+    return false;
+}
 #run {
     set_build_options_dc(.{ output_executable_name = EXE_NAME });
 
     #if OS == .WINDOWS {
-        release := false;
-        for get_toplevel_command_line() if it == "-release" then release = true;
         WR :: #import "Windows_Resources";
-        if release WR.disable_runtime_console();
+        if RELEASE WR.disable_runtime_console();
     }
 }
 
@@ -73,6 +75,7 @@ main :: () {
 
         style := Windows.GetWindowLongW(window, Windows.GWL_STYLE);
         // style &= ~cast(s32) Windows.WS_CAPTION;
+        // style &= ~cast(s32) Windows.WS_THICKFRAME;
         Windows.SetWindowLongW(window, Windows.GWL_STYLE, style);
         ex_style := Windows.SetWindowLongW(window, Windows.GWL_EXSTYLE, Windows.WS_EX_LAYERED);
 
@@ -126,6 +129,8 @@ main :: () {
     }
 
     something_changed := true; // Must be true on first iteration
+
+    display_debug_info := false;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Game loop
@@ -200,7 +205,11 @@ main :: () {
                     quit = true;
                 }
 
-                if it.key_pressed && it.key_code == .F4 {
+                if it.key_pressed && it.key_code == .F3 {
+                    display_debug_info = !display_debug_info;
+                }
+
+                #if !RELEASE if it.key_pressed && it.key_code == .F4 {
                     debug_break();
                 }
 
@@ -547,11 +556,32 @@ main :: () {
                 click_handled = true;
                 if grid_mode == {
                     case .INCHES; grid_mode = .OFF;
-                    case;              grid_mode = .INCHES;
+                    case;         grid_mode = .INCHES;
                 }
             }
 
             y_pos = y0 - y_ofs;
+        }
+
+        // Debug Info
+        if display_debug_info
+        {
+            Simp.set_shader_for_text();
+
+            x, y := 0.0, 0.0;
+            text: string;
+
+            text = tprint("sys dpi: % x %", system_dpi.x, system_dpi.y);
+            x = outer_margin + inner_margin;
+            y = y_pos + inner_margin;
+            Simp.draw_text(my_font, xx x, xx y, text, fg_color);
+            y_pos -= y_ofs;
+
+            text = tprint("sys display: % x %", system_screen_size.x, system_screen_size.y);
+            x = outer_margin + inner_margin;
+            y = y_pos + inner_margin;
+            Simp.draw_text(my_font, xx x, xx y, text, fg_color);
+            y_pos -= y_ofs;
         }
 
         // Move window
