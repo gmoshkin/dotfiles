@@ -1,13 +1,17 @@
 # picodata
-- investigate flaky tests : TODO
-- manual master switchover : IN PROGRESS
+- epoll_wait bad file descriptor: fix in module
+- max size per msg MR: IN PROGRESS
+- raft entry proposal refactor: IN PROGRESS
 - benchmark governor/raft log propagation : TODO
 - simulate big cluster : TODO
 - API to change replicaset master : TODO
 
 # tarantool-module
-- define_str_enum: add support for numeric values : ON REVIEW
-- export log::init_default                    : IN PROGRESS
+- say_*! macros: NEEDS MR
+- fiber safety primitives: NEEDS MR
+- DisplayAsHexBytes ascii support: NEEDS MR
+- network-client: fix double close on socket: IN PROGRESS(picodata tests failing)
+- network-client: refactoring: IN PROGRESS
 - rename test-runner                          : IN PROGRESS
 - network-client: handle packet size overflow : IN PROGRESS
 - benchmark bulk inserts against lua          : TODO
