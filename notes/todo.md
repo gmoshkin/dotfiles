@@ -7,10 +7,10 @@
 - API to change replicaset master : TODO
 
 # tarantool-module
-- say_*! macros: NEEDS MR
-- fiber safety primitives: NEEDS MR
+- say_*! macros: NEEDS TESTS
+- fiber safety primitives: NEEDS TESTS
 - DisplayAsHexBytes ascii support: NEEDS MR
-- network-client: fix double close on socket: IN PROGRESS(picodata tests failing)
+- network-client: fix double close on socket: IN PROGRESS, NEEDS TESTS
 - network-client: refactoring: IN PROGRESS
 - rename test-runner                          : IN PROGRESS
 - network-client: handle packet size overflow : IN PROGRESS
