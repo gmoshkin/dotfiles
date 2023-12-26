@@ -14,7 +14,13 @@ Cargo.lock
 .cache/clangd
 .vim/coc-settings.json
 .luarc.json
+/yarn.lock
+/package-lock.json
+/package.json
+/compile_commands.json
 
+node_modules/
+untracked-logs/
 ed/diff/tools/data/
 lde/diff2/
 lde/v2/
