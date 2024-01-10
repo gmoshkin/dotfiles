@@ -139,7 +139,7 @@ main :: () {
         // Time
         //
         time_last_frame_start = time_frame_start;
-        time_frame_start = get_time();
+        time_frame_start = seconds_since_init();
         dt := cast(f32) min(time_frame_start - time_last_frame_start, 1.0/60);
 
         /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -223,7 +223,7 @@ main :: () {
 
         if !something_changed {
             frame_budget_secs := 1.0 / 30;
-            secs_spent_so_far := get_time() - time_frame_start;
+            secs_spent_so_far := seconds_since_init() - time_frame_start;
             secs_left := frame_budget_secs - secs_spent_so_far;
             if secs_left > 0 {
                 sleep_milliseconds(xx (secs_left * 1000));
@@ -607,7 +607,7 @@ main :: () {
         reset_temporary_storage();
 
         frame_budget_secs := 1.0 / 60;
-        secs_spent_so_far := get_time() - time_frame_start;
+        secs_spent_so_far := seconds_since_init() - time_frame_start;
         secs_left := frame_budget_secs - secs_spent_so_far;
         if secs_left > 0 {
             // log("going to sleep for %", millis_left_to_sleep, flags = .VERY_VERBOSE_ONLY);
