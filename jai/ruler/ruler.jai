@@ -47,7 +47,8 @@ main :: () {
         }
     }
 
-    window := create_window(xx window_size.x, xx window_size.y, EXE_NAME, xx window_position.x, xx window_position.y);
+    window := create_window(xx window_size.x, xx window_size.y, EXE_NAME, xx window_position.x, xx window_position.y,
+                            background_color_rgb = .[.1, .1, .1]);
     quit := false;
 
     Simp.set_render_target(window);
