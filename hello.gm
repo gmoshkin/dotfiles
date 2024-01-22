@@ -1,0 +1,23 @@
+print_str("hello!\n");
+
+print_str("314 + 13 * 7 = ");
+print_i64(314 + 13 * 7);
+print_str("\n");
+
+print_str("(1 < 2) = ");
+print_i64(1 < 2);
+print_str("\n");
+
+print_str("(1 = 2) = ");
+print_i64(1 = 2);
+print_str("\n");
+
+print_str("(1 > 2) = ");
+print_i64(1 > 2);
+print_str("\n");
+
+print_str("quote: \"\n");
+print_str("back slash: \\\n");
+
+print_str("hello", add(13, 37))
+no_such_proc(1);
