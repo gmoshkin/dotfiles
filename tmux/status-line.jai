@@ -57,13 +57,7 @@ status_line_left :: () {
 
     sb : String_Builder;
     for segments {
-        attr_start := it.attr;
-        attr_end := Attr.{ fg = attr_start.bg, bg = "colour235" };
-        if it_index + 1 < segments.count then attr_end.bg = segments[it_index + 1].attr.bg;
-
-        print_to_builder(*sb,
-            "#[fg=%,bg=%] % #[fg=%,bg=%]▄",
-            attr_start.fg, attr_start.bg, it.text, attr_end.fg, attr_end.bg);
+        print_to_builder(*sb, "#[fg=%,bg=%] % ", it.attr.fg, it.attr.bg, it.text);
     }
     write_builder(*sb);
     print("\n");
@@ -92,13 +86,7 @@ status_line_right :: () {
     sb : String_Builder;
 
     for segments {
-        attr_seg := it.attr;
-        attr_sep := Attr.{ fg = attr_seg.bg, bg = "colour235" };
-        if it_index > 0 then attr_sep.bg = segments[it_index - 1].attr.bg;
-
-        print_to_builder(*sb,
-            "#[fg=%,bg=%]▄#[fg=%,bg=%] % ",
-            attr_sep.fg, attr_sep.bg, attr_seg.fg, attr_seg.bg, it.text);
+        print_to_builder(*sb, "#[fg=%,bg=%] % ", it.attr.fg, it.attr.bg, it.text);
     }
     write_builder(*sb);
     print("\n");
@@ -248,7 +236,7 @@ date_time :: () -> string, Attr {
     sb: String_Builder;
     time := to_calendar(current_time_consensus(), .LOCAL);
 
-    print_to_builder(*sb, " % ⠔ %-%-% ⠔ %:%",
+    print_to_builder(*sb, " % | %-%-% | %:%",
         weekday_short[time.day_of_week_starting_at_0],
         time.year,
         f2(time.month_starting_at_0 + 1),
