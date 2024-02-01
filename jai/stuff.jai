@@ -147,6 +147,25 @@ defer_is_not_like_in_go :: (do_early_exit: bool) {
     defer log("in outer scope but at the end");
 }
 
+baked_proc :: () {
+    // This proc is baked, it's not called via pointer!
+    takes_proc :: ($cb: #type (int) -> string) {
+        for 1..3 {
+            res := cb(it);
+            print("cb(%) = %\n", it, res);
+        }
+    }
+
+    takes_proc((i: int) -> string {
+        if i == {
+            case 1; return "one";
+            case 2; return "two";
+            case 3; return "three";
+            case;   return "idk";
+        }
+    });
+}
+
 main :: () {
     print("\n### type_of_null:\n\n");                   type_of_null();
     print("\n### bake_polymorph:\n\n");                 bake_polymorph();
@@ -155,6 +174,7 @@ main :: () {
     print("\n### check_small_string:\n\n");             check_small_string();
     print("\n### defer_is_not_like_in_go(false):\n\n"); defer_is_not_like_in_go(false);
     print("\n### defer_is_not_like_in_go(true):\n\n");  defer_is_not_like_in_go(true);
+    print("\n### baked_proc:\n\n");                     baked_proc();
 }
 
 #import "Basic";
