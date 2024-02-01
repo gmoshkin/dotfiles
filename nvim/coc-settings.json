@@ -3,6 +3,7 @@
     "rust-analyzer.diagnostics.disabled": [
         "unresolved-proc-macro"
     ],
+    "rust-analyzer.check.features": [ "all" ],
     "Lua.workspace.preloadFileSize": 1000,
     "Lua.runtime.version": "LuaJIT",
     "Lua.diagnostics.disable": [ "redefined-local", "lowercase-global" ],
