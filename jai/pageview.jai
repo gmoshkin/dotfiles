@@ -157,17 +157,22 @@ main :: () {
                 _, _, tail = split_from_left(tail, #char "\n");
             }
         } else if row_offset < 0 {
+            // Extra blank lines for negative row_offset (for some reason)
             for 1..-row_offset {
                 line_buffer[i] = "";   i += 1;
                 line_buffer[i] = "\n"; i += 1;
             }
         }
 
+        //
+        // Preprocess lines to be displayed
+        //
         if line_buffer.count != 0 while !should_exit {
             found:, line:, tail = split_from_left(tail, #char "\n");
 
             actual_characters_count := 0;
             visible_columns_count := 0;
+            // Preprocess one line
             while !should_exit {
                 if actual_characters_count >= line.count break;
 
@@ -198,7 +203,7 @@ main :: () {
             line.count = actual_characters_count;
 
             line_buffer[i] = line; i += 1;
-            line_buffer[i] = "\n"; i += 1;
+            line_buffer[i] = "\e[m\n"; i += 1;
 
             if i >= line_buffer.count break;
 
