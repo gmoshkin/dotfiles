@@ -40,8 +40,9 @@ main :: () {
     state.command.data = args.data + 1;
     state.command.count = args.count - 1;
 
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
+    signal(SIGINT, shutdown_signal_handler);
+    signal(SIGTERM, shutdown_signal_handler);
+    signal(SIGWINCH, window_size_changed_signal_handler);
 
     // Get terminal size
     rc := ioctl(STDIN_FILENO, TIOCGWINSZ, *state.terminal_size);
@@ -97,13 +98,23 @@ main :: () {
 
         // Wait for events
         rc := epoll_wait(epoll_fd, epoll_events.data, epoll_events.count, 1000 / 10);
-        assert(rc != -1);
+        if rc == -1 {
+            assert(errno() == EINTR);
+        }
+
         input_received_this_tick = false;
         if rc == 1 {
             assert(epoll_events[0].data.fd == STDIN_FILENO);
 
             input_buffer_count = read(STDIN_FILENO, input_buffer.data, xx input_buffer.count);
             input_received_this_tick = true;
+        }
+
+        if window_size_changed {
+            window_size_changed = false;
+
+            // Get terminal size
+            rc := ioctl(STDIN_FILENO, TIOCGWINSZ, *state.terminal_size);
         }
 
         // Run command if needed
@@ -280,7 +291,7 @@ main :: () {
         if !found break;
     }
 
-    if should_exit {
+    if signalled_with_signal != -1 {
         print("got signal %\n", signalled_with_signal);
     }
 }
@@ -402,10 +413,15 @@ my_run_command :: (args: .. string, working_directory := "", capture_and_return_
 //
 
 should_exit := false;
-signalled_with_signal := 0;
-signal_handler :: (signal: s32) #c_call #no_context {
+signalled_with_signal := -1;
+shutdown_signal_handler :: (signal: s32) #c_call #no_context {
     should_exit = true;
     signalled_with_signal = signal;
+}
+
+window_size_changed := false;
+window_size_changed_signal_handler :: (signal: s32) #c_call #no_context {
+    window_size_changed = true;
 }
 
 libc :: #system_library "libc";
