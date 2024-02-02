@@ -6,12 +6,17 @@
 State :: struct {
     row_offset: s64;
     col_offset: s64;
+    stick_to_the_bottom := false;
 
     terminal_size: Terminal_Size_Info;
 
     input_buffer: [32] u8;
     input_buffer_count: s64;
     input_received_this_tick: bool;
+
+    log_file_name: string;
+    log_file: File;
+    log_file.handle = null;
 
     command: [] string;
 
@@ -37,8 +42,39 @@ main :: () {
 
     state: State;
 
-    state.command.data = args.data + 1;
-    state.command.count = args.count - 1;
+    cursor := 1;
+    while true {
+        arg := args[cursor];
+        if arg == {
+            case "-t"; #through;
+            case "--tail";
+                state.stick_to_the_bottom = true;
+
+            case "-l"; #through;
+            case "--log";
+                cursor += 1;
+                if cursor >= args.count {
+                    print("Expected a log file after '%'\n", arg);
+                    exit(1);
+                }
+                state.log_file_name = args[cursor];
+
+            case; break;
+        }
+        cursor += 1;
+    }
+
+    state.command.data = args.data + cursor;
+    state.command.count = args.count - cursor;
+
+    // Setup logger
+    if state.log_file_name {
+        log_file, ok := file_open(state.log_file_name, for_writing = true, keep_existing_content = true);
+        assert(ok);
+        state.log_file = log_file;
+    }
+    context.logger = my_logger;
+    context.logger_data = *state;
 
     signal(SIGINT, shutdown_signal_handler);
     signal(SIGTERM, shutdown_signal_handler);
@@ -123,6 +159,7 @@ main :: () {
             if last_command_output free(last_command_output);
             last_command_result, last_command_output = my_run_command(..command, capture_and_return_output = true);
             time_next_command_run = time + command_run_period_seconds;
+            log("[%] ran the commadn", seconds_since_init());
 
             cursor := 0;
             last_command_output_line_count = 0;
@@ -149,16 +186,19 @@ main :: () {
             for 0..input_buffer_count-1 {
                 if input_buffer[it] == {
                     case #char "j"; row_offset += 1;
-                    case #char "k"; row_offset -= 1;
+                    case #char "k"; row_offset -= 1; stick_to_the_bottom = false;
 
                     case #char "d"; row_offset += terminal_size.rows / 2;
-                    case #char "u"; row_offset -= terminal_size.rows / 2;
+                    case #char "u"; row_offset -= terminal_size.rows / 2; stick_to_the_bottom = false;
 
-                    case #char "g"; row_offset = 0;
+                    case #char "t"; stick_to_the_bottom = !stick_to_the_bottom;
+
+                    case #char "g"; row_offset = 0; stick_to_the_bottom = false;
                     case #char "G"; row_offset = last_command_output_line_count - rows_to_display_count;
 
                     case #char "h"; col_offset -= 1;
                     case #char "l"; col_offset += 1;
+
                     case #char "q"; should_exit = true;
                 }
 
@@ -167,14 +207,19 @@ main :: () {
             }
         }
 
+        if stick_to_the_bottom {
+            row_offset = max(row_offset, last_command_output_line_count - rows_to_display_count);
+        }
+
         write_strings("\e[H", "\e[0J", "\e[?25l");
         print("% -> %\n", command, last_command_result.exit_code);
 
         //
         // Status line
         //
-        print("row_ofs: %   ", row_offset);
+        print("offset: %   ", row_offset);
         print("lines: %   ", last_command_output_line_count);
+        if stick_to_the_bottom then print("sinking   ");
 
         // Print current input buffer
         write_string("input: ");
@@ -404,6 +449,21 @@ my_run_command :: (args: .. string, working_directory := "", capture_and_return_
 
     return process_result, output_string, error_string, timeout_reached;
 }
+
+//
+// logging
+//
+
+my_logger :: (message: string, data: *void, info: Log_Info) {
+    state := cast(*State) data;
+    if !state.log_file.handle return;
+
+    file_write(*state.log_file, message);
+    file_write(*state.log_file, "\n");
+    fflush(state.log_file.handle);
+}
+fflush :: (handle: *FILE) -> s32 #foreign libc;
+
 //
 // string utilities
 //
@@ -483,4 +543,5 @@ tcsetattr :: (fd: s32, optional_actions: s32, termios: *Termios) -> s32 #foreign
 #import "Process";
 #import "String";
 #import "POSIX";
+#import "File";
 System :: #import "System";
