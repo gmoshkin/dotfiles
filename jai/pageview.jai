@@ -9,11 +9,21 @@ State :: struct {
 
     terminal_size: Terminal_Size_Info;
 
+    input_buffer: [32] u8;
+    input_buffer_count: s64;
+
+    command: [] string;
+
     command_run_period_seconds := 1.0;
     time_next_command_run : float64 = -1.0;
 
     last_command_output: string;
     last_command_result: Process_Result;
+
+    saved_termios: Termios;
+
+    epoll_fd: s32;
+    epoll_events: [1] epoll_event;
 }
 
 main :: () {
@@ -23,22 +33,83 @@ main :: () {
         return;
     }
 
-    command: [] string;
-    command.data = args.data + 1;
-    command.count = args.count - 1;
+    state: State;
+
+    state.command.data = args.data + 1;
+    state.command.count = args.count - 1;
 
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    state: State;
-
+    // Get terminal size
     rc := ioctl(STDIN_FILENO, TIOCGWINSZ, *state.terminal_size);
 
-    while !signalled {
-        using state;
+    // Hide cursor, disable echo, etc.
+    {
         write_string("\e[?1049h");
 
-        // TODO: read input!!!
+        rc := tcgetattr(STDIN_FILENO, *state.saved_termios);
+        assert(rc == 0);
+
+        new_termios := state.saved_termios;
+
+        // Copy-pasted from <https://github.com/antirez/kilo/blob/69c3ce609d1e8df3956cba6db3d296a7cf3af3de/kilo.c#L226-L239>
+        /* input modes: no break, no CR to NL, no parity check, no strip char,
+         * no start/stop output control. */
+        // new_termios.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+        /* output modes - disable post processing */
+        // new_termios.c_oflag &= ~(OPOST);
+        /* control modes - set 8 bit chars */
+        // new_termios.c_cflag |= (CS8);
+        /* local modes - choing off, canonical off, no extended functions,
+         * no signal chars (^Z,^C) */
+        // new_termios.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+        // ~ECHO: don't display characters being typed
+        // ~ICANON: not sure what else but also disables input bufferring by line
+        new_termios.c_lflag &= ~(ECHO | ICANON);
+        /* control chars - set return condition: min number of bytes and timer. */
+        new_termios.c_cc[VMIN] = 0; /* Return each byte, or zero for timeout. */
+        new_termios.c_cc[VTIME] = 1; /* 100 ms timeout (unit is tens of second). */
+
+        rc = tcsetattr(STDIN_FILENO, TCSADRAIN, *new_termios);
+        assert(rc == 0);
+    }
+
+    // Make stdin non blocking
+    {
+        flags := fcntl(STDIN_FILENO, F_GETFL);
+        flags |= O_NONBLOCK;
+        rc := fcntl(STDIN_FILENO, F_SETFL, flags);
+        assert(rc != -1);
+    }
+
+    // Setup epoll
+    state.epoll_fd = epoll_create(1);
+    assert(state.epoll_fd != -1);
+    state.epoll_events[0].events = EPOLLIN;
+    rc = epoll_ctl(state.epoll_fd, .ADD, STDIN_FILENO, state.epoll_events.data);
+    assert(rc == 0);
+
+    while !should_exit {
+        using state;
+
+        rc := epoll_wait(epoll_fd, epoll_events.data, epoll_events.count, 1000 / 10);
+        assert(rc != -1);
+        if rc == 1 {
+            assert(epoll_events[0].data.fd == STDIN_FILENO);
+
+            input_buffer_count = read(STDIN_FILENO, input_buffer.data, xx input_buffer.count);
+
+            for 0..input_buffer_count-1 {
+                if input_buffer[it] == {
+                    case #char "j"; row_offset += 1;
+                    case #char "k"; row_offset -= 1;
+                    case #char "h"; col_offset -= 1;
+                    case #char "l"; col_offset += 1;
+                    case #char "q"; should_exit = true;
+                }
+            }
+        }
 
         time := seconds_since_init();
         if time >= time_next_command_run {
@@ -47,9 +118,31 @@ main :: () {
             time_next_command_run = time + command_run_period_seconds;
         }
 
-        write_string("\e[H");
+        write_strings("\e[H", "\e[0J", "\e[?25l");
         print("% -> %\n", command, last_command_result.exit_code);
-        print("\n");
+        // Print current input buffer
+        {
+            i := 0;
+            while i < input_buffer_count {
+                end := i;
+                while end < input_buffer.count && input_buffer[end] >= #char " " && input_buffer[end] <= #char "~" {
+                    end += 1;
+                }
+                if end > i {
+                    // Printable ascii
+                    s: string;
+                    s.data = input_buffer.data + i;
+                    s.count = end - i;
+                    write_string(s);
+                    i = end;
+                }
+                if i >= input_buffer_count break;
+
+                print("\\x%", FormatInt.{ value = input_buffer[i], base = 16, minimum_digits = 2 });
+                i += 1;
+            }
+        }
+        write_string("\n");
 
         // 2 lines already printed
         lines_to_show := terminal_size.rows - 2;
@@ -58,37 +151,36 @@ main :: () {
 
         tail := last_command_output;
         i := 0;
-        if line_buffer.count != 0 while !signalled {
+        if row_offset > 0 {
+            // Skip `row_offset` lines
+            for 1..row_offset {
+                _, _, tail = split_from_left(tail, #char "\n");
+            }
+        } else if row_offset < 0 {
+            for 1..-row_offset {
+                line_buffer[i] = "";   i += 1;
+                line_buffer[i] = "\n"; i += 1;
+            }
+        }
+
+        if line_buffer.count != 0 while !should_exit {
             found:, line:, tail = split_from_left(tail, #char "\n");
-
-            // {
-            //     builder: String_Builder;
-            //     builder.allocator = temp;
-
-            //     tail := line;
-            //     for char: cast([] u8)line {
-            //         if char >= #char " " && char < #char "~" {
-            //             append(*builder, char);
-            //         } else {
-            //             print_to_builder(*builder, "\\x%", FormatInt.{ value = char, base = 16, minimum_digits = 2 });
-            //         }
-            //     }
-            //     line = builder_to_string(*builder);
-            // }
 
             actual_characters_count := 0;
             visible_columns_count := 0;
-            while !signalled {
+            while !should_exit {
+                if actual_characters_count >= line.count break;
+
                 char := line[actual_characters_count];
                 if char == #char "\e" {
                     actual_characters_count += 1;
 
-                    while !signalled {
+                    while !should_exit {
                         char = line[actual_characters_count];
                         if char == {
                             case #char "[";
                                 actual_characters_count += 1;
-                                while !signalled {
+                                while !should_exit {
                                     char = line[actual_characters_count];
                                     actual_characters_count += 1;
                                     if char != #char "m" break;
@@ -101,7 +193,6 @@ main :: () {
                     visible_columns_count += 1;
                 }
 
-                if actual_characters_count >= line.count break;
                 if visible_columns_count >= terminal_size.cols break;
             }
             line.count = actual_characters_count;
@@ -117,17 +208,20 @@ main :: () {
         line_buffer.count -= 1;
         write_strings(..line_buffer);
 
-        if signalled break;
+        if should_exit break;
 
         reset_temporary_storage();
-        sleep_milliseconds(xx (1000.0 / 10.0));
     }
 
     // Restore terminal state
-    write_string("\e[?1049l");
+    {
+        write_strings("\e[?1049l", "\e[?25h");
+
+        tcsetattr(STDIN_FILENO, TCSADRAIN, *state.saved_termios);
+    }
 
     // Print output one last time
-    print("% -> %\n", command, state.last_command_result.exit_code);
+    print("% -> %\n", state.command, state.last_command_result.exit_code);
     print("\n");
     tail := state.last_command_output;
     i := 0;
@@ -141,7 +235,7 @@ main :: () {
         if !found break;
     }
 
-    if signalled {
+    if should_exit {
         print("got signal %\n", signalled_with_signal);
     }
 }
@@ -150,25 +244,14 @@ main :: () {
 // string utilities
 //
 
-count_invisible_characters :: (s: string) -> int {
-
-}
-
-chop_line :: (s: string) -> (found: bool, line: string, tail: string) {
-    index := inline find_index_from_left(s, #char "\n");
-    if index == -1  return false, s, "";
-
-    return true, slice(s, 0, index + 1), slice(s, index + 1, s.count - index - 1);
-}
-
 //
 // signal handling
 //
 
-signalled := false;
+should_exit := false;
 signalled_with_signal := 0;
 signal_handler :: (signal: s32) #c_call #no_context {
-    signalled = true;
+    should_exit = true;
     signalled_with_signal = signal;
 }
 
@@ -188,6 +271,44 @@ Terminal_Size_Info :: struct {
     xpixel: u16;
     ypixel: u16;
 }
+
+//
+// termios
+//
+
+Termios :: struct {
+    c_iflag: u32;
+    c_oflag: u32;
+    c_cflag: u32;
+    c_lflag: u32;
+    c_line: u8;
+    c_cc: [32] u8;
+    c_ispeed: u32;
+    c_ospeed: u32;
+    // Just in case there's more stuff I don't know about
+    padding: [64] u8;
+}
+
+TCSANOW :: 0;
+TCSADRAIN :: 1;
+TCSAFLUSH :: 2;
+
+BRKINT : u32 : 0x00000002;
+INPCK  : u32 : 0x00000010;
+ISTRIP : u32 : 0x00000020;
+ICRNL  : u32 : 0x00000100;
+OPOST  : u32 : 0x1;
+ECHO   : u32 : 0x00000008;
+IXON   : u32 : 0x00000400;
+CS8    : u32 : 0x00000030;
+ISIG   : u32 : 0x00000001;
+ICANON : u32 : 0x00000002;
+IEXTEN : u32 : 0x00008000;
+VTIME  : u32 : 5;
+VMIN   : u32 : 6;
+
+tcgetattr :: (fd: s32, termios: *Termios) -> s32 #foreign libc;
+tcsetattr :: (fd: s32, optional_actions: s32, termios: *Termios) -> s32 #foreign libc;
 
 #import "Basic";
 #import "Process";
