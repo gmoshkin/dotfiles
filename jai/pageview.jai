@@ -28,6 +28,8 @@ State :: struct {
     last_command_output_max_line_length: s64;
     last_command_result: Process_Result;
 
+    memory_pool_for_building_a_line: Flat_Pool;
+
     // Stores pointers into `last_shown_line_buffer_flat_pool`.
     last_shown_line_buffer: [..] string;
     memory_pool_for_last_shown_line_buffer: Flat_Pool;
@@ -92,7 +94,7 @@ main :: () {
     {
         // "\e[?1049h": enable the alternative buffer
         // "\e[?25l": hide cursor
-        // write_strings("\e[?1049h", "\e[?25l");
+        write_strings("\e[?1049h", "\e[?25l");
 
         rc := tcgetattr(STDIN_FILENO, *state.saved_termios);
         assert(rc == 0);
@@ -294,18 +296,33 @@ main :: () {
         if line_buffer.count != 0 while i < line_buffer.count {
             found:, line:, tail = split_from_left(tail, #char "\n");
 
+            memory_pool: Allocator;
+            memory_pool.proc = flat_pool_allocator_proc;
+            memory_pool.data = *memory_pool_for_building_a_line;
+
             builder: String_Builder;
-            builder.allocator = temp;
+            builder.allocator = memory_pool;
+            ensure_contiguous_space(*builder, line.count);
 
             visible_columns_budget : int = terminal_size.cols;
 
-
             line_tail := line;
             if col_offset > 0 {
+                control_codes_builder: String_Builder;
+                control_codes_builder.allocator = temp;
+
                 // Skip `col_offset` visible characters
                 visible_to_skip := col_offset;
                 while line_tail {
                     head:, visible_count:, line_tail = eat_visible_or_escape_sequence(line_tail);
+
+                    if visible_count == 0 {
+                        if is_mode_reset_control_sequence(head) {
+                            reset(*control_codes_builder);
+                        } else {
+                            append(*control_codes_builder, head);
+                        }
+                    }
 
                     visible_to_skip -= visible_count;
                     if visible_to_skip <= 0 {
@@ -315,6 +332,9 @@ main :: () {
                         break;
                     }
                 }
+
+                started_control_codes := builder_to_string(*control_codes_builder,, memory_pool);
+                append(*builder, started_control_codes);
             } else if col_offset < 0 {
                 // Extra spaces if offset is negative
                 assert(visible_columns_budget > -col_offset);
@@ -350,7 +370,7 @@ main :: () {
             if i != line_buffer.count - 1 {
                 append(*builder, "\n");
             }
-            line_buffer[i] = builder_to_string(*builder); i += 1;
+            line_buffer[i] = builder_to_string(*builder,, temp); i += 1;
 
             if !found break; // last line
         }
@@ -560,18 +580,35 @@ ascii_or_hex_printer :: (builder: *String_Builder, any: Any, struct_printer_data
     return true;
 }
 
-substring :: inline (s: string, start: s64, end := -1, count := -1) -> string {
+NOT_SPECIFIED :: 0x7fff_ffff_ffff_ffff;
+substring :: inline (s: string, start := 0, end := NOT_SPECIFIED, count := NOT_SPECIFIED) -> string {
     _count := count;
-    if end < 0 && count < 0 {
-        _count = s.count - start;
+    _start := ifx start < 0 then s.count + start else start;
+    if end == NOT_SPECIFIED && count == NOT_SPECIFIED {
+        _count = s.count - _start;
     } else {
-        assert(end < 0 || count < 0);
-        if count < 0 then _count = end - start;
+        assert(end == NOT_SPECIFIED || count == NOT_SPECIFIED);
+        _end := ifx end < 0 then s.count + end else end;
+        if count == NOT_SPECIFIED then _count = _end - _start;
     }
+    assert(_start >= 0, "start: %, end: %, count: %", start, end, count);
+    assert(_start <= s.count, "start: %, end: %, count: %", start, end, count);
     assert(_count >= 0, "start: %, end: %, count: %", start, end, count);
-    assert(start <= s.count);
+    assert(_start + _count <= s.count, "start: %, end: %, count: %", start, end, count);
 
-    return string.{ data = s.data + start, count = _count };
+    return string.{ data = s.data + _start, count = _count };
+}
+
+is_mode_reset_control_sequence :: inline (s: string) -> bool {
+    if substring(s, count=2) != "\e[" return false;
+    if substring(s, -1) != "m" return false;
+    if s.count == 3 return true;
+
+    for 0..(s.count-1)-3
+        if s[2 + it] != #char "0"
+            return false;
+
+    return true;
 }
 
 eat_visible_or_escape_sequence :: (text: string) -> head: string, visible_count: s64, tail: string {
