@@ -27,6 +27,10 @@ State :: struct {
     last_command_output_line_count: s64;
     last_command_result: Process_Result;
 
+    // Stores pointers into `last_command_output_for_last_shown_line_buffer`.
+    last_shown_line_buffer: [..] string;
+    last_command_output_for_last_shown_line_buffer: string;
+
     saved_termios: Termios;
 
     epoll_fd: s32;
@@ -85,7 +89,9 @@ main :: () {
 
     // Hide cursor, disable echo, etc.
     {
-        write_string("\e[?1049h");
+        // "\e[?1049h": enable the alternative buffer
+        // "\e[?25l": hide cursor
+        write_strings("\e[?1049h", "\e[?25l");
 
         rc := tcgetattr(STDIN_FILENO, *state.saved_termios);
         assert(rc == 0);
@@ -156,10 +162,11 @@ main :: () {
         // Run command if needed
         time := seconds_since_init();
         if time >= time_next_command_run {
-            if last_command_output free(last_command_output);
+            if last_command_output {
+                free(last_command_output);
+            }
             last_command_result, last_command_output = my_run_command(..command, capture_and_return_output = true);
             time_next_command_run = time + command_run_period_seconds;
-            log("[%] ran the commadn", seconds_since_init());
 
             cursor := 0;
             last_command_output_line_count = 0;
@@ -211,12 +218,17 @@ main :: () {
             row_offset = max(row_offset, last_command_output_line_count - rows_to_display_count);
         }
 
-        write_strings("\e[H", "\e[0J", "\e[?25l");
+        // "\e[H": move cursor to "home" position (row 0, column 0)
+        // "\e[K": erase in line
+        // "\e[0J": erase from cursor to end of screen
+        write_strings("\e[H", "\e[K");
         print("% -> %\n", command, last_command_result.exit_code);
 
         //
         // Status line
         //
+        // "\e[K": erase in line
+        write_strings("\e[K");
         print("offset: %   ", row_offset);
         print("lines: %   ", last_command_output_line_count);
         if stick_to_the_bottom then print("sinking   ");
@@ -246,6 +258,7 @@ main :: () {
         }
         write_string("\n");
 
+        // `line_buffer` stores pointers into `last_command_output`;
         // * 2 for "\n"
         line_buffer := NewArray(rows_to_display_count * 2, string,, temp);
 
@@ -286,7 +299,7 @@ main :: () {
                                 while actual_characters_count < line.count {
                                     char = line[actual_characters_count];
                                     actual_characters_count += 1;
-                                    if char != #char "m" break;
+                                    if char == #char "m" break;
                                 }
                             case; break;
                         }
@@ -305,9 +318,30 @@ main :: () {
 
             if !found break; // last line
         }
-        // don't print the last "\n"
+        // ignore the last "\n"
         line_buffer.count -= 1;
-        write_strings(..line_buffer);
+
+        changed := false;
+        if line_buffer.count != last_shown_line_buffer.count {
+            changed = true;
+        } else {
+            for 0..line_buffer.count-1 {
+                if last_shown_line_buffer[it] != line_buffer[it] {
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        if changed {
+            write_string("\e[0J");
+            write_strings(..line_buffer);
+
+            if last_command_output_for_last_shown_line_buffer
+                free(last_command_output_for_last_shown_line_buffer);
+            last_command_output_for_last_shown_line_buffer = copy_string(last_command_output);
+            last_shown_line_buffer.count = 0;
+            array_add(*last_shown_line_buffer, ..line_buffer);
+        }
 
         if should_exit break;
 
@@ -316,6 +350,8 @@ main :: () {
 
     // Restore terminal state
     {
+        // "\e[?1049l": disable the alternative buffer
+        // "\e[?25h": hide cursor
         write_strings("\e[?1049l", "\e[?25h");
 
         tcsetattr(STDIN_FILENO, TCSADRAIN, *state.saved_termios);
@@ -468,6 +504,14 @@ fflush :: (handle: *FILE) -> s32 #foreign libc;
 // string utilities
 //
 
+print_ascii_or_hex :: inline (builder: *String_Builder, char: u8) {
+    if char >= #char " " && char <= #char "~" {
+        append(builder, char);
+    } else {
+        print_to_builder(builder, "\\x%", FormatInt.{ value = char, base = 16, minimum_digits = 2 });
+    }
+}
+
 //
 // signal handling
 //
@@ -544,4 +588,5 @@ tcsetattr :: (fd: s32, optional_actions: s32, termios: *Termios) -> s32 #foreign
 #import "String";
 #import "POSIX";
 #import "File";
+#import "Flat_Pool";
 System :: #import "System";
