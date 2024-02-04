@@ -66,6 +66,9 @@ main :: () {
                 }
                 state.log_file_name = args[cursor];
 
+            // TODO: a flag to just watch a file's contents, so I don't have to
+            // do `cat filename`
+
             case; break;
         }
         cursor += 1;
@@ -168,7 +171,15 @@ main :: () {
             if last_command_output {
                 free(last_command_output);
             }
+            t0 := time;
             last_command_result, last_command_output = my_run_command(..command, capture_and_return_output = true);
+            elapsed := seconds_since_init() - t0;
+            // TODO: ps-pane is super slow, investigate
+            // TODO: also I don't see these logs, am I stupid??
+            log("executing % took % seconds", command, elapsed);
+            if elapsed > 0.5 {
+                log("executing % took % seconds", command, elapsed);
+            }
             time_next_command_run = time + command_run_period_seconds;
 
             cursor := 0;
@@ -420,6 +431,7 @@ main :: () {
         tcsetattr(STDIN_FILENO, TCSADRAIN, *state.saved_termios);
     }
 
+    // FIXME: some weird empty lines + spaces after end when cat with empty file is empty
     // Print output one last time
     print("% -> %\n", state.command, state.last_command_result.exit_code);
     print("\n");
