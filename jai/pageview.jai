@@ -25,11 +25,12 @@ State :: struct {
 
     last_command_output: string;
     last_command_output_line_count: s64;
+    last_command_output_max_line_length: s64;
     last_command_result: Process_Result;
 
-    // Stores pointers into `last_command_output_for_last_shown_line_buffer`.
+    // Stores pointers into `last_shown_line_buffer_flat_pool`.
     last_shown_line_buffer: [..] string;
-    last_command_output_for_last_shown_line_buffer: string;
+    memory_pool_for_last_shown_line_buffer: Flat_Pool;
 
     saved_termios: Termios;
 
@@ -91,7 +92,7 @@ main :: () {
     {
         // "\e[?1049h": enable the alternative buffer
         // "\e[?25l": hide cursor
-        write_strings("\e[?1049h", "\e[?25l");
+        // write_strings("\e[?1049h", "\e[?25l");
 
         rc := tcgetattr(STDIN_FILENO, *state.saved_termios);
         assert(rc == 0);
@@ -170,16 +171,19 @@ main :: () {
 
             cursor := 0;
             last_command_output_line_count = 0;
+            last_command_output_max_line_length = 0;
             line_end := 0;
             last_empty_lines_count := 0;
+            tail := last_command_output;
             while !should_exit {
-                line_end = find_index_from_left(last_command_output, #char "\n", cursor);
-                if line_end == -1 break;
+                found:, line:, tail = split_from_left(tail, #char "\n");
+
                 last_command_output_line_count += 1;
+                last_command_output_max_line_length = max(last_command_output_max_line_length, line.count);
 
-                if line_end == cursor then last_empty_lines_count += 1; else last_empty_lines_count = 0;
+                if line.count == 0 then last_empty_lines_count += 1; else last_empty_lines_count = 0;
 
-                cursor = line_end + 1;
+                if !found break;
             }
 
             last_command_output_line_count -= last_empty_lines_count;
@@ -201,16 +205,25 @@ main :: () {
                     case #char "t"; stick_to_the_bottom = !stick_to_the_bottom;
 
                     case #char "g"; row_offset = 0; stick_to_the_bottom = false;
-                    case #char "G"; row_offset = last_command_output_line_count - rows_to_display_count;
+                    case #char "G"; {
+                        row_offset = last_command_output_line_count - rows_to_display_count;
+                        stick_to_the_bottom = true;
+                    }
 
-                    case #char "h"; col_offset -= 1;
-                    case #char "l"; col_offset += 1;
+                    case #char "h"; col_offset -= 4;
+                    case #char "l"; col_offset += 4;
+
+                    case #char "H"; col_offset -= terminal_size.cols / 2;
+                    case #char "L"; col_offset += terminal_size.cols / 2;
 
                     case #char "q"; should_exit = true;
                 }
 
                 row_offset = max(row_offset, -(rows_to_display_count - 1));
                 row_offset = min(row_offset, last_command_output_line_count - 1);
+
+                col_offset = max(col_offset, -(cast(int) terminal_size.cols - 1));
+                col_offset = min(col_offset, last_command_output_max_line_length - 1);
             }
         }
 
@@ -229,7 +242,7 @@ main :: () {
         //
         // "\e[K": erase in line
         write_strings("\e[K");
-        print("offset: %   ", row_offset);
+        print("offset: %, %   ", row_offset, col_offset);
         print("lines: %   ", last_command_output_line_count);
         if stick_to_the_bottom then print("sinking   ");
 
@@ -258,9 +271,8 @@ main :: () {
         }
         write_string("\n");
 
-        // `line_buffer` stores pointers into `last_command_output`;
-        // * 2 for "\n"
-        line_buffer := NewArray(rows_to_display_count * 2, string,, temp);
+        // `line_buffer` stores pointers into `last_command_output` or temporary storage
+        line_buffer := NewArray(rows_to_display_count, string,, temp);
 
         tail := last_command_output;
         i := 0;
@@ -272,8 +284,7 @@ main :: () {
         } else if row_offset < 0 {
             // Extra blank lines for negative row_offset (for some reason)
             for 1..-row_offset {
-                line_buffer[i] = "";   i += 1;
-                line_buffer[i] = "\n"; i += 1;
+                line_buffer[i] = "\n";   i += 1;
             }
         }
 
@@ -283,43 +294,66 @@ main :: () {
         if line_buffer.count != 0 while i < line_buffer.count {
             found:, line:, tail = split_from_left(tail, #char "\n");
 
-            actual_characters_count := 0;
-            visible_columns_count := 0;
-            // Preprocess one line
-            while actual_characters_count < line.count {
-                char := line[actual_characters_count];
-                if char == #char "\e" {
-                    actual_characters_count += 1;
+            builder: String_Builder;
+            builder.allocator = temp;
 
-                    while actual_characters_count < line.count {
-                        char = line[actual_characters_count];
-                        if char == {
-                            case #char "[";
-                                actual_characters_count += 1;
-                                while actual_characters_count < line.count {
-                                    char = line[actual_characters_count];
-                                    actual_characters_count += 1;
-                                    if char == #char "m" break;
-                                }
-                            case; break;
-                        }
+            visible_columns_budget : int = terminal_size.cols;
+
+
+            line_tail := line;
+            if col_offset > 0 {
+                // Skip `col_offset` visible characters
+                visible_to_skip := col_offset;
+                while line_tail {
+                    head:, visible_count:, line_tail = eat_visible_or_escape_sequence(line_tail);
+
+                    visible_to_skip -= visible_count;
+                    if visible_to_skip <= 0 {
+                        overflow := -visible_to_skip;
+                        line_tail.data -= overflow;
+                        line_tail.count += overflow;
+                        break;
                     }
-                } else {
-                    actual_characters_count += 1;
-                    visible_columns_count += 1;
                 }
-
-                if visible_columns_count >= terminal_size.cols break;
+            } else if col_offset < 0 {
+                // Extra spaces if offset is negative
+                assert(visible_columns_budget > -col_offset);
+                for 1..-col_offset {
+                    append(*builder, " ");
+                    visible_columns_budget -= 1;
+                }
             }
-            line.count = actual_characters_count;
 
-            line_buffer[i] = line; i += 1;
-            line_buffer[i] = "\e[m\n"; i += 1;
+            line_visible_slice: string;
+            line_visible_slice.data = line_tail.data;
+            line_visible_slice.count = 0;
+
+            // Preprocess one line
+            while line_tail {
+                head:, visible_count:, line_tail = eat_visible_or_escape_sequence(line_tail);
+                line_visible_slice.count += head.count;
+                visible_columns_budget -= visible_count;
+
+                if visible_columns_budget <= 0 {
+                    overflow := -visible_columns_budget;
+                    line_visible_slice.count -= overflow;
+                    break;
+                }
+            }
+
+            // Build the line string
+            append(*builder, line_visible_slice);
+
+            // Reset color codes
+            append(*builder, "\e[0m");
+
+            if i != line_buffer.count - 1 {
+                append(*builder, "\n");
+            }
+            line_buffer[i] = builder_to_string(*builder); i += 1;
 
             if !found break; // last line
         }
-        // ignore the last "\n"
-        line_buffer.count -= 1;
 
         changed := false;
         if line_buffer.count != last_shown_line_buffer.count {
@@ -336,11 +370,20 @@ main :: () {
             write_string("\e[0J");
             write_strings(..line_buffer);
 
-            if last_command_output_for_last_shown_line_buffer
-                free(last_command_output_for_last_shown_line_buffer);
-            last_command_output_for_last_shown_line_buffer = copy_string(last_command_output);
-            last_shown_line_buffer.count = 0;
-            array_add(*last_shown_line_buffer, ..line_buffer);
+            // Save last shown line buffer
+            memory_pool_allocator: Allocator;
+            memory_pool_allocator.proc = flat_pool_allocator_proc;
+            memory_pool_allocator.data = *memory_pool_for_last_shown_line_buffer;
+
+            reset(*memory_pool_for_last_shown_line_buffer);
+            last_shown_line_buffer.allocator = memory_pool_allocator;
+            array_reset(*last_shown_line_buffer);
+
+            array_reserve(*last_shown_line_buffer, line_buffer.count);
+            for line_buffer {
+                line := copy_string(it,, memory_pool_allocator);
+                array_add(*last_shown_line_buffer, line);
+            }
         }
 
         if should_exit break;
@@ -351,7 +394,7 @@ main :: () {
     // Restore terminal state
     {
         // "\e[?1049l": disable the alternative buffer
-        // "\e[?25h": hide cursor
+        // "\e[?25h": unhide cursor
         write_strings("\e[?1049l", "\e[?25h");
 
         tcsetattr(STDIN_FILENO, TCSADRAIN, *state.saved_termios);
@@ -504,8 +547,82 @@ fflush :: (handle: *FILE) -> s32 #foreign libc;
 // string utilities
 //
 
+Ascii_Or_Hex :: #type,distinct string;
+
+ascii_or_hex_printer :: (builder: *String_Builder, any: Any, struct_printer_data: *void) -> bool {
+    if any.type != type_info(Ascii_Or_Hex) return false;
+
+    s := << cast(*string) any.value_pointer;
+    for 0..s.count - 1 {
+        print_ascii_or_hex(builder, s[it]);
+    }
+
+    return true;
+}
+
+substring :: inline (s: string, start: s64, end := -1, count := -1) -> string {
+    _count := count;
+    if end < 0 && count < 0 {
+        _count = s.count - start;
+    } else {
+        assert(end < 0 || count < 0);
+        if count < 0 then _count = end - start;
+    }
+    assert(_count >= 0, "start: %, end: %, count: %", start, end, count);
+    assert(start <= s.count);
+
+    return string.{ data = s.data + start, count = _count };
+}
+
+eat_visible_or_escape_sequence :: (text: string) -> head: string, visible_count: s64, tail: string {
+    if !text return "", 0, "";
+
+    char: u8;
+    count := 0;
+
+    while count < text.count {
+        char = text[count];
+        if char == #char "\e" break;
+
+        count += 1;
+    }
+    if count > 0 {
+        // Visible character sequence
+        head := substring(text, 0, count = count);
+        tail := substring(text, count);
+        return head, count, tail;
+    }
+
+    // Escape sequence
+    count += 1;
+
+    while count < text.count {
+        char = text[count];
+
+        if char == {
+            case #char "[";
+                count += 1;
+
+                while count < text.count {
+                    char = text[count];
+                    count += 1;
+
+                    if char == #char "m" break;
+                }
+            case;
+                break;
+        }
+    }
+
+    head := substring(text, 0, count = count);
+    tail := substring(text, count);
+    return head, 0, tail;
+}
+
 print_ascii_or_hex :: inline (builder: *String_Builder, char: u8) {
     if char >= #char " " && char <= #char "~" {
+        if char == #char "\\" || char == #char "\""
+            append(builder, "\\");
         append(builder, char);
     } else {
         print_to_builder(builder, "\\x%", FormatInt.{ value = char, base = 16, minimum_digits = 2 });
