@@ -276,14 +276,18 @@ main :: () {
             // "\e[K": erase in line
             append(*status_lines_builder, "\e[K");
 
+            append(*status_lines_builder, "\e[35m");
             append(*status_lines_builder, "$(");
+            append(*status_lines_builder, "\e[0m");
             for command {
+                if it_index == 0 then append(*status_lines_builder, "\e[32m");
                 append(*status_lines_builder, it);
-                if it_index != command.count - 1 {
-                    append(*status_lines_builder, " ");
-                }
+                if it_index == 0 then append(*status_lines_builder, "\e[0m");
+                if it_index != command.count - 1 then append(*status_lines_builder, " ");
             }
+            append(*status_lines_builder, "\e[35m");
             append(*status_lines_builder, ")");
+            append(*status_lines_builder, "\e[0m");
             if last_command_result.exit_code != 0 {
                 append(*status_lines_builder, " -> %", last_command_result.exit_code);
                 // TODO: display stderr also in this case
