@@ -86,6 +86,9 @@ main :: () {
     context.logger = my_logger;
     context.logger_data = *state;
 
+    // Setup struct_printer
+    context.print_style.struct_printer = ascii_or_hex_printer;
+
     signal(SIGINT, shutdown_signal_handler);
     signal(SIGTERM, shutdown_signal_handler);
     signal(SIGWINCH, window_size_changed_signal_handler);
@@ -244,45 +247,62 @@ main :: () {
             row_offset = max(row_offset, last_command_output_line_count - rows_to_display_count);
         }
 
-        // "\e[H": move cursor to "home" position (row 0, column 0)
-        // "\e[K": erase in line
-        // "\e[0J": erase from cursor to end of screen
-        write_strings("\e[H", "\e[K");
-        print("% -> %\n", command, last_command_result.exit_code);
-
         //
         // Status line
         //
-        // "\e[K": erase in line
-        write_strings("\e[K");
-        print("offset: %, %   ", row_offset, col_offset);
-        print("lines: %   ", last_command_output_line_count);
-        if stick_to_the_bottom then print("sinking   ");
+        status_lines_builder: String_Builder;
+        status_lines_builder.allocator = temp;
 
-        // Print current input buffer
-        write_string("input: ");
+        // first line
         {
-            i := 0;
-            while i < input_buffer_count {
-                end := i;
-                while end < input_buffer_count && input_buffer[end] >= #char " " && input_buffer[end] <= #char "~" {
-                    end += 1;
-                }
-                if end > i {
-                    // Printable ascii
-                    s: string;
-                    s.data = input_buffer.data + i;
-                    s.count = end - i;
-                    write_string(s);
-                    i = end;
-                }
-                if i >= input_buffer_count break;
+            // "\e[H": move cursor to "home" position (row 0, column 0)
+            append(*status_lines_builder, "\e[H");
 
-                print("\\x%", FormatInt.{ value = input_buffer[i], base = 16, minimum_digits = 2 });
-                i += 1;
+            // "\e[0J": erase from cursor to end of screen
+            // append(*status_lines_builder, "\e[0J");
+
+            // "\e[K": erase in line
+            append(*status_lines_builder, "\e[K");
+
+            append(*status_lines_builder, "$(");
+            for command {
+                append(*status_lines_builder, it);
+                if it_index != command.count - 1 {
+                    append(*status_lines_builder, " ");
+                }
             }
+            append(*status_lines_builder, ")");
+            if last_command_result.exit_code != 0 {
+                append(*status_lines_builder, " -> %", last_command_result.exit_code);
+                // TODO: display stderr also in this case
+            }
+            append(*status_lines_builder, "\n");
         }
-        write_string("\n");
+
+        // second line
+        {
+            // "\e[K": erase in line
+            append(*status_lines_builder, "\e[K");
+            print_to_builder(*status_lines_builder, "offset: %, %   ", row_offset, col_offset);
+            print_to_builder(*status_lines_builder, "lines: %   ", last_command_output_line_count);
+            if stick_to_the_bottom then append(*status_lines_builder, "sinking   ");
+
+            // Print current input buffer
+            append(*status_lines_builder, "input: ");
+
+            input_string: string;
+            input_string.data = input_buffer.data;
+            input_string.count = input_buffer_count;
+            print_to_builder(*status_lines_builder, "%", cast(Ascii_Or_Hex) input_string);
+
+            append(*status_lines_builder, "\n");
+        }
+
+        write_builder(*status_lines_builder,, temp);
+
+        //
+        // Main window
+        //
 
         // `line_buffer` stores pointers into `last_command_output` or temporary storage
         line_buffer := NewArray(rows_to_display_count, string,, temp);
@@ -301,9 +321,7 @@ main :: () {
             }
         }
 
-        //
         // Preprocess lines to be displayed
-        //
         if line_buffer.count != 0 while i < line_buffer.count {
             found:, line:, tail = split_from_left(tail, #char "\n");
 
