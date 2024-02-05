@@ -8,6 +8,9 @@ State :: struct {
     col_offset: s64;
     stick_to_the_bottom := false;
 
+    wrapped_line_offset: s64;
+    line_wrapping := false;
+
     terminal_size: Terminal_Size_Info;
 
     input_buffer: [32] u8;
@@ -56,6 +59,11 @@ main :: () {
             case "-t"; #through;
             case "--tail";
                 state.stick_to_the_bottom = true;
+
+            case "-w"; #through;
+            case "--wrap"; #through;
+            case "--wrap-lines";
+                state.line_wrapping = true;
 
             case "-l"; #through;
             case "--log";
@@ -220,17 +228,21 @@ main :: () {
 
                     case #char "t"; stick_to_the_bottom = !stick_to_the_bottom;
 
+                    case #char "w"; line_wrapping = !line_wrapping;
+
                     case #char "g"; row_offset = 0; stick_to_the_bottom = false;
                     case #char "G"; {
                         row_offset = last_command_output_line_count - rows_to_display_count;
                         stick_to_the_bottom = true;
                     }
 
-                    case #char "h"; col_offset -= 4;
-                    case #char "l"; col_offset += 4;
+                    case #char "0"; col_offset = 0;
 
-                    case #char "H"; col_offset -= terminal_size.cols / 2;
-                    case #char "L"; col_offset += terminal_size.cols / 2;
+                    case #char "h"; if !line_wrapping col_offset -= 4;
+                    case #char "l"; if !line_wrapping col_offset += 4;
+
+                    case #char "H"; if !line_wrapping col_offset -= terminal_size.cols / 2;
+                    case #char "L"; if !line_wrapping col_offset += terminal_size.cols / 2;
 
                     case #char "q"; should_exit = true;
                 }
@@ -333,73 +345,125 @@ main :: () {
             builder.allocator = memory_pool;
             ensure_contiguous_space(*builder, line.count);
 
-            visible_columns_budget : int = terminal_size.cols;
+            if !line_wrapping {
+                visible_columns_budget : int = terminal_size.cols;
+                line_tail := line;
 
-            line_tail := line;
-            if col_offset > 0 {
-                control_codes_builder: String_Builder;
-                control_codes_builder.allocator = temp;
+                if col_offset > 0 {
+                    control_codes_builder: String_Builder;
+                    control_codes_builder.allocator = temp;
 
-                // Skip `col_offset` visible characters
-                visible_to_skip := col_offset;
-                while line_tail {
-                    head:, visible_count:, line_tail = eat_visible_or_escape_sequence(line_tail);
+                    // Skip `col_offset` visible characters
+                    visible_to_skip := col_offset;
+                    while line_tail {
+                        head:, visible_count:, line_tail = eat_visible_or_escape_sequence(line_tail);
 
-                    if visible_count == 0 {
-                        if is_mode_reset_control_sequence(head) {
-                            reset(*control_codes_builder);
-                        } else {
-                            append(*control_codes_builder, head);
+                        if visible_count == 0 {
+                            if is_mode_reset_control_sequence(head) {
+                                reset(*control_codes_builder);
+                            } else {
+                                append(*control_codes_builder, head);
+                            }
+                        }
+
+                        visible_to_skip -= visible_count;
+                        if visible_to_skip <= 0 {
+                            overflow := -visible_to_skip;
+                            line_tail.data -= overflow;
+                            line_tail.count += overflow;
+                            break;
                         }
                     }
 
-                    visible_to_skip -= visible_count;
-                    if visible_to_skip <= 0 {
-                        overflow := -visible_to_skip;
-                        line_tail.data -= overflow;
-                        line_tail.count += overflow;
+                    started_control_codes := builder_to_string(*control_codes_builder,, memory_pool);
+                    append(*builder, started_control_codes);
+                } else if col_offset < 0 {
+                    // Extra spaces if offset is negative
+                    assert(visible_columns_budget > -col_offset);
+                    for 1..-col_offset {
+                        append(*builder, " ");
+                        visible_columns_budget -= 1;
+                    }
+                }
+
+                line_visible_slice: string;
+                line_visible_slice.data = line_tail.data;
+                line_visible_slice.count = 0;
+
+                // Preprocess one line
+                while line_tail {
+                    head:, visible_count:, line_tail = eat_visible_or_escape_sequence(line_tail);
+                    line_visible_slice.count += head.count;
+                    visible_columns_budget -= visible_count;
+
+                    if visible_columns_budget <= 0 {
+                        overflow := -visible_columns_budget;
+                        line_visible_slice.count -= overflow;
                         break;
                     }
                 }
 
-                started_control_codes := builder_to_string(*control_codes_builder,, memory_pool);
-                append(*builder, started_control_codes);
-            } else if col_offset < 0 {
-                // Extra spaces if offset is negative
-                assert(visible_columns_budget > -col_offset);
-                for 1..-col_offset {
-                    append(*builder, " ");
-                    visible_columns_budget -= 1;
+                // Build the line string
+                append(*builder, line_visible_slice);
+
+                // Reset color codes
+                append(*builder, "\e[0m");
+
+                if i != line_buffer.count - 1 {
+                    append(*builder, "\n");
+                }
+                line_buffer[i] = builder_to_string(*builder,, temp); i += 1;
+            } else {
+                // col_offset is ignored
+
+                line_tail := line;
+                first := true;
+
+                // Iterate over line pieces
+                while line_tail && i < line_buffer.count {
+                    defer first = false;
+                    visible_columns_budget : int = terminal_size.cols;
+
+                    if !first {
+                        prefix :: "";
+                        append(*builder, prefix);
+                        visible_columns_budget -= prefix.count;
+                    } else {
+                        first = false;
+                    }
+
+                    line_visible_slice: string;
+                    line_visible_slice.data = line_tail.data;
+                    line_visible_slice.count = 0;
+
+                    // Preprocess one line piece
+                    while line_tail {
+                        head:, visible_count:, line_tail = eat_visible_or_escape_sequence(line_tail);
+                        line_visible_slice.count += head.count;
+                        visible_columns_budget -= visible_count;
+
+                        if visible_columns_budget > 0 continue;
+
+                        overflow := -visible_columns_budget;
+                        line_visible_slice.count -= overflow;
+                        line_tail.data -= overflow;
+                        line_tail.count += overflow;
+
+                        break;
+                    }
+
+                    // Build the line string
+                    append(*builder, line_visible_slice);
+
+                    // Reset color codes
+                    append(*builder, "\e[0m");
+
+                    if i != line_buffer.count - 1 {
+                        append(*builder, "\n");
+                    }
+                    line_buffer[i] = builder_to_string(*builder,, temp); i += 1;
                 }
             }
-
-            line_visible_slice: string;
-            line_visible_slice.data = line_tail.data;
-            line_visible_slice.count = 0;
-
-            // Preprocess one line
-            while line_tail {
-                head:, visible_count:, line_tail = eat_visible_or_escape_sequence(line_tail);
-                line_visible_slice.count += head.count;
-                visible_columns_budget -= visible_count;
-
-                if visible_columns_budget <= 0 {
-                    overflow := -visible_columns_budget;
-                    line_visible_slice.count -= overflow;
-                    break;
-                }
-            }
-
-            // Build the line string
-            append(*builder, line_visible_slice);
-
-            // Reset color codes
-            append(*builder, "\e[0m");
-
-            if i != line_buffer.count - 1 {
-                append(*builder, "\n");
-            }
-            line_buffer[i] = builder_to_string(*builder,, temp); i += 1;
 
             if !found break; // last line
         }
