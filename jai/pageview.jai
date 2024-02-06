@@ -56,9 +56,24 @@ main :: () {
     while true {
         arg := args[cursor];
         if arg == {
-            case "-t"; #through;
-            case "--tail";
+            case "-f"; #through;
+            case "--follow";
                 state.stick_to_the_bottom = true;
+
+            case "-t"; #through;
+            case "--time"; #through;
+            case "--time-before-repeate";
+                cursor += 1;
+                if cursor >= args.count {
+                    print("Expected a number of seconds after '%'\n", arg);
+                    exit(1);
+                }
+                seconds, ok := string_to_float(args[cursor]);
+                if !ok {
+                    print("Expected a number of seconds after '%', got '%'\n", arg, args[cursor]);
+                    exit(1);
+                }
+                state.command_run_period_seconds = seconds;
 
             case "-w"; #through;
             case "--wrap"; #through;
