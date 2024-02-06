@@ -19,7 +19,7 @@ State :: struct {
 
 Process_Info :: struct {
     pid: Pid;
-    parent_pid: Pid;
+    parent_pid: Pid = -1;
 
     command_line: [] string;
 
@@ -88,6 +88,9 @@ main :: () {
     ok := visit_files("/proc", recursive=false, user_data=*pids, proc=visitor, visit_files=false, visit_directories=true, follow_symlinks=false);
     assert(ok);
 
+    //
+    // Get process's infos, collect root candidates
+    //
     for pids {
         defer reset_temporary_storage();
 
@@ -166,95 +169,10 @@ main :: () {
         }
     }
 
-    maybe_roots := NewArray(state.maybe_roots.count, Pid);
-    i := 0;
-    for state.maybe_roots {
-        maybe_roots[i] = it_index;
-        i += 1;
-    }
-
-    roots: [] Pid;
-
-    if maybe_roots.count == 0 {
+    roots := get_only_roots(*state);
+    if !roots {
         print("nothing found\n");
-        return;
-    }
-    if maybe_roots.count > 1 {
-        // removing the children from maybe_roots
-        check_which_are_reachable :: (tree: *Table(Pid, Process_Info), root: Pid, seen_these: *Table(Pid, bool)) {
-            info := table_find_pointer(tree, root);
-            if !info return;
-            seen := table_find_pointer(seen_these, info.pid);
-            if seen != null then seen.* = true;
-
-            for info.children {
-                check_which_are_reachable(tree, it, seen_these);
-            }
-        }
-
-        seen_these_from_root: [..] Table(Pid, bool);
-        for maybe_roots {
-            seen_these := array_add(*seen_these_from_root);
-            for maybe_roots table_set(seen_these, it, false);
-
-            check_which_are_reachable(*state.process_infos, it, seen_these);
-        }
-
-        compare_same_keys :: (lhs: *Table(Pid, bool), rhs: *Table(Pid, bool)) -> Set_Comparison {
-            left_score := 0;
-            right_score := 0;
-            for l: lhs.* {
-                r, ok := table_find(rhs, it_index);
-                assert(ok);
-                if l && !r {
-                    left_score += 1;
-                } else if !l && r {
-                    right_score += 1;
-                }
-
-                if (left_score != 0) && (right_score != 0) return .NON_COMPARABLE;
-            }
-            if left_score return .LEFT_IS_BIGGER;
-            if right_score return .RIGHT_IS_BIGGER;
-            return .EQUAL;
-        }
-
-        assert(maybe_roots.count == seen_these_from_root.count);
-        comparing_this_one_to_the_rest := 0;
-        comparing_to_this_one_at_the_moment := 1;
-        while outer := comparing_this_one_to_the_rest < maybe_roots.count {
-            lhs := *seen_these_from_root[comparing_this_one_to_the_rest];
-
-            comparing_to_this_one_at_the_moment := comparing_this_one_to_the_rest + 1;
-            while comparing_to_this_one_at_the_moment < maybe_roots.count {
-                rhs := *seen_these_from_root[comparing_to_this_one_at_the_moment];
-                res := compare_same_keys(lhs, rhs);
-                if res == {
-                    case .NON_COMPARABLE; comparing_to_this_one_at_the_moment += 1;
-                    case .EQUAL; #through;
-                    case .LEFT_IS_BIGGER;
-                        array_unordered_remove_by_index(*seen_these_from_root, comparing_to_this_one_at_the_moment);
-                        array_unordered_remove_by_index(*maybe_roots, comparing_to_this_one_at_the_moment);
-                    case .RIGHT_IS_BIGGER;
-                        array_unordered_remove_by_index(*seen_these_from_root, comparing_this_one_to_the_rest);
-                        array_unordered_remove_by_index(*maybe_roots, comparing_this_one_to_the_rest);
-                        continue outer;
-                }
-            }
-            comparing_this_one_to_the_rest += 1;
-        }
-    }
-    roots = maybe_roots;
-
-    depth_first_children :: (tree: *Table(Pid, Process_Info), root: Pid, result: *[..] *Process_Info, depth := 0) {
-        info := table_find_pointer(tree, root);
-        if !info return;
-        info.depth = depth;
-
-        array_add(result, info);
-        for info.children {
-            depth_first_children(tree, it, result, depth + 1);
-        }
+        exit(1);
     }
 
     flattened_tree: [..] *Process_Info;
@@ -263,6 +181,9 @@ main :: () {
         depth_first_children(*state.process_infos, it, *flattened_tree);
     }
 
+    //
+    // Display the output
+    //
     for flattened_tree {
         command_line, ok := get_process_command_line(it.pid);
         it.command_line = command_line;
@@ -307,6 +228,138 @@ main :: () {
 
         append(*builder, "\n");
         write_builder(*builder);
+    }
+}
+
+//
+// remove non-roots from the set of candidates
+//
+
+get_only_roots :: (state: *State) -> [] Pid {
+    maybe_roots := NewArray(state.maybe_roots.count, Pid);
+    i := 0;
+    for state.maybe_roots {
+        maybe_roots[i] = it_index;
+        i += 1;
+    }
+
+    i = 0;
+    while outer_loop := (i < maybe_roots.count) {
+        current_pid := maybe_roots[i];
+        while true {
+            info := table_find_pointer(*state.process_infos, current_pid);
+            if !info break;
+
+            if table_find_pointer(*state.maybe_roots, info.parent_pid) != null {
+                // This candidate is a child of another candidate
+                array_unordered_remove_by_index(*maybe_roots, i);
+                continue outer_loop;
+            }
+
+            if current_pid == info.parent_pid {
+                // Shouldn't happen but may
+                break;
+            }
+            current_pid = info.parent_pid;
+        }
+
+        i += 1;
+    }
+
+    return maybe_roots;
+}
+
+get_only_roots_stupid_algorithm :: (state: *State) -> [] Pid {
+    maybe_roots := NewArray(state.maybe_roots.count, Pid);
+    i := 0;
+    for state.maybe_roots {
+        maybe_roots[i] = it_index;
+        i += 1;
+    }
+
+    if maybe_roots.count == 0 {
+        return .[];
+    }
+
+    // removing the children from maybe_roots
+    check_which_are_reachable :: (tree: *Table(Pid, Process_Info), root: Pid, seen_these: *Table(Pid, bool)) {
+        info := table_find_pointer(tree, root);
+        if !info return;
+        seen := table_find_pointer(seen_these, info.pid);
+        if seen != null then seen.* = true;
+
+        for info.children {
+            check_which_are_reachable(tree, it, seen_these);
+        }
+    }
+
+    seen_these_from_root: [..] Table(Pid, bool);
+    for maybe_roots {
+        seen_these := array_add(*seen_these_from_root);
+        for maybe_roots table_set(seen_these, it, false);
+
+        check_which_are_reachable(*state.process_infos, it, seen_these);
+    }
+
+    compare_same_keys :: (lhs: *Table(Pid, bool), rhs: *Table(Pid, bool)) -> Set_Comparison {
+        left_score := 0;
+        right_score := 0;
+        for l: lhs.* {
+            r, ok := table_find(rhs, it_index);
+            assert(ok);
+            if l && !r {
+                left_score += 1;
+            } else if !l && r {
+                right_score += 1;
+            }
+
+            if (left_score != 0) && (right_score != 0) return .NON_COMPARABLE;
+        }
+        if left_score return .LEFT_IS_BIGGER;
+        if right_score return .RIGHT_IS_BIGGER;
+        return .EQUAL;
+    }
+
+    assert(maybe_roots.count == seen_these_from_root.count);
+    comparing_this_one_to_the_rest := 0;
+    comparing_to_this_one_at_the_moment := 1;
+    while outer := comparing_this_one_to_the_rest < maybe_roots.count {
+        lhs := *seen_these_from_root[comparing_this_one_to_the_rest];
+
+        comparing_to_this_one_at_the_moment := comparing_this_one_to_the_rest + 1;
+        while comparing_to_this_one_at_the_moment < maybe_roots.count {
+            rhs := *seen_these_from_root[comparing_to_this_one_at_the_moment];
+            res := compare_same_keys(lhs, rhs);
+            if res == {
+                case .NON_COMPARABLE; comparing_to_this_one_at_the_moment += 1;
+                case .EQUAL; #through;
+                case .LEFT_IS_BIGGER;
+                    array_unordered_remove_by_index(*seen_these_from_root, comparing_to_this_one_at_the_moment);
+                    array_unordered_remove_by_index(*maybe_roots, comparing_to_this_one_at_the_moment);
+                case .RIGHT_IS_BIGGER;
+                    array_unordered_remove_by_index(*seen_these_from_root, comparing_this_one_to_the_rest);
+                    array_unordered_remove_by_index(*maybe_roots, comparing_this_one_to_the_rest);
+                    continue outer;
+            }
+        }
+        comparing_this_one_to_the_rest += 1;
+    }
+
+    return maybe_roots;
+}
+
+//
+// tree traversal
+//
+
+depth_first_children :: (tree: *Table(Pid, Process_Info), root: Pid, result: *[..] *Process_Info, depth := 0) {
+    info := table_find_pointer(tree, root);
+    if !info return;
+    info.depth = depth;
+
+    array_add(result, info);
+    for info.children {
+        depth_first_children(tree, it, result, depth + 1);
     }
 }
 
