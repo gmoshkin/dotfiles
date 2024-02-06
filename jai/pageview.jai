@@ -299,6 +299,7 @@ main :: () {
         {
             // "\e[K": erase in line
             append(*status_lines_builder, "\e[K");
+            append(*status_lines_builder, "\e[2;37m");
             print_to_builder(*status_lines_builder, "offset: %, %   ", row_offset, col_offset);
             print_to_builder(*status_lines_builder, "lines: %   ", last_command_output_line_count);
             if stick_to_the_bottom then append(*status_lines_builder, "sinking   ");
@@ -311,6 +312,7 @@ main :: () {
             input_string.count = input_buffer_count;
             print_to_builder(*status_lines_builder, "%", cast(Ascii_Or_Hex) input_string);
 
+            append(*status_lines_builder, "\e[0m");
             append(*status_lines_builder, "\n");
         }
 
@@ -338,6 +340,8 @@ main :: () {
         }
 
         // Preprocess lines to be displayed
+        // TODO: tabs aren't handled correctly yet,
+        // terminal displays them with different widths, but I count them as 1 always
         if line_buffer.count != 0 while i < line_buffer.count {
             found:, line:, tail = split_from_left(tail, #char "\n");
 
