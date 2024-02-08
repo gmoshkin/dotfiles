@@ -536,22 +536,6 @@ main :: () {
         tcsetattr(STDIN_FILENO, TCSADRAIN, *state.saved_termios);
     }
 
-    // FIXME: some weird empty lines + spaces after end when cat with empty file is empty
-    // Print output one last time
-    print("% -> %\n", state.command, state.last_command_result.exit_code);
-    print("\n");
-    tail := state.last_command_output;
-    i := 0;
-    while true {
-        found:, line:, tail = split_from_left(tail, #char "\n");
-        write_strings(line, "\n");
-
-        i += 1;
-        if i >= state.terminal_size.rows - 2 break;
-
-        if !found break;
-    }
-
     if signalled_with_signal != -1 {
         print("got signal %\n", signalled_with_signal);
     }
