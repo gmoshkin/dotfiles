@@ -166,6 +166,20 @@ baked_proc :: () {
     });
 }
 
+null_any_test :: () {
+    default_any: Any;
+    print("default_any: value_pointer: %, type: %\n", default_any.value_pointer, default_any.type);
+
+    any_set_to_null: Any = null;
+    print("any_set_to_null: value_pointer: %, type: %\n", any_set_to_null.value_pointer, any_set_to_null.type);
+
+    any_set_to_default_any: Any = Any.{};
+    print("any_set_to_default_any: value_pointer: %, type: %\n", any_set_to_default_any.value_pointer, any_set_to_default_any.type);
+
+    assert(default_any.value_pointer == any_set_to_default_any.value_pointer);
+    assert(default_any.type == any_set_to_default_any.type);
+}
+
 main :: () {
     print("\n### type_of_null:\n\n");                   type_of_null();
     print("\n### bake_polymorph:\n\n");                 bake_polymorph();
@@ -175,6 +189,7 @@ main :: () {
     print("\n### defer_is_not_like_in_go(false):\n\n"); defer_is_not_like_in_go(false);
     print("\n### defer_is_not_like_in_go(true):\n\n");  defer_is_not_like_in_go(true);
     print("\n### baked_proc:\n\n");                     baked_proc();
+    print("\n### null_any_test:\n\n");                  null_any_test();
 }
 
 #import "Basic";
