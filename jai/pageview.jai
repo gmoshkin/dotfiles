@@ -314,7 +314,7 @@ main :: () {
         {
             // "\e[K": erase in line
             append(*status_lines_builder, "\e[K");
-            append(*status_lines_builder, "\e[2;37m");
+            append(*status_lines_builder, "\e[2;37m"); // color gray
             print_to_builder(*status_lines_builder, "offset: %, %   ", row_offset, col_offset);
             print_to_builder(*status_lines_builder, "lines: %   ", last_command_output_line_count);
             if stick_to_the_bottom then append(*status_lines_builder, "sinking   ");
@@ -373,11 +373,12 @@ main :: () {
                 line_tail := line;
 
                 if col_offset > 0 {
+                    visible_columns_budget -= 1; // :line_overflow_character
                     control_codes_builder: String_Builder;
                     control_codes_builder.allocator = temp;
 
-                    // Skip `col_offset` visible characters
-                    visible_to_skip := col_offset;
+                    // Skip `col_offset` visible characters `+ 1` for the :line_overflow_character
+                    visible_to_skip := col_offset + 1;
                     while line_tail {
                         head:, visible_count:, line_tail = eat_visible_or_escape_sequence(line_tail);
 
@@ -399,6 +400,12 @@ main :: () {
                     }
 
                     started_control_codes := builder_to_string(*control_codes_builder,, memory_pool);
+
+                    // :line_overflow_character
+                    append(*builder, "\e[2;37m"); // color gray
+                    append(*builder, "<");
+                    append(*builder, "\e[0m");
+
                     append(*builder, started_control_codes);
                 } else if col_offset < 0 {
                     // Extra spaces if offset is negative
@@ -413,6 +420,7 @@ main :: () {
                 line_visible_slice.data = line_tail.data;
                 line_visible_slice.count = 0;
 
+                line_overflowed := false;
                 // Preprocess one line
                 while line_tail {
                     head:, visible_count:, line_tail = eat_visible_or_escape_sequence(line_tail);
@@ -421,7 +429,20 @@ main :: () {
 
                     if visible_columns_budget <= 0 {
                         overflow := -visible_columns_budget;
+                        line_overflowed = overflow != 0;
                         line_visible_slice.count -= overflow;
+
+                        // Leave space for the :line_overflow_character
+                        assert(head.count > overflow + 1);
+                        line_visible_slice.count -= 1;
+                        break;
+                    }
+
+                    // Special case of escape sequence starting on the last
+                    // column of the would be row. Skip it here so that the `if`
+                    // above works correctly :line_overflow_character
+                    if visible_columns_budget == 1 && line_tail.count > 0 {
+                        line_overflowed = true;
                         break;
                     }
                 }
@@ -431,6 +452,13 @@ main :: () {
 
                 // Reset color codes
                 append(*builder, "\e[0m");
+
+                // :line_overflow_character
+                if line_overflowed {
+                    append(*builder, "\e[2;37m"); // color gray
+                    append(*builder, ">");
+                    append(*builder, "\e[0m");
+                }
 
                 if i != line_buffer.count - 1 {
                     append(*builder, "\n");
