@@ -4,6 +4,11 @@
 }
 
 State :: struct {
+
+    //
+    // main window state
+    //
+
     row_offset: s64;
     col_offset: s64;
     stick_to_the_bottom := false;
@@ -11,15 +16,31 @@ State :: struct {
     wrapped_line_offset: s64;
     line_wrapping := false;
 
+    rows_to_display_count: s64;
     terminal_size: Terminal_Size_Info;
+
+    //
+    // input
+    //
+
+    input_mode: enum { NAVIGATE; INPUT_SEARCH_STRING; } = .NAVIGATE;
+    search_string: string;
 
     input_buffer: [32] u8;
     input_buffer_count: s64;
     input_received_this_tick: bool;
 
+    //
+    // logging
+    //
+
     log_file_name: string;
     log_file: File;
     log_file.handle = null;
+
+    //
+    // command
+    //
 
     command: [] string;
 
@@ -37,11 +58,16 @@ State :: struct {
     last_shown_line_buffer: [..] string;
     memory_pool_for_last_shown_line_buffer: Flat_Pool;
 
+    //
+    // miscellaneous internals
+    //
+
     saved_termios: Termios;
 
     epoll_fd: s32;
     epoll_events: [1] epoll_event;
 }
+#add_context state: State;
 
 main :: () {
     args := get_command_line_arguments();
@@ -50,7 +76,7 @@ main :: () {
         return;
     }
 
-    state: State;
+    state := *context.state;
 
     cursor := 1;
     while true {
@@ -107,7 +133,7 @@ main :: () {
         state.log_file = log_file;
     }
     context.logger = my_logger;
-    context.logger_data = *state;
+    context.logger_data = *context.state;
 
     // Setup struct_printer
     context.print_style.struct_printer = ascii_or_hex_printer;
@@ -118,6 +144,9 @@ main :: () {
 
     // Get terminal size
     rc := ioctl(STDIN_FILENO, TIOCGWINSZ, *state.terminal_size);
+
+    // `- 2` for 2 status lines
+    state.rows_to_display_count = state.terminal_size.rows - 2;
 
     // Hide cursor, disable echo, etc.
     {
@@ -189,6 +218,9 @@ main :: () {
 
             // Get terminal size
             rc := ioctl(STDIN_FILENO, TIOCGWINSZ, *state.terminal_size);
+
+            // `- 2` for 2 status lines
+            state.rows_to_display_count = state.terminal_size.rows - 2;
         }
 
         // Run command if needed
@@ -228,45 +260,10 @@ main :: () {
             last_command_output_line_count -= last_empty_lines_count;
         }
 
-        // 2 lines already printed
-        rows_to_display_count : s64 = terminal_size.rows - 2;
-
         // Handle input
         if input_received_this_tick {
             for 0..input_buffer_count-1 {
-                if input_buffer[it] == {
-                    case #char "j"; row_offset += 1;
-                    case #char "k"; row_offset -= 1; stick_to_the_bottom = false;
-
-                    case #char "d"; row_offset += terminal_size.rows / 2;
-                    case #char "u"; row_offset -= terminal_size.rows / 2; stick_to_the_bottom = false;
-
-                    case #char "t"; stick_to_the_bottom = !stick_to_the_bottom;
-
-                    case #char "w"; line_wrapping = !line_wrapping;
-
-                    case #char "g"; row_offset = 0; stick_to_the_bottom = false;
-                    case #char "G"; {
-                        row_offset = last_command_output_line_count - rows_to_display_count;
-                        stick_to_the_bottom = true;
-                    }
-
-                    case #char "0"; col_offset = 0;
-
-                    case #char "h"; if !line_wrapping col_offset -= 4;
-                    case #char "l"; if !line_wrapping col_offset += 4;
-
-                    case #char "H"; if !line_wrapping col_offset -= terminal_size.cols / 2;
-                    case #char "L"; if !line_wrapping col_offset += terminal_size.cols / 2;
-
-                    case #char "q"; should_exit = true;
-                }
-
-                row_offset = max(row_offset, -(rows_to_display_count - 1));
-                row_offset = min(row_offset, last_command_output_line_count - 1);
-
-                col_offset = max(col_offset, -(cast(int) terminal_size.cols - 1));
-                col_offset = min(col_offset, last_command_output_max_line_length - 1);
+                input_handle_character(input_buffer[it]);
             }
         }
 
@@ -676,6 +673,51 @@ my_run_command :: (args: .. string, working_directory := "", capture_and_return_
     }
 
     return process_result, output_string, error_string, timeout_reached;
+}
+
+//
+// input handling
+//
+
+input_handle_character :: (char: u8) {
+    using context.state;
+
+    if input_mode == {
+        case .NAVIGATE;
+            if char == {
+                case #char "j"; row_offset += 1;
+                case #char "k"; row_offset -= 1; stick_to_the_bottom = false;
+
+                case #char "d"; row_offset += terminal_size.rows / 2;
+                case #char "u"; row_offset -= terminal_size.rows / 2; stick_to_the_bottom = false;
+
+                case #char "t"; stick_to_the_bottom = !stick_to_the_bottom;
+
+                case #char "w"; line_wrapping = !line_wrapping;
+
+                case #char "g"; row_offset = 0; stick_to_the_bottom = false;
+                case #char "G"; {
+                    row_offset = last_command_output_line_count - rows_to_display_count;
+                    stick_to_the_bottom = true;
+                }
+
+                case #char "0"; col_offset = 0;
+
+                case #char "h"; if !line_wrapping col_offset -= 4;
+                case #char "l"; if !line_wrapping col_offset += 4;
+
+                case #char "H"; if !line_wrapping col_offset -= terminal_size.cols / 2;
+                case #char "L"; if !line_wrapping col_offset += terminal_size.cols / 2;
+
+                case #char "q"; should_exit = true;
+            }
+
+            row_offset = max(row_offset, -(rows_to_display_count - 1));
+            row_offset = min(row_offset, last_command_output_line_count - 1);
+
+            col_offset = max(col_offset, -(cast(int) terminal_size.cols - 1));
+            col_offset = min(col_offset, last_command_output_max_line_length - 1);
+    }
 }
 
 //
