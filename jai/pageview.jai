@@ -40,6 +40,8 @@ State :: struct {
     log_file: File;
     log_file.handle = null;
 
+    error_log_builder: String_Builder;
+
     //
     // command
     //
@@ -134,6 +136,7 @@ main :: () {
     }
 
     // Setup logger
+    state.error_log_builder.allocator = temp;
     if state.log_file_name {
         log_file, ok := file_open(state.log_file_name, for_writing = true, keep_existing_content = true);
         assert(ok);
@@ -205,6 +208,7 @@ main :: () {
 
     while !should_exit {
         using state;
+        reset(*error_log_builder);
 
         // Wait for events
         rc := epoll_wait(epoll_fd, epoll_events.data, epoll_events.count, 1000 / 10);
@@ -246,6 +250,14 @@ main :: () {
                 log("executing % took % seconds", command, elapsed);
             }
             time_next_command_run = time + command_run_period_seconds;
+
+            if last_command_result.type == .FAILED_TO_LAUNCH {
+                // FIXME: now the variable names don't make sense
+                free(last_command_output);
+                prefix :: "\e[31m";
+                last_command_output = builder_to_string(*error_log_builder, extra_bytes_to_prepend=prefix.count);
+                memcpy(last_command_output.data, prefix.data, prefix.count);
+            }
 
             cursor := 0;
             last_command_output_line_count = 0;
@@ -873,6 +885,12 @@ find_next_match :: (using handler: *Search_Highlight_Handler) {
 
 my_logger :: (message: string, data: *void, info: Log_Info) {
     state := cast(*State) data;
+
+    if info.common_flags & .ERROR {
+        append(*state.error_log_builder, message);
+        append(*state.error_log_builder, "\n");
+    }
+
     if !state.log_file.handle return;
 
     file_write(*state.log_file, message);
@@ -1198,6 +1216,7 @@ pretty_assert :: (code: Code, loc := #caller_location) #expand {
 #import "Process";
 #import "String";
 #import "POSIX";
+#import "System";
 #import "File";
 #import "Flat_Pool";
 System :: #import "System";
