@@ -24,6 +24,7 @@ State :: struct {
     //
 
     input_mode: enum { NAVIGATE; INPUT_SEARCH_STRING; } = .NAVIGATE;
+    input_cursor: s64;
     search_string_buffer: [..] u8;
     search_string: string; // this is always just the search_string_buffer converted to string
 
@@ -126,6 +127,11 @@ main :: () {
 
     state.command.data = args.data + cursor;
     state.command.count = args.count - cursor;
+
+    if state.command.count == 0 {
+        print("Need a command to run\n");
+        exit(1);
+    }
 
     // Setup logger
     if state.log_file_name {
@@ -275,72 +281,53 @@ main :: () {
         //
         // Status line
         //
-        status_lines_builder: String_Builder;
-        status_lines_builder.allocator = temp;
-
-        // first line
         {
-            // "\e[H": move cursor to "home" position (row 0, column 0)
-            append(*status_lines_builder, "\e[H");
+            builder: String_Builder;
+            builder.allocator = temp;
 
-            // "\e[0J": erase from cursor to end of screen
-            // append(*status_lines_builder, "\e[0J");
+            // first line
+            {
+                // hide the cursor, so it doesn't flicker all around the screen
+                // while the ui is being drawn
+                append(*builder, "\e[?25l");
 
-            // "\e[K": erase in line
-            append(*status_lines_builder, "\e[K");
+                // "\e[H": move cursor to "home" position (row 0, column 0)
+                append(*builder, "\e[H");
 
-            append(*status_lines_builder, "\e[35m");
-            append(*status_lines_builder, "$(");
-            append(*status_lines_builder, "\e[0m");
-            for command {
-                if it_index == 0 then append(*status_lines_builder, "\e[32m");
-                append(*status_lines_builder, it);
-                if it_index == 0 then append(*status_lines_builder, "\e[0m");
-                if it_index != command.count - 1 then append(*status_lines_builder, " ");
+                // "\e[0J": erase from cursor to end of screen
+                // append(*builder, "\e[0J");
+
+                // "\e[K": erase in line
+                append(*builder, "\e[K");
+
+                append(*builder, "\e[35m");
+                append(*builder, "$(");
+                append(*builder, "\e[0m");
+
+                append(*builder, "\e[32m");
+                append(*builder, command[0]);
+                append(*builder, "\e[0m");
+
+                for 1..command.count-1 {
+                    append(*builder, " ");
+                    append(*builder, command[it]);
+                }
+
+                append(*builder, "\e[35m");
+                append(*builder, ")");
+                append(*builder, "\e[0m");
+                if last_command_result.exit_code != 0 {
+                    append(*builder, " -> %", last_command_result.exit_code);
+                    // TODO: display stderr also in this case
+                }
+                append(*builder, "\n");
             }
-            append(*status_lines_builder, "\e[35m");
-            append(*status_lines_builder, ")");
-            append(*status_lines_builder, "\e[0m");
-            if last_command_result.exit_code != 0 {
-                append(*status_lines_builder, " -> %", last_command_result.exit_code);
-                // TODO: display stderr also in this case
-            }
-            append(*status_lines_builder, "\n");
+
+            // second line is drawn at the end
+            append(*builder, "\n");
+
+            write_builder(*builder);
         }
-
-        // second line
-        if input_mode == .NAVIGATE {
-            append(*status_lines_builder, "\e[K"); // "\e[K": erase in line
-            append(*status_lines_builder, "\e[2;37m"); // color gray
-
-            print_to_builder(*status_lines_builder, "offset: %, %   ", row_offset, col_offset);
-            print_to_builder(*status_lines_builder, "lines: %   ", last_command_output_line_count);
-            if stick_to_the_bottom then append(*status_lines_builder, "sinking   ");
-
-            // Print current input buffer
-            append(*status_lines_builder, "input: ");
-
-            input_string: string;
-            input_string.data = input_buffer.data;
-            input_string.count = input_buffer_count;
-            print_to_builder(*status_lines_builder, "%", cast(Ascii_Or_Hex) input_string);
-
-            append(*status_lines_builder, "\e[0m");
-            append(*status_lines_builder, "\n");
-        } else if input_mode == .INPUT_SEARCH_STRING {
-            append(*status_lines_builder, "\e[K"); // "\e[K": erase in line
-            append(*status_lines_builder, "\e[2;37m"); // color gray
-
-            append(*status_lines_builder, "/");
-            append(*status_lines_builder, search_string);
-            // TODO: move this code to after main window is drawn and enable the
-            // cursor in the text input mode, so that the cursor is where you
-            // expect it to be
-            append(*status_lines_builder, "\e[0m");
-            append(*status_lines_builder, "\n");
-        }
-
-        write_builder(*status_lines_builder,, temp);
 
         //
         // Main window
@@ -582,6 +569,47 @@ main :: () {
             }
         }
 
+        //
+        // second status line
+        //
+        {
+            builder: String_Builder;
+            builder.allocator = temp;
+
+            // "\e[H": move cursor to position (row 2, column 1)
+            append(*builder, "\e[2;1H");
+            append(*builder, "\e[K"); // "\e[K": erase in line
+            append(*builder, "\e[2;37m"); // color gray
+
+            if input_mode == .NAVIGATE {
+                print_to_builder(*builder, "offset: %, %   ", row_offset, col_offset);
+                print_to_builder(*builder, "lines: %   ", last_command_output_line_count);
+                if stick_to_the_bottom then append(*builder, "sinking   ");
+
+                // Print current input buffer
+                append(*builder, "input: ");
+
+                input_string: string;
+                input_string.data = input_buffer.data;
+                input_string.count = input_buffer_count;
+                print_to_builder(*builder, "%", cast(Ascii_Or_Hex) input_string);
+            } else if input_mode == .INPUT_SEARCH_STRING {
+                append(*builder, "/");
+                append(*builder, search_string);
+
+                // `+ 1` for the leading "/" & `+ 1` because rows start at 1
+                cursor_column := input_cursor + 2;
+                // move the cursor to where the user is editting text
+                print(*builder, "\e[2;%H", cursor_column);
+                // show the cursor, so user knows they're editing text
+                append(*builder,  "\e[?25h");
+            }
+
+            append(*builder, "\e[0m");
+
+            write_builder(*builder);
+        }
+
         if should_exit break;
 
         reset_temporary_storage();
@@ -744,7 +772,10 @@ input_handle_character :: (char: u8) {
                 case #char "H"; if !line_wrapping col_offset -= terminal_size.cols / 2;
                 case #char "L"; if !line_wrapping col_offset += terminal_size.cols / 2;
 
-                case #char "/"; input_mode = .INPUT_SEARCH_STRING;
+                case #char "/"; {
+                    input_mode = .INPUT_SEARCH_STRING;
+                    input_cursor = search_string_buffer.count;
+                }
 
                 case #char "n";
 
@@ -758,21 +789,48 @@ input_handle_character :: (char: u8) {
             col_offset = min(col_offset, last_command_output_max_line_length - 1);
         case .INPUT_SEARCH_STRING;
             if char >= #char " " && char <= #char "~" {
-                array_add(*search_string_buffer, char);
+                array_insert_at(*search_string_buffer, char, input_cursor);
+                input_cursor += 1;
             } else if char == {
                 case #char "\e"; /* ESCAPE */ input_mode = .NAVIGATE;
                 case #char "\n"; /* ENTER */ input_mode = .NAVIGATE; // TODO: jump to first match
 
+                case #char "\x02"; /* CTRL+B */ if input_cursor > 0 then input_cursor -= 1;
+                case #char "\x06"; /* CTRL+F */ if input_cursor < search_string_buffer.count then input_cursor += 1;
+                case #char "\x01"; /* CTRL+A */ input_cursor = 0;
+                case #char "\x05"; /* CTRL+E */ input_cursor = search_string_buffer.count;
+
                 case #char "\x08"; /* CTRL+H */ #through;
-                case #char "\x7f"; /* BACKSPACE */ if search_string_buffer.count > 0 then search_string_buffer.count -= 1;
+                case #char "\x7f"; /* BACKSPACE */
+                    if search_string_buffer.count > 0 && input_cursor > 0 {
+                        array_ordered_remove_range(*search_string_buffer, input_cursor - 1, input_cursor);
+                        input_cursor -= 1;
+                    }
 
-                case #char "\x17"; /* CTRL+W */ {
-                    to_delete_from := find_index_from_right(xx search_string_buffer, #char " ");
-                    if to_delete_from == -1 then to_delete_from = 0;
-                    search_string_buffer.count = to_delete_from;
+                case #char "\x04"; /* CTRL+D */
+                    if search_string_buffer.count > 0 && input_cursor < search_string_buffer.count {
+                        array_ordered_remove_range(*search_string_buffer, input_cursor, input_cursor + 1);
+                    }
+
+                case #char "\x0b"; /* CTRL+K */
+                    if search_string_buffer.count > 0 && input_cursor < search_string_buffer.count {
+                        array_ordered_remove_range(*search_string_buffer, input_cursor, search_string_buffer.count);
+                    }
+
+                case #char "\x17"; /* CTRL+W */
+                    if search_string_buffer.count > 0 && input_cursor > 0 {
+                        string_before_cursor := cast(string) search_string_buffer;
+                        string_before_cursor.count = input_cursor;
+                        to_delete_from := find_index_from_right(string_before_cursor, #char " ");
+                        if to_delete_from == -1 then to_delete_from = 0;
+                        array_ordered_remove_range(*search_string_buffer, to_delete_from, input_cursor);
+                        input_cursor = to_delete_from;
+                    }
+
+                case #char "\x15"; /* CTRL+U */ {
+                    search_string_buffer.count = 0;
+                    input_cursor = 0;
                 }
-
-                case #char "\x15"; /* CTRL+U */ search_string_buffer.count = 0; input_mode = .NAVIGATE;
             }
 
             search_string = xx search_string_buffer;
@@ -927,6 +985,61 @@ print_ascii_or_hex :: inline (builder: *String_Builder, char: u8) {
 }
 
 //
+// array utilities
+//
+
+array_ordered_remove_range :: inline (array_pointer: *[] $T, start: s64, end: s64) {
+    assert(0 <= start, "start: %", start);
+    assert(start < array_pointer.count, "start: %, array_poniter.count: %", start, array_pointer.count);
+    assert(start <= end, "start: %, end: %", start, end);
+    assert(end <= array_pointer.count, "end: %, array_poniter.count: %", end, array_pointer.count);
+
+    if start == end return;
+
+    array := <<array_pointer;
+    count := end - start;
+
+    for i : start..array.count-count-1
+        array[i] = array[i+count];
+
+    array_pointer.count -= count;
+}
+
+array_equals :: (lhs: [] $T, rhs: [] T) -> bool {
+    if lhs.count != rhs.count return false;
+
+    for 0..lhs.count-1 {
+        if lhs[it] != rhs[it] return false;
+    }
+
+    return true;
+}
+
+test_array_ordered_remove_range :: () {
+    array: [..] int;
+
+    array_add(*array, .. .[1, 2, 3, 4, 5, 6]);
+    array_ordered_remove_range(*array, 2, 4);
+    pretty_assert(array_equals(array, int.[1, 2, 5, 6]));
+    array_reset(*array);
+
+    array_add(*array, .. .[1, 2, 3, 4, 5, 6]);
+    array_ordered_remove_range(*array, 2, 6);
+    pretty_assert(array_equals(array, int.[1, 2]));
+    array_reset(*array);
+
+    array_add(*array, .. .[1, 2, 3, 4, 5, 6]);
+    array_ordered_remove_range(*array, 0, 6);
+    pretty_assert(array_equals(array, int.[]));
+    array_reset(*array);
+
+    array_add(*array, .. .[1, 2, 3, 4, 5, 6]);
+    array_ordered_remove_range(*array, 0, 5);
+    pretty_assert(array_equals(array, int.[6]));
+    array_reset(*array);
+}
+
+//
 // signal handling
 //
 
@@ -996,6 +1109,90 @@ VMIN   : u32 : 6;
 
 tcgetattr :: (fd: s32, termios: *Termios) -> s32 #foreign libc;
 tcsetattr :: (fd: s32, optional_actions: s32, termios: *Termios) -> s32 #foreign libc;
+
+//
+// pretty assert
+//
+
+// Constant structs don't work with compile time constructs yet, so we return
+// all fields directly
+get_expr_info :: (code: Code) -> kind: Code_Node.Kind, op_type: s32, full_expr: string, proc_expr: string, lhs: Code, rhs: Code {
+    #import "Program_Print";
+
+    root := compiler_get_nodes(code);
+
+    builder: String_Builder;
+    print_expression(*builder, root);
+    full_expr := builder_to_string(*builder);
+
+    if root.kind == {
+        case .BINARY_OPERATOR;
+            binop := cast(*Code_Binary_Operator) root;
+            op_type := binop.operator_type;
+            lhs := compiler_get_code(binop.left, code);
+            rhs := compiler_get_code(binop.right, code);
+            return xx root.kind, op_type, full_expr, "", lhs, rhs;
+
+        case .PROCEDURE_CALL;
+            proccall := cast(*Code_Procedure_Call) root;
+            if proccall.arguments_sorted.count != 2 {
+                dummy : Code = #code null;
+                return xx root.kind, -1, full_expr, "", dummy, dummy;
+            }
+
+            builder: String_Builder;
+            print_expression(*builder, proccall.procedure_expression);
+            proc_expr := builder_to_string(*builder);
+
+            lhs := compiler_get_code(proccall.arguments_sorted[0], code);
+            rhs := compiler_get_code(proccall.arguments_sorted[1], code);
+            return xx root.kind, -1, full_expr, proc_expr, lhs, rhs;
+
+        case;
+
+    }
+
+    dummy : Code = #code null;
+    return xx root.kind, -1, full_expr, "", dummy, dummy;
+}
+
+pretty_assert :: (code: Code, loc := #caller_location) #expand {
+    if #insert code return;
+
+    if context.handling_assertion_failure  return;  // Avoid infinite loops.
+    context.handling_assertion_failure = true;
+
+    kind, op_type, full_expr, proc_expr, lhs, rhs :: #run get_expr_info(code);
+
+    message := "";
+
+    #if kind == .BINARY_OPERATOR {
+        builder : String_Builder;
+        builder.allocator = temporary_allocator;
+
+        print_to_builder(*builder, "(%) = (% ", full_expr, #insert lhs);
+
+        if op_type < 128 {
+            append(*builder, cast(u8) op_type);
+        } else {
+            append(*builder, operator_to_string(xx op_type));
+        }
+
+        print_to_builder(*builder, " %) = false", #insert rhs);
+        message = builder_to_string(*builder, temporary_allocator);
+    } else #if kind == .PROCEDURE_CALL {
+        message = tprint("(%) = (%(%, %)) = false", full_expr, proc_expr, #insert lhs, #insert rhs);
+    } else {
+        message = tprint("(%) = false", full_expr);
+    }
+
+    // We provide 'loc' in case _STACK_TRACE is turned off, but assertion_failed may well
+    // look at the stack trace if it is available.
+    context.assertion_failed(loc, message);
+    context.handling_assertion_failure = false;
+
+} @NoProfile
+
 
 #import "Basic";
 #import "Process";
