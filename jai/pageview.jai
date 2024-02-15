@@ -24,7 +24,8 @@ State :: struct {
     //
 
     input_mode: enum { NAVIGATE; INPUT_SEARCH_STRING; } = .NAVIGATE;
-    search_string: string;
+    search_string_buffer: [..] u8;
+    search_string: string; // this is always just the search_string_buffer converted to string
 
     input_buffer: [32] u8;
     input_buffer_count: s64;
@@ -308,10 +309,10 @@ main :: () {
         }
 
         // second line
-        {
-            // "\e[K": erase in line
-            append(*status_lines_builder, "\e[K");
+        if input_mode == .NAVIGATE {
+            append(*status_lines_builder, "\e[K"); // "\e[K": erase in line
             append(*status_lines_builder, "\e[2;37m"); // color gray
+
             print_to_builder(*status_lines_builder, "offset: %, %   ", row_offset, col_offset);
             print_to_builder(*status_lines_builder, "lines: %   ", last_command_output_line_count);
             if stick_to_the_bottom then append(*status_lines_builder, "sinking   ");
@@ -324,6 +325,17 @@ main :: () {
             input_string.count = input_buffer_count;
             print_to_builder(*status_lines_builder, "%", cast(Ascii_Or_Hex) input_string);
 
+            append(*status_lines_builder, "\e[0m");
+            append(*status_lines_builder, "\n");
+        } else if input_mode == .INPUT_SEARCH_STRING {
+            append(*status_lines_builder, "\e[K"); // "\e[K": erase in line
+            append(*status_lines_builder, "\e[2;37m"); // color gray
+
+            append(*status_lines_builder, "/");
+            append(*status_lines_builder, search_string);
+            // TODO: move this code to after main window is drawn and enable the
+            // cursor in the text input mode, so that the cursor is where you
+            // expect it to be
             append(*status_lines_builder, "\e[0m");
             append(*status_lines_builder, "\n");
         }
@@ -364,6 +376,13 @@ main :: () {
             builder: String_Builder;
             builder.allocator = memory_pool;
             ensure_contiguous_space(*builder, line.count);
+
+            // FIXME: this is hacky, I should instead preprocess the visible
+            // range, separating the plain visible text from control codes.
+            // That way it will be simple to seach for substrings and maybe other things as well.
+
+            search_highlight_handler: Search_Highlight_Handler;
+            init(*search_highlight_handler, line);
 
             if !line_wrapping {
                 visible_columns_budget : int = terminal_size.cols;
@@ -445,7 +464,23 @@ main :: () {
                 }
 
                 // Build the line string
-                append(*builder, line_visible_slice);
+                {
+                    if search_string {
+                        tail := line_visible_slice;
+                        while true {
+                            found:, head:, tail = split_from_left(tail, search_string);
+                            append(*builder, head);
+
+                            if !found break;
+
+                            append(*builder, "\e[7m"); // invert color mode
+                            append(*builder, search_string);
+                            append(*builder, "\e[27m"); // disable invert color mode
+                        }
+                    } else {
+                        append(*builder, line_visible_slice);
+                    }
+                }
 
                 // Reset color codes
                 append(*builder, "\e[0m");
@@ -709,6 +744,10 @@ input_handle_character :: (char: u8) {
                 case #char "H"; if !line_wrapping col_offset -= terminal_size.cols / 2;
                 case #char "L"; if !line_wrapping col_offset += terminal_size.cols / 2;
 
+                case #char "/"; input_mode = .INPUT_SEARCH_STRING;
+
+                case #char "n";
+
                 case #char "q"; should_exit = true;
             }
 
@@ -717,8 +756,58 @@ input_handle_character :: (char: u8) {
 
             col_offset = max(col_offset, -(cast(int) terminal_size.cols - 1));
             col_offset = min(col_offset, last_command_output_max_line_length - 1);
+        case .INPUT_SEARCH_STRING;
+            if char >= #char " " && char <= #char "~" {
+                array_add(*search_string_buffer, char);
+            } else if char == {
+                case #char "\e"; /* ESCAPE */ input_mode = .NAVIGATE;
+                case #char "\n"; /* ENTER */ input_mode = .NAVIGATE; // TODO: jump to first match
+
+                case #char "\x08"; /* CTRL+H */ #through;
+                case #char "\x7f"; /* BACKSPACE */ if search_string_buffer.count > 0 then search_string_buffer.count -= 1;
+
+                case #char "\x17"; /* CTRL+W */ {
+                    to_delete_from := find_index_from_right(xx search_string_buffer, #char " ");
+                    if to_delete_from == -1 then to_delete_from = 0;
+                    search_string_buffer.count = to_delete_from;
+                }
+
+                case #char "\x15"; /* CTRL+U */ search_string_buffer.count = 0; input_mode = .NAVIGATE;
+            }
+
+            search_string = xx search_string_buffer;
     }
 }
+
+//
+// Search_Highlight_Handler
+//
+
+Search_Highlight_Handler :: struct {
+    initialized := false;
+    line: string;
+    line_tail: string;
+    has_match := false;
+    match_start: s64;
+    match_end: s64;
+    search_string: string;
+}
+
+init :: (handler: *Search_Highlight_Handler, line: string) {
+    assert(!handler.initialized);
+    handler.line = line;
+    handler.line_tail = line;
+    handler.search_string = context.state.search_string;
+
+    find_next_match(handler);
+}
+
+find_next_match :: (using handler: *Search_Highlight_Handler) {
+    has_match, head:, line_tail = split_from_left(line_tail, search_string);
+    match_start = head.data - line.data;
+    match_end = match_start + head.count;
+}
+
 
 //
 // logging
