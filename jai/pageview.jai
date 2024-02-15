@@ -50,11 +50,9 @@ State :: struct {
 
     command_run_period_seconds := 1.0;
     time_next_command_run : float64 = -1.0;
-
-    last_command_output: string;
-    last_command_output_line_count: s64;
-    last_command_output_max_line_length: s64;
     last_command_result: Process_Result;
+
+    main_window_buffer: Window_Buffer;
 
     memory_pool_for_building_a_line: Flat_Pool;
 
@@ -72,6 +70,19 @@ State :: struct {
     epoll_events: [1] epoll_event;
 }
 #add_context state: State;
+
+Window_Buffer :: struct {
+    raw_text_and_control_codes: string;
+
+    text: string; // allocated separately
+    control_codes: [..] struct {
+        position_in_text: s64;
+        data: string; // points into `raw_text_and_control_codes`
+    };
+
+    line_count: s64;
+    max_line_length: s64;
+}
 
 main :: () {
     args := get_command_line_arguments();
@@ -237,11 +248,13 @@ main :: () {
         // Run command if needed
         time := seconds_since_init();
         if time >= time_next_command_run {
-            if last_command_output {
-                free(last_command_output);
+            using main_window_buffer;
+
+            if raw_text_and_control_codes {
+                free(raw_text_and_control_codes);
             }
             t0 := time;
-            last_command_result, last_command_output = my_run_command(..command, capture_and_return_output = true);
+            last_command_result, raw_text_and_control_codes = my_run_command(..command, capture_and_return_output = true);
             elapsed := seconds_since_init() - t0;
             // TODO: ps-pane is super slow, investigate
             // TODO: also I don't see these logs, am I stupid??
@@ -252,31 +265,29 @@ main :: () {
             time_next_command_run = time + command_run_period_seconds;
 
             if last_command_result.type == .FAILED_TO_LAUNCH {
-                // FIXME: now the variable names don't make sense
-                free(last_command_output);
+                free(raw_text_and_control_codes);
                 prefix :: "\e[31m";
-                last_command_output = builder_to_string(*error_log_builder, extra_bytes_to_prepend=prefix.count);
-                memcpy(last_command_output.data, prefix.data, prefix.count);
+                raw_text_and_control_codes = builder_to_string(*error_log_builder, extra_bytes_to_prepend=prefix.count);
+                memcpy(raw_text_and_control_codes.data, prefix.data, prefix.count);
             }
 
             cursor := 0;
-            last_command_output_line_count = 0;
-            last_command_output_max_line_length = 0;
-            line_end := 0;
+            line_count = 0;
+            max_line_length = 0;
             last_empty_lines_count := 0;
-            tail := last_command_output;
+            tail := raw_text_and_control_codes;
             while !should_exit {
                 found:, line:, tail = split_from_left(tail, #char "\n");
 
-                last_command_output_line_count += 1;
-                last_command_output_max_line_length = max(last_command_output_max_line_length, line.count);
+                line_count += 1;
+                max_line_length = max(max_line_length, line.count);
 
                 if line.count == 0 then last_empty_lines_count += 1; else last_empty_lines_count = 0;
 
                 if !found break;
             }
 
-            last_command_output_line_count -= last_empty_lines_count;
+            line_count -= last_empty_lines_count;
         }
 
         // Handle input
@@ -287,7 +298,7 @@ main :: () {
         }
 
         if stick_to_the_bottom {
-            row_offset = max(row_offset, last_command_output_line_count - rows_to_display_count);
+            row_offset = max(row_offset, main_window_buffer.line_count - rows_to_display_count);
         }
 
         //
@@ -345,10 +356,10 @@ main :: () {
         // Main window
         //
 
-        // `line_buffer` stores pointers into `last_command_output` or temporary storage
+        // `line_buffer` stores pointers into `main_window_buffer` or temporary storage
         line_buffer := NewArray(rows_to_display_count, string,, temp);
 
-        tail := last_command_output;
+        tail := main_window_buffer.raw_text_and_control_codes;
         i := 0;
         if row_offset > 0 {
             // Skip `row_offset` lines
@@ -595,7 +606,7 @@ main :: () {
 
             if input_mode == .NAVIGATE {
                 print_to_builder(*builder, "offset: %, %   ", row_offset, col_offset);
-                print_to_builder(*builder, "lines: %   ", last_command_output_line_count);
+                print_to_builder(*builder, "lines: %   ", main_window_buffer.line_count);
                 if stick_to_the_bottom then append(*builder, "sinking   ");
 
                 // Print current input buffer
@@ -772,7 +783,7 @@ input_handle_character :: (char: u8) {
 
                 case #char "g"; row_offset = 0; stick_to_the_bottom = false;
                 case #char "G"; {
-                    row_offset = last_command_output_line_count - rows_to_display_count;
+                    row_offset = main_window_buffer.line_count - rows_to_display_count;
                     stick_to_the_bottom = true;
                 }
 
@@ -795,10 +806,10 @@ input_handle_character :: (char: u8) {
             }
 
             row_offset = max(row_offset, -(rows_to_display_count - 1));
-            row_offset = min(row_offset, last_command_output_line_count - 1);
+            row_offset = min(row_offset, main_window_buffer.line_count - 1);
 
             col_offset = max(col_offset, -(cast(int) terminal_size.cols - 1));
-            col_offset = min(col_offset, last_command_output_max_line_length - 1);
+            col_offset = min(col_offset, main_window_buffer.max_line_length - 1);
         case .INPUT_SEARCH_STRING;
             if char >= #char " " && char <= #char "~" {
                 array_insert_at(*search_string_buffer, char, input_cursor);
