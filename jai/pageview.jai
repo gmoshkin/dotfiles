@@ -15,8 +15,9 @@ State :: struct {
 
     wrapped_line_offset: s64;
     line_wrapping := false;
+    strip_control_codes := false;
 
-    rows_to_display_count: s64;
+    main_window_height: s64;
     terminal_size: Terminal_Size_Info;
 
     //
@@ -70,21 +71,34 @@ State :: struct {
     epoll_events: [1] epoll_event;
 }
 #add_context state: State;
+#add_context current_window: *Window_Buffer;
 
 Window_Buffer :: struct {
     raw_text_and_control_codes: string;
 
-    text: string; // allocated separately
-    control_codes: [..] struct {
-        position_in_text: s64;
-        data: string; // points into `raw_text_and_control_codes`
-    };
+    only_text_storage: [..] u8; // allocated separately
+    only_text: string; // points into `only_text_storage`
 
-    line_count: s64;
+    control_codes: [..] Control_Code_Info;
+    line_offsets: [..] s64;
+
+    control_codes_cursor: s64;
+
     max_line_length: s64;
 }
 
+Control_Code_Info :: struct {
+    position_in_text: s64;
+    data: string; // points into `raw_text_and_control_codes`
+}
+
 main :: () {
+    // Setup struct_printer
+    context.print_style.struct_printer = ascii_or_hex_printer;
+
+    // test_get_next_control_code_in_range();
+    // return;
+
     args := get_command_line_arguments();
     if args.count == 1 {
         print("Need a command to run\n");
@@ -92,6 +106,7 @@ main :: () {
     }
 
     state := *context.state;
+    context.current_window = *state.main_window_buffer;
 
     cursor := 1;
     while true {
@@ -103,7 +118,7 @@ main :: () {
 
             case "-t"; #through;
             case "--time"; #through;
-            case "--time-before-repeate";
+            case "--time-before-repeat";
                 cursor += 1;
                 if cursor >= args.count {
                     print("Expected a number of seconds after '%'\n", arg);
@@ -156,9 +171,6 @@ main :: () {
     context.logger = my_logger;
     context.logger_data = *context.state;
 
-    // Setup struct_printer
-    context.print_style.struct_printer = ascii_or_hex_printer;
-
     signal(SIGINT, shutdown_signal_handler);
     signal(SIGTERM, shutdown_signal_handler);
     signal(SIGWINCH, window_size_changed_signal_handler);
@@ -167,10 +179,15 @@ main :: () {
     rc := ioctl(STDIN_FILENO, TIOCGWINSZ, *state.terminal_size);
 
     // `- 2` for 2 status lines
-    state.rows_to_display_count = state.terminal_size.rows - 2;
+    state.main_window_height = state.terminal_size.rows - 2;
 
     // Hide cursor, disable echo, etc.
     {
+        context.assertion_failed = (loc: Source_Code_Location, message: string) -> bool {
+            restore_terminal_settings();
+            return runtime_support_assertion_failed(loc, message);
+        };
+
         // "\e[?1049h": enable the alternative buffer
         // "\e[?25l": hide cursor
         write_strings("\e[?1049h", "\e[?25l");
@@ -242,7 +259,7 @@ main :: () {
             rc := ioctl(STDIN_FILENO, TIOCGWINSZ, *state.terminal_size);
 
             // `- 2` for 2 status lines
-            state.rows_to_display_count = state.terminal_size.rows - 2;
+            state.main_window_height = state.terminal_size.rows - 2;
         }
 
         // Run command if needed
@@ -250,9 +267,8 @@ main :: () {
         if time >= time_next_command_run {
             using main_window_buffer;
 
-            if raw_text_and_control_codes {
-                free(raw_text_and_control_codes);
-            }
+            if raw_text_and_control_codes free(raw_text_and_control_codes);
+
             t0 := time;
             last_command_result, raw_text_and_control_codes = my_run_command(..command, capture_and_return_output = true);
             elapsed := seconds_since_init() - t0;
@@ -271,23 +287,7 @@ main :: () {
                 memcpy(raw_text_and_control_codes.data, prefix.data, prefix.count);
             }
 
-            cursor := 0;
-            line_count = 0;
-            max_line_length = 0;
-            last_empty_lines_count := 0;
-            tail := raw_text_and_control_codes;
-            while !should_exit {
-                found:, line:, tail = split_from_left(tail, #char "\n");
-
-                line_count += 1;
-                max_line_length = max(max_line_length, line.count);
-
-                if line.count == 0 then last_empty_lines_count += 1; else last_empty_lines_count = 0;
-
-                if !found break;
-            }
-
-            line_count -= last_empty_lines_count;
+            separate_control_codes(raw_text_and_control_codes);
         }
 
         // Handle input
@@ -298,7 +298,7 @@ main :: () {
         }
 
         if stick_to_the_bottom {
-            row_offset = max(row_offset, main_window_buffer.line_count - rows_to_display_count);
+            row_offset = max(row_offset, main_window_buffer.line_offsets.count - main_window_height);
         }
 
         //
@@ -356,83 +356,86 @@ main :: () {
         // Main window
         //
 
-        // `line_buffer` stores pointers into `main_window_buffer` or temporary storage
-        line_buffer := NewArray(rows_to_display_count, string,, temp);
+        using main_window_buffer;
 
-        tail := main_window_buffer.raw_text_and_control_codes;
-        i := 0;
+        // `line_buffer` stores pointers into `main_window_buffer` or temporary storage
+        line_buffer: [..] string;
+        line_buffer.allocator = temp;
+        array_reserve(*line_buffer, main_window_height);
+
+        tail := only_text;
+        line_index := 0;
         if row_offset > 0 {
-            // Skip `row_offset` lines
-            for 1..row_offset {
-                _, _, tail = split_from_left(tail, #char "\n");
-            }
+            line_index = row_offset;
         } else if row_offset < 0 {
             // Extra blank lines for negative row_offset (for some reason)
             for 1..-row_offset {
-                line_buffer[i] = "\n";   i += 1;
+                array_add(*line_buffer, "\n");
             }
         }
 
         // Preprocess lines to be displayed
         // TODO: tabs aren't handled correctly yet,
         // terminal displays them with different widths, but I count them as 1 always
-        if line_buffer.count != 0 while i < line_buffer.count {
-            found:, line:, tail = split_from_left(tail, #char "\n");
+        if main_window_height != 0 while line_buffer.count < main_window_height {
+            if line_index >= line_offsets.count - 1 break;
+            line_start := line_offsets[line_index];
+            line_end := ifx line_index < line_offsets.count - 1 then line_offsets[line_index + 1] else only_text.count;
+            line_index += 1;
+            line := substring(xx only_text, line_start, line_end);
 
-            memory_pool: Allocator;
-            memory_pool.proc = flat_pool_allocator_proc;
-            memory_pool.data = *memory_pool_for_building_a_line;
+            tail_search := line;
 
-            builder: String_Builder;
-            builder.allocator = memory_pool;
+            memory_pool := Allocator.{ flat_pool_allocator_proc, *memory_pool_for_building_a_line };
+            builder := String_Builder.{ allocator = memory_pool };
             ensure_contiguous_space(*builder, line.count);
-
-            // FIXME: this is hacky, I should instead preprocess the visible
-            // range, separating the plain visible text from control codes.
-            // That way it will be simple to seach for substrings and maybe other things as well.
-
-            search_highlight_handler: Search_Highlight_Handler;
-            init(*search_highlight_handler, line);
 
             if !line_wrapping {
                 visible_columns_budget : int = terminal_size.cols;
-                line_tail := line;
+                visible_slice := line;
+                truncated_string_match_end := 0; // :search_string_highlight
 
                 if col_offset > 0 {
-                    visible_columns_budget -= 1; // :line_overflow_character
-                    control_codes_builder: String_Builder;
-                    control_codes_builder.allocator = temp;
-
                     // Skip `col_offset` visible characters `+ 1` for the :line_overflow_character
-                    visible_to_skip := col_offset + 1;
-                    while line_tail {
-                        head:, visible_count:, line_tail = eat_visible_or_escape_sequence(line_tail);
+                    first_visible_column_offset := min(col_offset + 1, line.count);
+                    hidden_slice := substring(line, 0, first_visible_column_offset);
+                    visible_slice = substring(line, first_visible_column_offset);
 
-                        if visible_count == 0 {
-                            if is_mode_reset_control_sequence(head) {
-                                reset(*control_codes_builder);
-                            } else {
-                                append(*control_codes_builder, head);
-                            }
-                        }
+                    // TODO :search_string_highlight
+                    // string_match_in_hidden := false;
+                    // if search_string while tail_search {
+                    //     found:, head:, tail_search = split_from_left(tail_search, search_string);
 
-                        visible_to_skip -= visible_count;
-                        if visible_to_skip <= 0 {
-                            overflow := -visible_to_skip;
-                            line_tail.data -= overflow;
-                            line_tail.count += overflow;
-                            break;
-                        }
-                    }
+                    //     match_end := tail_search.data;
+                    //     if match_end <= visible_slice.data {
+                    //         string_match_in_hidden = true;
+                    //         continue;
+                    //     }
 
-                    started_control_codes := builder_to_string(*control_codes_builder,, memory_pool);
+                    //     match_start := head.data;
+                    //     if match_start < visible_slice.data {
+                    //         truncated_string_match_end = match_end - visible_slice.data ;
+                    //     }
+
+                    //     break;
+                    // }
 
                     // :line_overflow_character
+                    visible_columns_budget -= 1;
+                    // TODO: highlight it differently if there's a search_string match
                     append(*builder, "\e[2;37m"); // color gray
                     append(*builder, "<");
                     append(*builder, "\e[0m");
 
-                    append(*builder, started_control_codes);
+                    // add all control codes from the hidden part of the line
+                    if !strip_control_codes {
+                        codes := find_all_control_codes_in_range(hidden_slice);
+                        for < codes {
+                            // ignore everything before the last mode reset
+                            if is_mode_reset_control_sequence(it.data) break;
+                            append(*builder, it.data);
+                        }
+                    }
                 } else if col_offset < 0 {
                     // Extra spaces if offset is negative
                     assert(visible_columns_budget > -col_offset);
@@ -442,53 +445,48 @@ main :: () {
                     }
                 }
 
-                line_visible_slice: string;
-                line_visible_slice.data = line_tail.data;
-                line_visible_slice.count = 0;
-
                 line_overflowed := false;
-                // Preprocess one line
-                while line_tail {
-                    head:, visible_count:, line_tail = eat_visible_or_escape_sequence(line_tail);
-                    line_visible_slice.count += head.count;
-                    visible_columns_budget -= visible_count;
-
-                    if visible_columns_budget <= 0 {
-                        overflow := -visible_columns_budget;
-                        line_overflowed = overflow != 0;
-                        line_visible_slice.count -= overflow;
-
-                        // Leave space for the :line_overflow_character
-                        assert(head.count > overflow + 1);
-                        line_visible_slice.count -= 1;
-                        break;
-                    }
-
-                    // Special case of escape sequence starting on the last
-                    // column of the would be row. Skip it here so that the `if`
-                    // above works correctly :line_overflow_character
-                    if visible_columns_budget == 1 && line_tail.count > 0 {
-                        line_overflowed = true;
-                        break;
-                    }
+                if visible_slice.count > visible_columns_budget {
+                    line_overflowed = true;
+                    // Leave space for the :line_overflow_character
+                    visible_slice.count = visible_columns_budget - 1;
                 }
+
+                // TODO :search_string_highlight
+                // visible_slice_end := visible_slice.data + visible_slice.count;
+                // codes: [..] Control_Code_Info; codes.allocator = temp;
+                // array_add(*codes, ..find_all_control_codes_in_range(visible_slice));
+                // if search_string {
+                //     tail := line;
+                //     while true {
+                //         found:, head:, tail = split_from_left(tail, search_string);
+
+                //         match_start := head.data;
+                //         match_end := tail.data;
+                //         if visible_slice.data <= match_start && match_start < visible_slice_end {
+                //             // `Control_Code_Info.{ match_start, "\e[7m" }` into `codes`
+                //         }
+                //         if visible_slice.data < match_end && match_end <= visible_slice_end {
+                //             // `Control_Code_Info.{ match_start, "\e[7m" }` into `codes`
+                //         }
+
+                //         if head.data < visible_slice.data;
+
+                //         if !found break;
+
+                //         append(*builder, "\e[7m"); // invert color mode
+                //         append(*builder, search_string);
+                //         append(*builder, "\e[27m"); // disable invert color mode
+                //     }
+                // }
 
                 // Build the line string
                 {
-                    if search_string {
-                        tail := line_visible_slice;
-                        while true {
-                            found:, head:, tail = split_from_left(tail, search_string);
-                            append(*builder, head);
-
-                            if !found break;
-
-                            append(*builder, "\e[7m"); // invert color mode
-                            append(*builder, search_string);
-                            append(*builder, "\e[27m"); // disable invert color mode
-                        }
+                    if !strip_control_codes {
+                        codes := find_all_control_codes_in_range(visible_slice);
+                        build_line_with_control_codes(*builder, visible_slice, codes);
                     } else {
-                        append(*builder, line_visible_slice);
+                        append(*builder, visible_slice);
                     }
                 }
 
@@ -497,25 +495,26 @@ main :: () {
 
                 // :line_overflow_character
                 if line_overflowed {
+                    // TODO: highlight it differently if there's a search_string match
                     append(*builder, "\e[2;37m"); // color gray
                     append(*builder, ">");
                     append(*builder, "\e[0m");
                 }
 
-                if i != line_buffer.count - 1 {
+                if line_buffer.count != line_buffer.allocated - 1 {
                     append(*builder, "\n");
                 }
-                line_buffer[i] = builder_to_string(*builder,, temp); i += 1;
-            } else {
+                array_add(*line_buffer, builder_to_string(*builder,, temp));
+            } else /* line_wrapping == true */ {
                 // col_offset is ignored
 
                 line_tail := line;
                 first := true;
 
                 // Iterate over line pieces
-                while line_tail && i < line_buffer.count {
+                while line_tail && line_buffer.count < main_window_height {
                     defer first = false;
-                    visible_columns_budget : int = terminal_size.cols;
+                    visible_columns_budget : int = min(terminal_size.cols, xx line_tail.count);
 
                     if !first {
                         prefix :: "";
@@ -525,40 +524,28 @@ main :: () {
                         first = false;
                     }
 
-                    line_visible_slice: string;
-                    line_visible_slice.data = line_tail.data;
-                    line_visible_slice.count = 0;
-
-                    // Preprocess one line piece
-                    while line_tail {
-                        head:, visible_count:, line_tail = eat_visible_or_escape_sequence(line_tail);
-                        line_visible_slice.count += head.count;
-                        visible_columns_budget -= visible_count;
-
-                        if visible_columns_budget > 0 continue;
-
-                        overflow := -visible_columns_budget;
-                        line_visible_slice.count -= overflow;
-                        line_tail.data -= overflow;
-                        line_tail.count += overflow;
-
-                        break;
-                    }
+                    current_slice := substring(line_tail, 0, visible_columns_budget);
+                    line_tail = substring(line_tail, visible_columns_budget);
 
                     // Build the line string
-                    append(*builder, line_visible_slice);
+                    {
+                        if !strip_control_codes {
+                            codes := find_all_control_codes_in_range(current_slice);
+                            build_line_with_control_codes(*builder, current_slice, codes);
+                        } else {
+                            append(*builder, current_slice);
+                        }
+                    }
 
                     // Reset color codes
                     append(*builder, "\e[0m");
 
-                    if i != line_buffer.count - 1 {
+                    if line_buffer.count != line_buffer.allocated - 1 {
                         append(*builder, "\n");
                     }
-                    line_buffer[i] = builder_to_string(*builder,, temp); i += 1;
+                    array_add(*line_buffer, builder_to_string(*builder,, temp));
                 }
             }
-
-            if !found break; // last line
         }
 
         changed := false;
@@ -606,7 +593,7 @@ main :: () {
 
             if input_mode == .NAVIGATE {
                 print_to_builder(*builder, "offset: %, %   ", row_offset, col_offset);
-                print_to_builder(*builder, "lines: %   ", main_window_buffer.line_count);
+                print_to_builder(*builder, "lines: %   ", main_window_buffer.line_offsets.count);
                 if stick_to_the_bottom then append(*builder, "sinking   ");
 
                 // Print current input buffer
@@ -616,6 +603,8 @@ main :: () {
                 input_string.data = input_buffer.data;
                 input_string.count = input_buffer_count;
                 print_to_builder(*builder, "%", cast(Ascii_Or_Hex) input_string);
+
+                print(*builder, "  control codes count %", main_window_buffer.control_codes.count);
             } else if input_mode == .INPUT_SEARCH_STRING {
                 append(*builder, "/");
                 append(*builder, search_string);
@@ -639,17 +628,188 @@ main :: () {
     }
 
     // Restore terminal state
-    {
-        // "\e[?1049l": disable the alternative buffer
-        // "\e[?25h": unhide cursor
-        write_strings("\e[?1049l", "\e[?25h");
-
-        tcsetattr(STDIN_FILENO, TCSADRAIN, *state.saved_termios);
-    }
+    restore_terminal_settings();
 
     if signalled_with_signal != -1 {
         print("got signal %\n", signalled_with_signal);
     }
+}
+
+//
+// iterating over control codes
+//
+
+build_line_with_control_codes :: (builder: *String_Builder, text_slice: string, codes: [] Control_Code_Info) {
+    using context.current_window;
+
+    if !codes.count {
+        append(builder, text_slice);
+        return;
+    }
+
+    start := text_slice.data - only_text.data;
+    end := start + text_slice.count;
+    assert(codes.count > 0);
+    assert(codes[0].position_in_text >= start);
+    assert(codes[codes.count - 1].position_in_text <= end);
+
+    cursor := start;
+    for codes {
+        append(builder, substring(only_text, cursor, it.position_in_text));
+        append(builder, it.data);
+        cursor = it.position_in_text;
+    }
+    if cursor < end
+        append(builder, substring(only_text, cursor, end));
+
+}
+
+find_first_control_code_in_range :: (start: s64, end: s64) -> string {
+    using context.current_window;
+
+    if control_codes_cursor > control_codes.count - 1
+        control_codes_cursor = control_codes.count - 1;
+
+    while control_codes[control_codes_cursor].position_in_text > start {
+        if control_codes_cursor == 0 return "";
+        control_codes_cursor -= 1;
+    }
+
+    while control_codes[control_codes_cursor].position_in_text < start {
+        control_codes_cursor += 1;
+        if control_codes_cursor == control_codes.count return "";
+    }
+
+    return control_codes[control_codes_cursor].data;
+}
+
+find_all_control_codes_in_range :: (start: s64, end: s64) -> ([] Control_Code_Info, total_string_length: s64) {
+    using context.current_window;
+
+    assert(start <= end);
+    assert(0 <= start && start <= only_text.count);
+    assert(0 <= end && end <= only_text.count);
+
+    find_first_control_code_in_range(start, end);
+
+    first := control_codes_cursor;
+    total_string_length := 0;
+    while true {
+        code := current_control_code();
+        if !control_code_is_in_range(code, start, end) break;
+        total_string_length += code.data.count;
+        control_codes_cursor += 1;
+    }
+
+    return array_view(control_codes, first, control_codes_cursor - first), total_string_length;
+}
+
+find_all_control_codes_in_range :: (range: string) -> ([] Control_Code_Info, total_string_length: s64) {
+    using context.current_window;
+
+    start := range.data - only_text.data;
+    end := start + range.count;
+    codes, total_string_length := inline find_all_control_codes_in_range(start, end);
+    return codes, total_string_length;
+}
+
+control_code_is_in_range :: inline (code: Control_Code_Info, start: int, end: int) -> bool {
+    if !code.data return false;
+    if code.position_in_text < start return false;
+    if code.position_in_text > end return false;
+
+    return true;
+}
+
+current_control_code :: inline () -> Control_Code_Info {
+    using context.current_window;
+
+    if control_codes_cursor > control_codes.count - 1 return .{};
+    return control_codes[control_codes_cursor];
+}
+
+test_get_next_control_code_in_range :: () {
+    text := "foo\e[31mbar\e[32mbaz\e[33mboobies\e[0m";
+
+    using window_buffer: Window_Buffer;
+    context.current_window = *window_buffer;
+    separate_control_codes(text);
+
+    print_vars(raw_text_and_control_codes, only_text, control_codes);
+
+    cursor: int;
+    start: int;
+    end: int;
+
+    do_test :: (start: int, end: int) #expand {
+        using context.current_window;
+
+        builder: String_Builder;
+
+        print("[%..%]:\n", start, end);
+        print(*builder, "<", start, end);
+        cursor := start;
+        for code: find_all_control_codes_in_range(start, end) {
+            print("%: %\n", code.position_in_text, cast(Ascii_Or_Hex) code.data);
+            print(*builder, "%", substring(only_text, cursor, code.position_in_text));
+            print(*builder, "%", code.data);
+            cursor = code.position_in_text;
+        }
+        if cursor < end then print(*builder, "%", substring(only_text, cursor, end));
+        print(*builder, "\e[0m>\n");
+
+        write_builder(*builder);
+    }
+
+    do_test(0, only_text.count);
+    do_test(0, only_text.count-1);
+    do_test(2, 7);
+    do_test(3, 7);
+    do_test(2, 6);
+    do_test(3, 6);
+    do_test(4, 7);
+}
+
+separate_control_codes :: (raw_text: string) {
+    using context.current_window;
+
+    // `only_text.count <= raw_text_and_control_codes.count` is always true
+    raw_text_and_control_codes = raw_text;
+
+    array_reserve(*only_text_storage, raw_text_and_control_codes.count);
+    only_text_storage.count = 0;
+    line_offsets.count = 0;
+    control_codes.count = 0;
+
+    max_line_length = 0;
+    last_empty_lines_count := 0;
+    tail := raw_text_and_control_codes;
+    while !should_exit {
+        found:, line:, tail = split_from_left(tail, #char "\n");
+
+        max_line_length = max(max_line_length, line.count);
+
+        if line.count == 0 then last_empty_lines_count += 1; else last_empty_lines_count = 0;
+
+        array_add(*line_offsets, only_text_storage.count);
+
+        line_tail := line;
+        while line_tail {
+            head:, visible_count:, line_tail = eat_visible_or_escape_sequence(line_tail);
+
+            if visible_count == 0 {
+                array_add(*control_codes, .{ only_text_storage.count, head });
+            } else {
+                memcpy(only_text_storage.data + only_text_storage.count, head.data, head.count);
+                only_text_storage.count += head.count;
+            }
+        }
+
+        if !found break;
+    }
+
+    only_text = xx only_text_storage;
+    line_offsets.count -= last_empty_lines_count;
 }
 
 //
@@ -783,7 +943,8 @@ input_handle_character :: (char: u8) {
 
                 case #char "g"; row_offset = 0; stick_to_the_bottom = false;
                 case #char "G"; {
-                    row_offset = main_window_buffer.line_count - rows_to_display_count;
+                    // FIXME: now this is broken somehow
+                    row_offset = main_window_buffer.line_offsets.count - main_window_height;
                     stick_to_the_bottom = true;
                 }
 
@@ -800,13 +961,15 @@ input_handle_character :: (char: u8) {
                     input_cursor = search_string_buffer.count;
                 }
 
-                case #char "n";
+                case #char "n"; // TODO
+
+                case #char "c"; strip_control_codes = !strip_control_codes;
 
                 case #char "q"; should_exit = true;
             }
 
-            row_offset = max(row_offset, -(rows_to_display_count - 1));
-            row_offset = min(row_offset, main_window_buffer.line_count - 1);
+            row_offset = max(row_offset, -(main_window_height - 1));
+            row_offset = min(row_offset, main_window_buffer.line_offsets.count - 1);
 
             col_offset = max(col_offset, -(cast(int) terminal_size.cols - 1));
             col_offset = min(col_offset, main_window_buffer.max_line_length - 1);
@@ -938,10 +1101,10 @@ substring :: inline (s: string, start := 0, end := NOT_SPECIFIED, count := NOT_S
         _end := ifx end < 0 then s.count + end else end;
         if count == NOT_SPECIFIED then _count = _end - _start;
     }
-    assert(_start >= 0, "start: %, end: %, count: %", start, end, count);
-    assert(_start <= s.count, "start: %, end: %, count: %", start, end, count);
-    assert(_count >= 0, "start: %, end: %, count: %", start, end, count);
-    assert(_start + _count <= s.count, "start: %, end: %, count: %", start, end, count);
+    assert(_start >= 0,                 "s.count: %, start: %, end: %, count: %", s.count, start, end, count);
+    assert(_start <= s.count,           "s.count: %, start: %, end: %, count: %", s.count, start, end, count);
+    assert(_count >= 0,                 "s.count: %, start: %, end: %, count: %", s.count, start, end, count);
+    assert(_start + _count <= s.count,  "s.count: %, start: %, end: %, count: %", s.count, start, end, count);
 
     return string.{ data = s.data + _start, count = _count };
 }
@@ -961,15 +1124,9 @@ is_mode_reset_control_sequence :: inline (s: string) -> bool {
 eat_visible_or_escape_sequence :: (text: string) -> head: string, visible_count: s64, tail: string {
     if !text return "", 0, "";
 
-    char: u8;
-    count := 0;
+    count := find_index_from_left(text, #char "\e");
+    if count < 0 then count = text.count;
 
-    while count < text.count {
-        char = text[count];
-        if char == #char "\e" break;
-
-        count += 1;
-    }
     if count > 0 {
         // Visible character sequence
         head := substring(text, 0, count = count);
@@ -981,7 +1138,7 @@ eat_visible_or_escape_sequence :: (text: string) -> head: string, visible_count:
     count += 1;
 
     while count < text.count {
-        char = text[count];
+        char := text[count];
 
         if char == {
             case #char "[";
@@ -1087,6 +1244,18 @@ window_size_changed_signal_handler :: (signal: s32) #c_call #no_context {
 libc :: #system_library "libc";
 Signal_Handler :: #type (s32) -> void #c_call #no_context;
 signal :: (signal: s32, handler: Signal_Handler) #foreign libc;
+
+//
+// terminal settings
+//
+
+restore_terminal_settings :: () {
+    // "\e[?1049l": disable the alternative buffer
+    // "\e[?25h": unhide cursor
+    write_strings("\e[?1049l", "\e[?25h");
+
+    tcsetattr(STDIN_FILENO, TCSADRAIN, *context.state.saved_termios);
+}
 
 //
 // terminfo
@@ -1230,4 +1399,5 @@ pretty_assert :: (code: Code, loc := #caller_location) #expand {
 #import "System";
 #import "File";
 #import "Flat_Pool";
+#import "Print_Vars";
 System :: #import "System";
