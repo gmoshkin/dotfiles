@@ -79,8 +79,8 @@ Window_Buffer :: struct {
     only_text_storage: [..] u8; // allocated separately
     only_text: string; // points into `only_text_storage`
 
-    control_codes: [..] Control_Code_Info;
-    line_offsets: [..] s64;
+    control_codes: [..] Control_Code_Info; // offsets into `only_text`, data into `raw_text_and_control_codes`
+    line_offsets: [..] s64; // offsets into `only_text`
 
     control_codes_cursor: s64;
 
@@ -468,6 +468,11 @@ main :: () {
                 if search_string {
                     tail := line;
                     while tail && !should_exit {
+                        // FIXME: I'm a dumbass, optimizing for searching over
+                        // large text segments, while vim just finds all matches
+                        // in the file instantly and shows me their count. Just
+                        // fucking find all matches when the text or search
+                        // string changes, you retard.
                         index := find_index_from_left(tail, search_string);
                         if index < 0 break;
                         match_start := tail.data + index;
@@ -1087,7 +1092,8 @@ input_handle_character :: (char: u8) {
                     input_cursor = search_string_buffer.count;
                 }
 
-                case #char "n"; // TODO
+                case #char "n"; jump_to_next_search_match();
+                case #char "N"; jump_to_previous_search_match();
 
                 case #char "c"; strip_control_codes = !strip_control_codes;
 
@@ -1146,6 +1152,49 @@ input_handle_character :: (char: u8) {
             }
 
             search_string = xx search_string_buffer;
+    }
+}
+
+jump_to_next_search_match :: () {
+    using context.state;
+    using context.state.main_window_buffer;
+
+    if row_offset == line_offsets.count - 1 return; // no next match possible
+
+    search_start := line_offsets[row_offset + 1];
+
+    index := find_index_from_left(only_text, search_string, search_start);
+    if index == -1 return; // match not found
+
+    while row_offset < line_offsets.count {
+        if line_offsets[row_offset] > index { // overshot by 1 line
+            row_offset -= 1;
+            return;
+        }
+
+        row_offset += 1;
+    }
+}
+
+jump_to_previous_search_match :: () {
+    using context.state;
+    using context.state.main_window_buffer;
+
+    if row_offset == 0 return; // no previous match possible
+
+    search_end := line_offsets[row_offset];
+
+    search_region := substring(only_text, 0, search_end);
+    index := find_index_from_right(search_region, search_string);
+
+    if index == -1 return; // match not found
+
+    while row_offset >= 0 {
+        if line_offsets[row_offset] < index {
+            return;
+        }
+
+        row_offset -= 1;
     }
 }
 
