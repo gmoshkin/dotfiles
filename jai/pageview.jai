@@ -89,7 +89,7 @@ Window_Buffer :: struct {
 
 Control_Code_Info :: struct {
     position_in_text: s64;
-    data: string; // points into `raw_text_and_control_codes`
+    data: Ascii_Or_Hex; // points into `raw_text_and_control_codes`
 }
 
 main :: () {
@@ -272,9 +272,7 @@ main :: () {
             t0 := time;
             last_command_result, raw_text_and_control_codes = my_run_command(..command, capture_and_return_output = true);
             elapsed := seconds_since_init() - t0;
-            // TODO: ps-pane is super slow, investigate
             // TODO: also I don't see these logs, am I stupid??
-            log("executing % took % seconds", command, elapsed);
             if elapsed > 0.5 {
                 log("executing % took % seconds", command, elapsed);
             }
@@ -374,6 +372,12 @@ main :: () {
             }
         }
 
+        // these are used and reused for each line
+        codes: [..] Control_Code_Info;
+        codes.allocator = temp;
+        search_matches: [..] Pointer_Range;
+        search_matches.allocator = temp;
+
         // Preprocess lines to be displayed
         // TODO: tabs aren't handled correctly yet,
         // terminal displays them with different widths, but I count them as 1 always
@@ -384,7 +388,23 @@ main :: () {
             line_index += 1;
             line := substring(xx only_text, line_start, line_end);
 
-            tail_search := line;
+            // :search_string_highlight
+            search_matches.count = 0;
+            // TODO: is the line is super fucking long this will be slow, so I
+            // could test for that and do something else in that case
+            if search_string {
+                // find all matches in current line
+                tail := line;
+                while tail {
+                    found:, head:, tail = split_from_left(tail, search_string);
+                    if !found break;
+
+                    start := head.data + head.count;
+                    end := start + search_string.count;
+                    array_add(*search_matches, .{ start, end });
+                }
+            }
+            search_matches_tail: [] Pointer_Range = search_matches;
 
             memory_pool := Allocator.{ flat_pool_allocator_proc, *memory_pool_for_building_a_line };
             builder := String_Builder.{ allocator = memory_pool };
@@ -401,29 +421,16 @@ main :: () {
                     hidden_slice := substring(line, 0, first_visible_column_offset);
                     visible_slice = substring(line, first_visible_column_offset);
 
-                    // TODO :search_string_highlight
-                    // string_match_in_hidden := false;
-                    // if search_string while tail_search {
-                    //     found:, head:, tail_search = split_from_left(tail_search, search_string);
-
-                    //     match_end := tail_search.data;
-                    //     if match_end <= visible_slice.data {
-                    //         string_match_in_hidden = true;
-                    //         continue;
-                    //     }
-
-                    //     match_start := head.data;
-                    //     if match_start < visible_slice.data {
-                    //         truncated_string_match_end = match_end - visible_slice.data ;
-                    //     }
-
-                    //     break;
-                    // }
-
                     // :line_overflow_character
                     visible_columns_budget -= 1;
-                    // TODO: highlight it differently if there's a search_string match
-                    append(*builder, "\e[2;37m"); // color gray
+                    // :search_string_highlight
+                    search_matched_in_hidden := false;
+                    if search_string {
+                        index := find_index_from_left(line, search_string);
+                        search_matched_in_hidden = index >= 0 && index < first_visible_column_offset;
+                    }
+                    if search_matched_in_hidden then append(*builder, "\e[7m"); // invert color mode
+                                                else append(*builder, "\e[2;37m"); // color gray
                     append(*builder, "<");
                     append(*builder, "\e[0m");
 
@@ -445,58 +452,54 @@ main :: () {
                     }
                 }
 
-                line_overflowed := false;
-                if visible_slice.count > visible_columns_budget {
-                    line_overflowed = true;
+                line_overflowed := visible_slice.count > visible_columns_budget;
+                if line_overflowed {
                     // Leave space for the :line_overflow_character
                     visible_slice.count = visible_columns_budget - 1;
                 }
 
-                // TODO :search_string_highlight
-                // visible_slice_end := visible_slice.data + visible_slice.count;
-                // codes: [..] Control_Code_Info; codes.allocator = temp;
-                // array_add(*codes, ..find_all_control_codes_in_range(visible_slice));
-                // if search_string {
-                //     tail := line;
-                //     while true {
-                //         found:, head:, tail = split_from_left(tail, search_string);
+                codes.count = 0;
+                if !strip_control_codes {
+                    array_add(*codes, ..find_all_control_codes_in_range(visible_slice));
+                }
 
-                //         match_start := head.data;
-                //         match_end := tail.data;
-                //         if visible_slice.data <= match_start && match_start < visible_slice_end {
-                //             // `Control_Code_Info.{ match_start, "\e[7m" }` into `codes`
-                //         }
-                //         if visible_slice.data < match_end && match_end <= visible_slice_end {
-                //             // `Control_Code_Info.{ match_start, "\e[7m" }` into `codes`
-                //         }
+                // :search_string_highlight
+                search_matched_in_hidden := false;
+                if search_string {
+                    tail := line;
+                    while tail && !should_exit {
+                        index := find_index_from_left(tail, search_string);
+                        if index < 0 break;
+                        match_start := tail.data + index;
+                        match_end := match_start + search_string.count;
 
-                //         if head.data < visible_slice.data;
+                        tail = substring(tail, index + search_string.count);
 
-                //         if !found break;
+                        if match_end <= visible_slice.data continue;
 
-                //         append(*builder, "\e[7m"); // invert color mode
-                //         append(*builder, search_string);
-                //         append(*builder, "\e[27m"); // disable invert color mode
-                //     }
-                // }
+                        visible_end := visible_slice.data + visible_slice.count;
+                        search_matched_in_hidden = match_end > visible_end;
+                        if match_start >= visible_end break;
 
-                // Build the line string
-                {
-                    if !strip_control_codes {
-                        codes := find_all_control_codes_in_range(visible_slice);
-                        build_line_with_control_codes(*builder, visible_slice, codes);
-                    } else {
-                        append(*builder, visible_slice);
+                        insert_control_code_range(*codes, match_start, "\e[7m", // invert color mode
+                                                          match_end, "\e[27m"); // disable invert color mode
                     }
                 }
+
+                // Build the line string
+                build_line_with_control_codes(*builder, visible_slice, codes);
 
                 // Reset color codes
                 append(*builder, "\e[0m");
 
                 // :line_overflow_character
                 if line_overflowed {
-                    // TODO: highlight it differently if there's a search_string match
-                    append(*builder, "\e[2;37m"); // color gray
+                    // :search_string_highlight
+                    if search_matched_in_hidden {
+                        append(*builder, "\e[7m"); // invert color mode
+                    } else {
+                        append(*builder, "\e[2;37m"); // color gray
+                    }
                     append(*builder, ">");
                     append(*builder, "\e[0m");
                 }
@@ -525,23 +528,38 @@ main :: () {
                     }
 
                     current_slice := substring(line_tail, 0, visible_columns_budget);
+                    current_slice_end := current_slice.data + current_slice.count;
                     line_tail = substring(line_tail, visible_columns_budget);
 
-                    // Build the line string
-                    {
-                        if !strip_control_codes {
-                            codes := find_all_control_codes_in_range(current_slice);
-                            build_line_with_control_codes(*builder, current_slice, codes);
-                        } else {
-                            append(*builder, current_slice);
-                        }
+                    codes.count = 0;
+                    if !strip_control_codes {
+                        array_add(*codes, ..find_all_control_codes_in_range(current_slice));
                     }
 
-                    // Reset color codes
-                    append(*builder, "\e[0m");
+                    // :search_string_highlight
+                    while search_matches_tail {
+                        match := *search_matches_tail[0];
+
+                        start_in_range := match.start >= current_slice.data && match.start < current_slice_end;
+                        end_in_range := match.end > current_slice.data && match.end <= current_slice_end;
+                        if start_in_range || end_in_range {
+                            insert_control_code_range(*codes, match.start, "\e[7m", // invert color mode
+                                                              match.end, "\e[27m"); // disable invert color mode
+                        }
+
+                        if !start_in_range || !end_in_range break; // leave that match for the next line piece
+
+                        advance(*search_matches_tail, 1);
+                    }
+
+                    // Build the line string
+                    build_line_with_control_codes(*builder, current_slice, codes);
 
                     if line_buffer.count != line_buffer.allocated - 1 {
                         append(*builder, "\n");
+                    } else {
+                        // Reset color codes
+                        append(*builder, "\e[0m");
                     }
                     array_add(*line_buffer, builder_to_string(*builder,, temp));
                 }
@@ -585,6 +603,7 @@ main :: () {
         {
             builder: String_Builder;
             builder.allocator = temp;
+            buffer := get_base_buffer(*builder);
 
             // "\e[H": move cursor to position (row 2, column 1)
             append(*builder, "\e[2;1H");
@@ -592,33 +611,61 @@ main :: () {
             append(*builder, "\e[2;37m"); // color gray
 
             if input_mode == .NAVIGATE {
-                print_to_builder(*builder, "offset: %, %   ", row_offset, col_offset);
-                print_to_builder(*builder, "lines: %   ", main_window_buffer.line_offsets.count);
-                if stick_to_the_bottom then append(*builder, "sinking   ");
+                text_start := buffer.count;
+                {
+                    print_to_builder(*builder, "offset: %, %   ", row_offset, col_offset);
+                    print_to_builder(*builder, "lines: %   ", main_window_buffer.line_offsets.count);
+                    if stick_to_the_bottom then append(*builder, "sinking   ");
 
-                // Print current input buffer
-                append(*builder, "input: ");
+                    // Print current input buffer
+                    append(*builder, "input: ");
 
-                input_string: string;
-                input_string.data = input_buffer.data;
-                input_string.count = input_buffer_count;
-                print_to_builder(*builder, "%", cast(Ascii_Or_Hex) input_string);
+                    input_string: string;
+                    input_string.data = input_buffer.data;
+                    input_string.count = input_buffer_count;
+                    print_to_builder(*builder, "%", cast(Ascii_Or_Hex) input_string);
 
-                print(*builder, "  control codes count %", main_window_buffer.control_codes.count);
+                    // print(*builder, "  control codes count %", main_window_buffer.control_codes.count);
+                }
+                text_length := buffer.count - text_start;
+                overflow := text_length - terminal_size.cols;
+                if overflow > 0 {
+                    buffer.count -= overflow;
+                }
             } else if input_mode == .INPUT_SEARCH_STRING {
                 append(*builder, "/");
-                append(*builder, search_string);
 
-                // `+ 1` for the leading "/" & `+ 1` because rows start at 1
-                cursor_column := input_cursor + 2;
+                // `- 1` for the leading `/`
+                visible_columns_budget := terminal_size.cols - 1;
+
+                cursor_column := 0;
+                overflow := search_string.count - visible_columns_budget;
+                // FIXME: I just want the last column to be left for the cursor
+                // if the cursor is at the last column, but than be filled with
+                // the search string otherwise... but I'm a sleepy head right
+                // now :(
+                if overflow > 0 {
+                    // Add extra space at the end for the cursor
+                    overflow += 1;
+                    slice_start := clamp(input_cursor - 2, 0, overflow);
+                    append(*builder, substring(search_string, slice_start, count=visible_columns_budget - 1));
+                    // `+ 1` for the leading "/" & `+ 1` because rows start at 1
+                    cursor_column = input_cursor - slice_start + 2;
+                } else {
+                    append(*builder, search_string);
+                    // `+ 1` for the leading "/" & `+ 1` because rows start at 1
+                    cursor_column = input_cursor + 2;
+                }
+
                 // move the cursor to where the user is editting text
                 print(*builder, "\e[2;%H", cursor_column);
                 // show the cursor, so user knows they're editing text
-                append(*builder,  "\e[?25h");
+                append(*builder, "\e[?25h");
             }
 
             append(*builder, "\e[0m");
 
+            assert(get_current_buffer(*builder) == buffer);
             write_builder(*builder);
         }
 
@@ -639,33 +686,112 @@ main :: () {
 // iterating over control codes
 //
 
-build_line_with_control_codes :: (builder: *String_Builder, text_slice: string, codes: [] Control_Code_Info) {
+build_line_with_control_codes :: (builder: *String_Builder, text_slice: string, codes: [] Control_Code_Info) -> (num_codes_left: s64) {
     using context.current_window;
 
     if !codes.count {
         append(builder, text_slice);
-        return;
+        return 0;
     }
 
     start := text_slice.data - only_text.data;
     end := start + text_slice.count;
-    assert(codes.count > 0);
-    assert(codes[0].position_in_text >= start);
-    assert(codes[codes.count - 1].position_in_text <= end);
 
     cursor := start;
     for codes {
-        append(builder, substring(only_text, cursor, it.position_in_text));
+        position_clamped := clamp(it.position_in_text, start, end);
+        append(builder, substring(only_text, cursor, position_clamped));
+        if it.position_in_text > end return codes.count - it_index;
+
         append(builder, it.data);
-        cursor = it.position_in_text;
+        cursor = position_clamped;
     }
     if cursor < end
         append(builder, substring(only_text, cursor, end));
 
+    return 0;
+}
+
+// FIXME: linear search. If I keep track of last inserted position and start
+// searching from it, this should help with performance.
+insert_control_code :: (codes: *[..] Control_Code_Info, pointer_into_only_text: *u8, data: string) {
+    using context.current_window;
+    assert(pointer_into_only_text > only_text.data);
+    assert(pointer_into_only_text <= only_text.data + only_text.count);
+
+    position_in_text := pointer_into_only_text - only_text.data;
+    code := Control_Code_Info.{ position_in_text, xx data };
+
+    index := 0;
+    for codes.* {
+        if it.position_in_text >= code.position_in_text break;
+
+        index += 1;
+    }
+
+    array_insert_at(codes, code, index);
+}
+
+// FIXME: linear search. If I keep track of last inserted position and start
+// searching from it, this should help with performance.
+insert_control_code_range :: (codes: *[..] Control_Code_Info,
+                              start_pointer: *u8, // points into only_text
+                              start_code: string,
+                              end_pointer: *u8, // points into only_text
+                              end_code: string)
+{
+    // Empty range will always be invisible
+    if start_pointer == end_pointer return;
+
+    using context.current_window;
+    assert(start_pointer > only_text.data);
+    assert(start_pointer < end_pointer);
+    assert(end_pointer <= only_text.data + only_text.count);
+
+    start_position := start_pointer - only_text.data;
+    start := Control_Code_Info.{ start_position, xx start_code };
+    end_position := end_pointer - only_text.data;
+    end := Control_Code_Info.{ end_position, xx end_code };
+
+    index := 0;
+    while index < codes.count {
+        it := codes.*[index];
+
+        if it.position_in_text > start.position_in_text break;
+        if it.position_in_text == start.position_in_text {
+            // Put new control code after the mode reset at the same position
+            if !is_mode_reset_control_sequence(it.data) break;
+        }
+
+        index += 1;
+    }
+
+    array_insert_at(codes, start, index);
+
+    index += 1;
+    while index < codes.count {
+        it := codes.*[index];
+
+        if it.position_in_text > end.position_in_text break;
+        // Found mode reset
+        if is_mode_reset_control_sequence(it.data) {
+            // Insert another start after the mode reset, because it just reset our previous start
+            another_start := Control_Code_Info.{it.position_in_text, start.data};
+            array_insert_at(codes, another_start, index + 1);
+            // Don't need to check this newly inserted code
+            index += 1;
+        }
+
+        index += 1;
+    }
+
+    array_insert_at(codes, end, index);
 }
 
 find_first_control_code_in_range :: (start: s64, end: s64) -> string {
     using context.current_window;
+
+    if !control_codes return "";
 
     if control_codes_cursor > control_codes.count - 1
         control_codes_cursor = control_codes.count - 1;
@@ -798,7 +924,7 @@ separate_control_codes :: (raw_text: string) {
             head:, visible_count:, line_tail = eat_visible_or_escape_sequence(line_tail);
 
             if visible_count == 0 {
-                array_add(*control_codes, .{ only_text_storage.count, head });
+                array_add(*control_codes, .{ only_text_storage.count, xx head });
             } else {
                 memcpy(only_text_storage.data + only_text_storage.count, head.data, head.count);
                 only_text_storage.count += head.count;
@@ -1024,36 +1150,6 @@ input_handle_character :: (char: u8) {
 }
 
 //
-// Search_Highlight_Handler
-//
-
-Search_Highlight_Handler :: struct {
-    initialized := false;
-    line: string;
-    line_tail: string;
-    has_match := false;
-    match_start: s64;
-    match_end: s64;
-    search_string: string;
-}
-
-init :: (handler: *Search_Highlight_Handler, line: string) {
-    assert(!handler.initialized);
-    handler.line = line;
-    handler.line_tail = line;
-    handler.search_string = context.state.search_string;
-
-    find_next_match(handler);
-}
-
-find_next_match :: (using handler: *Search_Highlight_Handler) {
-    has_match, head:, line_tail = split_from_left(line_tail, search_string);
-    match_start = head.data - line.data;
-    match_end = match_start + head.count;
-}
-
-
-//
 // logging
 //
 
@@ -1077,7 +1173,7 @@ fflush :: (handle: *FILE) -> s32 #foreign libc;
 // string utilities
 //
 
-Ascii_Or_Hex :: #type,distinct string;
+Ascii_Or_Hex :: #type,isa string;
 
 ascii_or_hex_printer :: (builder: *String_Builder, any: Any, struct_printer_data: *void) -> bool {
     if any.type != type_info(Ascii_Or_Hex) return false;
@@ -1091,7 +1187,7 @@ ascii_or_hex_printer :: (builder: *String_Builder, any: Any, struct_printer_data
 }
 
 NOT_SPECIFIED :: 0x7fff_ffff_ffff_ffff;
-substring :: inline (s: string, start := 0, end := NOT_SPECIFIED, count := NOT_SPECIFIED) -> string {
+substring :: (s: string, start := 0, end := NOT_SPECIFIED, count := NOT_SPECIFIED) -> string {
     _count := count;
     _start := ifx start < 0 then s.count + start else start;
     if end == NOT_SPECIFIED && count == NOT_SPECIFIED {
@@ -1223,6 +1319,21 @@ test_array_ordered_remove_range :: () {
     array_ordered_remove_range(*array, 0, 5);
     pretty_assert(array_equals(array, int.[6]));
     array_reset(*array);
+}
+
+advance :: inline (a: *[] $T, amount: s64 = 1) {
+    assert(amount >= 0);
+    assert(a.count >= amount);
+    a.count -= amount;
+    a.data  += amount;
+}
+
+//
+// miscellaneous utilities
+//
+
+Pointer_Range :: struct {
+    start, end: *u8;
 }
 
 //
