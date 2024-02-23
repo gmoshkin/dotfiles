@@ -382,7 +382,7 @@ main :: () {
         // TODO: tabs aren't handled correctly yet,
         // terminal displays them with different widths, but I count them as 1 always
         if main_window_height != 0 while line_buffer.count < main_window_height {
-            if line_index >= line_offsets.count - 1 break;
+            if line_index > line_offsets.count - 1 break;
             line_start := line_offsets[line_index];
             line_end := ifx line_index < line_offsets.count - 1 then line_offsets[line_index + 1] else only_text.count;
             line_index += 1;
