@@ -3,6 +3,19 @@
     set_build_options_dc(.{ output_executable_name = "pageview" });
 }
 
+/* TODO:
+   - implement commands during runtime
+      - command to change time before retry
+      - command to save the current buffer and show diffs (maybe even in split view)
+          although I can just use the tmux splits for that....
+   - add line numberring option
+   - I support running command in shell, so that you can do stuff like
+        `pv "cat /proc/123/stat | tr ' ' '\n'"`
+        although maybe doing simple filters is going to be simple?
+        Like having an array of simple filters of kind
+          - replace all ' ' with '\n' and stuff
+          But I don't wanna be supporting regular expressions though
+*/
 State :: struct {
 
     //
@@ -269,12 +282,23 @@ main :: () {
 
             if raw_text_and_control_codes free(raw_text_and_control_codes);
 
+            // If the command is a single argument which contains a string,
+            // assume it's some shell pipeline & run it in a shell
+            temp_command := command;
+            if command.count == 1 && find_index_from_left(command[0], #char " ") != -1 {
+                temp_command = .["/bin/sh", "-c", command[0]];
+                // temp_command = NewArray(3, string,, temp);
+                // temp_command[0] = "/bin/sh";
+                // temp_command[1] = "-c";
+                // temp_command[2] = command[0];
+            }
+
             t0 := time;
-            last_command_result, raw_text_and_control_codes = my_run_command(..command, capture_and_return_output = true);
+            last_command_result, raw_text_and_control_codes = my_run_command(..temp_command, capture_and_return_output = true);
             elapsed := seconds_since_init() - t0;
             // TODO: also I don't see these logs, am I stupid??
             if elapsed > 0.5 {
-                log("executing % took % seconds", command, elapsed);
+                log("executing % took % seconds", temp_command, elapsed);
             }
             time_next_command_run = time + command_run_period_seconds;
 

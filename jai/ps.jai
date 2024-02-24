@@ -3,6 +3,8 @@
     set_build_options_dc(.{ output_executable_name = "ps" });
 }
 
+// TODO: add support for %CPU, TIME, %MEM, START, maybe even STAT, but I have no idea what it means
+
 Pid :: #type,distinct s64;
 
 State :: struct {
@@ -21,6 +23,33 @@ Process_Info :: struct {
     pid: Pid;
     parent_pid: Pid = -1;
 
+    /* TODO: get process start time from
+       /proc/[pid]/stat
+              (22) starttime  %llu
+                     The time the process started after system boot.  In kernels before Linux 2.6,  this  value  was
+                     expressed  in  jiffies.   Since  Linux  2.6,  the  value is expressed in clock ticks (divide by
+                     sysconf(_SC_CLK_TCK)).
+   */
+    /* TODO: get process user mode time + kernel mode time
+       /proc/[pid]/stat
+              (14) utime  %lu
+                     Amount of time that this process has been scheduled in user mode, measured in clock ticks  (di‐
+                     vide by sysconf(_SC_CLK_TCK)).  This includes guest time, guest_time (time spent running a vir‐
+                     tual CPU, see below), so that applications that are not aware of the guest time  field  do  not
+                     lose that time from their calculations.
+
+              (15) stime  %lu
+                     Amount  of  time  that  this process has been scheduled in kernel mode, measured in clock ticks
+                     (divide by sysconf(_SC_CLK_TCK)).
+        TODO: do I also need to care about waited-for-children time? I really don't wanna...
+   */
+   /* TODO: get process memory usage
+       /proc/[pid]/statm
+                  size       (1) total program size
+                             (same as VmSize in /proc/[pid]/status)
+                  resident   (2) resident set size
+                             (inaccurate; same as VmRSS in /proc/[pid]/status)
+   */
     command_line: [] string;
 
     tty: string;
