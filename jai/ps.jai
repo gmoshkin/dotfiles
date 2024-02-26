@@ -325,8 +325,12 @@ main :: () {
         // how long of the total process' lifetime was it actually not sleeping
         {
             process_uptime := system_uptime_seconds - it.started_seconds_since_boot;
-            percentage_of_time_used_cpu := 100.0 * cast(float64) running_time_seconds / cast(float64) process_uptime;
-            row[5] = tprint("%", fmt(percentage_of_time_used_cpu, digits_after_comma=1));
+            if process_uptime {
+                percentage_of_time_used_cpu := 100.0 * cast(float64) running_time_seconds / cast(float64) process_uptime;
+                row[5] = tprint("%", fmt(percentage_of_time_used_cpu, digits_after_comma=1));
+            } else {
+                row[5] = "0.0";
+            }
         }
 
         // MEM USAGE
