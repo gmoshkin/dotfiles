@@ -23,36 +23,20 @@ Process_Info :: struct {
     pid: Pid;
     parent_pid: Pid = -1;
 
-    /* TODO: get process start time from
-       /proc/[pid]/stat
-              (22) starttime  %llu
-                     The time the process started after system boot.  In kernels before Linux 2.6,  this  value  was
-                     expressed  in  jiffies.   Since  Linux  2.6,  the  value is expressed in clock ticks (divide by
-                     sysconf(_SC_CLK_TCK)).
-   */
-    /* TODO: get process user mode time + kernel mode time
-       /proc/[pid]/stat
-              (14) utime  %lu
-                     Amount of time that this process has been scheduled in user mode, measured in clock ticks  (di‐
-                     vide by sysconf(_SC_CLK_TCK)).  This includes guest time, guest_time (time spent running a vir‐
-                     tual CPU, see below), so that applications that are not aware of the guest time  field  do  not
-                     lose that time from their calculations.
-
-              (15) stime  %lu
-                     Amount  of  time  that  this process has been scheduled in kernel mode, measured in clock ticks
-                     (divide by sysconf(_SC_CLK_TCK)).
-        TODO: do I also need to care about waited-for-children time? I really don't wanna...
-   */
-   /* TODO: get process memory usage
-       /proc/[pid]/statm
-                  size       (1) total program size
-                             (same as VmSize in /proc/[pid]/status)
-                  resident   (2) resident set size
-                             (inaccurate; same as VmRSS in /proc/[pid]/status)
-   */
     command_line: [] string;
 
+    state: [1] u8;
+
+    started_seconds_since_boot: s64;
+    user_mode_time_seconds: u64;
+    kernel_mode_time_seconds: u64;
+
+    virtual_memory_kibi_bytes: u64;
+    resident_set_pages_count: u64;
+
     tty: string;
+    tty_number: s64;
+
     children: [..] Pid;
 
     depth: s64;
@@ -61,6 +45,8 @@ Process_Info :: struct {
 Void : void;
 
 main :: () {
+    // test_count_visible_characters(); return;
+
     args := get_command_line_arguments();
 
     cursor := 1;
@@ -85,9 +71,12 @@ main :: () {
         }
     }
 
+    clock_ticks_per_second = xx sysconf(_SC_CLK_TCK);
+    system_page_size := cast(u64) sysconf(_SC_PAGESIZE);
+
     // Read tty numbers
     {
-        tty_drivers, ok := my_read_entire_file("/proc/tty/drivers", log_errors=false,, temp);
+        tty_drivers, ok := my_read_entire_file("/proc/tty/drivers", log_errors=false);
         assert(ok);
 
         tail := tty_drivers;
@@ -134,8 +123,9 @@ main :: () {
         {
             tail := stat;
             i := 1;
-            tty_number: s64 = -1;
-            parent_pid: Pid = -1;
+
+            info: Process_Info;
+            info.pid = pid;
             while tail {
                 defer i += 1;
                 found:, s:, tail = split_from_left(tail, #char " ");
@@ -149,40 +139,62 @@ main :: () {
                     continue;
                 }
 
+                if i == 3 {
+                    assert(s.count == 1);
+                    info.state[0] = s[0];
+                }
                 if i == 4 {
                     parent_pid_value:, ok = string_to_int(s, base=10, T=s64);
                     assert(ok);
-                    parent_pid = xx parent_pid_value;
+                    info.parent_pid = xx parent_pid_value;
                 }
                 if i == 7 {
-                    tty_number, ok = string_to_int(s, base=10, T=s64);
+                    info.tty_number, ok = string_to_int(s, base=10, T=s64);
                     assert(ok);
-                    break;
+                }
+                if i == 14 {
+                    umode:, ok = string_to_int(s, base=10, T=u64);
+                    assert(ok);
+                    info.user_mode_time_seconds = umode / clock_ticks_per_second;
+                }
+                if i == 15 {
+                    smode:, ok = string_to_int(s, base=10, T=u64);
+                    assert(ok);
+                    info.kernel_mode_time_seconds = smode / clock_ticks_per_second;
+                }
+                if i == 22 {
+                    starttime:, ok = string_to_int(s, base=10, T=u64);
+                    assert(ok);
+                    info.started_seconds_since_boot = xx (starttime / clock_ticks_per_second);
+                }
+                if i == 23 {
+                    // XXX: this is some weird value, don't think it's actually usefull
+                    info.virtual_memory_kibi_bytes, ok = string_to_int(s, base=10, T=u64);
+                    assert(ok);
+                }
+                if i == 24 {
+                    info.resident_set_pages_count, ok = string_to_int(s, base=10, T=u64);
+                    assert(ok);
                 }
             }
 
-            info, not_found := find_or_add(*state.process_infos, pid);
-            // don't really care if not_found or not
-            info.pid = pid;
-            info.parent_pid = parent_pid;
-
-            parent_info:, not_found = find_or_add(*state.process_infos, parent_pid);
+            parent_info, not_found := find_or_add(*state.process_infos, info.parent_pid);
             // don't really care if not_found or not
             array_add(*parent_info.children, pid);
 
-            if tty_number != 0 && tty_number != -1 {
-                tty_name, not_found := find_or_add(*state.tty_number_to_name, tty_number);
+            if info.tty_number != 0 && info.tty_number != -1 {
+                tty_name, not_found := find_or_add(*state.tty_number_to_name, info.tty_number);
                 if not_found {
-                    driver_number := cast(u8) ((tty_number >> 8) & 0xff);
+                    driver_number := cast(u8) ((info.tty_number >> 8) & 0xff);
                     // TODO: sometimes there's a index part in higher bits?
-                    tty_index := tty_number & 0xff;
+                    tty_index := info.tty_number & 0xff;
                     driver_name, ok := table_find(*state.tty_drivers, driver_number);
-                    if !ok continue;
-
-                    if driver_name == "/dev/tty" {
-                        tty_name.* = sprint("/dev/tty%", tty_index);
-                    } else {
-                        tty_name.* = sprint("%/%", driver_name, tty_index);
+                    if ok {
+                        if driver_name == "/dev/tty" {
+                            tty_name.* = sprint("/dev/tty%", tty_index);
+                        } else {
+                            tty_name.* = sprint("%/%", driver_name, tty_index);
+                        }
                     }
                 }
 
@@ -192,6 +204,8 @@ main :: () {
                     table_set(*state.maybe_roots, pid, Void);
                 }
             }
+
+            table_set(*state.process_infos, pid, info);
 
             // info.command_line will be set later so as to not read extra files
             // we don't have to
@@ -210,31 +224,114 @@ main :: () {
         depth_first_children(*state.process_infos, it, *flattened_tree);
     }
 
+    // Get physical memory capacity
+    physical_memory_capacity_bytes: s64;
+    {
+        meminfo, ok := my_read_entire_file("/proc/meminfo", log_errors=false);
+        assert(ok);
+        tail := meminfo;
+        while tail {
+            _, line:, tail = split_from_left(tail, #char "\n");
+
+            prefix := "MemTotal:";
+            if !starts_with(line, prefix) continue;
+
+            line = substring(line, start = prefix.count);
+            line = trim_left(line);
+            value, ok, remainder := string_to_int(line, T=s64, base=10);
+            assert(ok);
+            assert(remainder == " kB", "'%'", remainder);
+
+            physical_memory_capacity_bytes = value * 1024;
+        }
+    }
+
+    // Get system uptime
+    system_uptime_seconds: s64;
+    {
+        uptime, ok := my_read_entire_file("/proc/uptime", log_errors=false);
+        assert(ok);
+        seconds_float:, ok = string_to_float(uptime);
+        assert(ok);
+        system_uptime_seconds = xx seconds_float;
+    }
+
+    current_time := current_time_consensus();
+    current_time_seconds := to_seconds(current_time);
+    current_date_time := to_calendar(current_time);
+    system_boot_time_seconds := current_time_seconds - system_uptime_seconds;
+
     //
-    // Display the output
+    // Prepare the output table
     //
+    column_headers :: string.["PID", "S", "TTY", "STARTED", "RAN", "%CPU", "%MEM", "COMMAND"];
+    column_widths: [column_headers.count] int;
+    for column_headers {
+        column_widths[it_index] = it.count + 1;
+    }
+
+    table: [..] [column_headers.count] string;
+    array_reserve(*table, flattened_tree.count);
     for flattened_tree {
+        row : [] string = array_add(*table).*;
         command_line, ok := get_process_command_line(it.pid);
         it.command_line = command_line;
 
-        builder: String_Builder;
-        builder.allocator = temp;
-
         // PID
-        print_to_builder(*builder, "% ", FormatInt.{ value = it.pid, minimum_digits = 7, padding = #char " " });
+        row[0] = tprint("%", it.pid);
+
+        // STATE
+        row[1] = tprint("%", cast(string) it.state);
 
         // TTY
         tty := it.tty;
         if tty.count > 5 && substring(tty, count = 5) == "/dev/" {
             tty = substring(tty, start = 5);
         }
-        // padding
-        for 1..8 - tty.count {
-            append(*builder, " ");
+        row[2] = tty;
+
+        // START TIME
+        start_time_seconds := system_boot_time_seconds + xx it.started_seconds_since_boot;
+        start_time := seconds_to_apollo(start_time_seconds);
+        start_date_time := to_calendar(start_time, .LOCAL);
+        if is_same_day(start_date_time, current_date_time) {
+            row[3] = tprint("%:%", start_date_time.hour,
+                                         fmt(start_date_time.minute, 2));
+        } else {
+            month_short :: string.["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            row[3] = tprint("% %", month_short[start_date_time.month_starting_at_0], start_date_time.day_of_month_starting_at_0 + 1);
         }
-        print_to_builder(*builder, "% ", tty);
+
+        // RUNNING TIME
+        running_time_seconds := it.user_mode_time_seconds + it.kernel_mode_time_seconds;
+        {
+            seconds := running_time_seconds % 60;
+            minutes := (running_time_seconds / 60) % 60;
+            hours := running_time_seconds / 60 / 60;
+            if hours {
+                row[4] = tprint("%:%:%", hours, fmt(minutes, 2), fmt(seconds, 2));
+            } else {
+                row[4] = tprint("%:%", minutes, fmt(seconds, 2));
+            }
+        }
+
+        // CPU PERCENTAGE
+        // how long of the total process' lifetime was it actually not sleeping
+        {
+            process_uptime := system_uptime_seconds - it.started_seconds_since_boot;
+            percentage_of_time_used_cpu := 100.0 * cast(float64) running_time_seconds / cast(float64) process_uptime;
+            row[5] = tprint("%", fmt(percentage_of_time_used_cpu, digits_after_comma=1));
+        }
+
+        // MEM USAGE
+        {
+            rss_bytes := it.resident_set_pages_count * system_page_size;
+            phys_mem_usage := 100.0 * cast(float64) rss_bytes / cast(float64) physical_memory_capacity_bytes;
+            row[6] = tprint("%", fmt(phys_mem_usage, digits_after_comma=1));
+        }
 
         // COMMAND LINE
+        builder: String_Builder; builder.allocator = temp;
         if it.depth {
             for 0..it.depth-2 {
                 // TODO: add '|' as ps does when there's uncle processes
@@ -254,10 +351,42 @@ main :: () {
             }
             append(*builder, " ");
         }
+        row[7] = builder_to_string(*builder,, temp);
 
-        append(*builder, "\n");
-        write_builder(*builder);
+        for *column_widths {
+            visible_count := count_visible_characters(row[it_index]);
+            it.* = max(it.*, visible_count + 1); // `+ 1` for separator
+        }
     }
+
+    // Display table header
+    builder: String_Builder; builder.allocator = temp;
+    for col: column_headers {
+        if column_headers[it_index] == "COMMAND" {
+            // Last column is left aligned, only needs a signle separator space
+            append(*builder, " ");
+        } else {
+            for 1..(column_widths[it_index] - col.count) append(*builder, " ");
+        }
+        append(*builder, col);
+    }
+    append(*builder, "\n");
+
+    // Display table rows
+    for row: table {
+        for col: row {
+            if column_headers[it_index] == "COMMAND" {
+                // Last column is left aligned, only needs a signle separator space
+                append(*builder, " ");
+            } else {
+                for 1..(column_widths[it_index] - col.count) append(*builder, " ");
+            }
+            append(*builder, col);
+        }
+        append(*builder, "\n");
+    }
+
+    write_builder(*builder);
 }
 
 //
@@ -407,6 +536,91 @@ substring :: inline (s: string, start := 0, end := NOT_SPECIFIED, count := NOT_S
 
     return string.{ data = s.data + _start, count = _count };
 }
+
+//
+// date-time utilities
+//
+
+is_same_day :: inline (lhs: Calendar_Time, rhs: Calendar_Time) -> bool {
+    return
+        lhs.day_of_month_starting_at_0 == rhs.day_of_month_starting_at_0
+        && lhs.month_starting_at_0 == rhs.month_starting_at_0
+        && lhs.year == rhs.year;
+}
+
+//
+// formatting utilities
+//
+
+fmt :: inline (v: Pid, minimum_digits := 1, $padding := "0") -> FormatInt #expand {
+    #assert(padding.count == 1);
+    return FormatInt.{ value = v, minimum_digits = minimum_digits, padding = padding[0] };
+}
+
+fmt :: inline (v: u64, minimum_digits := 1, $padding := "0") -> FormatInt #expand {
+    #assert(padding.count == 1);
+    return FormatInt.{ value = v, minimum_digits = minimum_digits, padding = padding[0] };
+}
+
+fmt :: inline (v: s64, minimum_digits := 1, $padding := "0") -> FormatInt #expand {
+    #assert(padding.count == 1);
+    return FormatInt.{ value = v, minimum_digits = minimum_digits, padding = padding[0] };
+}
+
+fmt :: inline (v: float64, digits_after_comma := -1) -> FormatFloat #expand {
+    return FormatFloat.{ value = v, trailing_width = digits_after_comma, zero_removal = .NO };
+}
+
+//
+// ascii control code handling
+//
+
+count_visible_characters :: (text: string) -> visible_count: s64 {
+    if !text return 0;
+
+    visible_count := 0;
+    cursor := 0;
+    while cursor < text.count {
+        index := find_index_from_left(text, #char "\e", cursor);
+        if index < 0 return visible_count + text.count - cursor;
+
+        visible_count += index - cursor;
+        cursor = index + 1;
+
+        while cursor < text.count {
+            char := text[cursor];
+
+            if char != #char "[" break;
+
+            cursor += 1;
+            while cursor < text.count {
+                char = text[cursor];
+                cursor += 1;
+
+                if char == #char "m" break;
+            }
+        }
+    }
+    return visible_count;
+}
+
+test_count_visible_characters :: () {
+    assert(count_visible_characters("foobar") == 6);
+    assert(count_visible_characters("foo\e[00mbar") == 6);
+    assert(count_visible_characters("foo\e[13;13434;1341;00mbar") == 6);
+    assert(count_visible_characters("") == 0);
+    assert(count_visible_characters("\e[31231;123123m\e[31323;313321m") == 0);
+    assert(count_visible_characters("\e[31231;123123ma\e[31323;313321m") == 1);
+}
+
+//
+// sysconf (unistd.h)
+//
+
+clock_ticks_per_second: u64;
+
+libc :: #system_library "libc";
+sysconf :: (name: s32) -> s64 #foreign libc;
 
 #import "Basic";
 #import "Hash_Table";
