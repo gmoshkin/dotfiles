@@ -3,8 +3,6 @@
     set_build_options_dc(.{ output_executable_name = "ps" });
 }
 
-// TODO: add support for %CPU, TIME, %MEM, START, maybe even STAT, but I have no idea what it means
-
 Pid :: #type,distinct s64;
 
 State :: struct {
@@ -270,11 +268,17 @@ main :: () {
     //
     // Prepare the output table
     //
-    column_headers :: string.["PID", "S", "TTY", "STARTED", "RAN", "%CPU", "%MEM", "COMMAND"];
+    Columns :: enum {
+        PID; STATE; TTY; START; RAN; CPU; MEM; COMMAND;
+    };
+    using Columns;
+    column_headers :: string.["PID", "S", "TTY", "START", "RAN", "%CPU", "%MEM", "COMMAND"];
     column_widths: [column_headers.count] int;
     for column_headers {
-        column_widths[it_index] = it.count + 1;
+        column_widths[it_index] = it.count + 2; // `+ 2` for separation
     }
+    // Hard-code %CPU column to have enough space for "100.0", so that it doesn't jiggle
+    column_widths[CPU] = 6;
 
     table: [..] [column_headers.count] string;
     array_reserve(*table, flattened_tree.count);
@@ -284,28 +288,28 @@ main :: () {
         it.command_line = command_line;
 
         // PID
-        row[0] = tprint("%", it.pid);
+        row[PID] = tprint("%", it.pid);
 
         // STATE
-        row[1] = tprint("%", cast(string) it.state);
+        row[STATE] = tprint("%", cast(string) it.state);
 
         // TTY
         tty := it.tty;
         if tty.count > 5 && substring(tty, count = 5) == "/dev/" {
             tty = substring(tty, start = 5);
         }
-        row[2] = tty;
+        row[TTY] = tty;
 
         // START TIME
         start_time_seconds := system_boot_time_seconds + xx it.started_seconds_since_boot;
         start_time := seconds_to_apollo(start_time_seconds);
         start_date_time := to_calendar(start_time, .LOCAL);
         if is_same_day(start_date_time, current_date_time) {
-            row[3] = tprint("%:%", start_date_time.hour,
+            row[START] = tprint("%:%", start_date_time.hour,
                                          fmt(start_date_time.minute, 2));
         } else {
             month_short :: string.["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-            row[3] = tprint("% %", month_short[start_date_time.month_starting_at_0], start_date_time.day_of_month_starting_at_0 + 1);
+            row[START] = tprint("% %", month_short[start_date_time.month_starting_at_0], start_date_time.day_of_month_starting_at_0 + 1);
         }
 
         // RUNNING TIME
@@ -315,9 +319,9 @@ main :: () {
             minutes := (running_time_seconds / 60) % 60;
             hours := running_time_seconds / 60 / 60;
             if hours {
-                row[4] = tprint("%:%:%", hours, fmt(minutes, 2), fmt(seconds, 2));
+                row[RAN] = tprint("%:%:%", hours, fmt(minutes, 2), fmt(seconds, 2));
             } else {
-                row[4] = tprint("%:%", minutes, fmt(seconds, 2));
+                row[RAN] = tprint("%:%", minutes, fmt(seconds, 2));
             }
         }
 
@@ -327,9 +331,9 @@ main :: () {
             process_uptime := system_uptime_seconds - it.started_seconds_since_boot;
             if process_uptime {
                 percentage_of_time_used_cpu := 100.0 * cast(float64) running_time_seconds / cast(float64) process_uptime;
-                row[5] = tprint("%", fmt(percentage_of_time_used_cpu, digits_after_comma=1));
+                row[CPU] = tprint("%", fmt(percentage_of_time_used_cpu, digits_after_comma=1));
             } else {
-                row[5] = "0.0";
+                row[CPU] = "0.0";
             }
         }
 
@@ -337,7 +341,7 @@ main :: () {
         {
             rss_bytes := it.resident_set_pages_count * system_page_size;
             phys_mem_usage := 100.0 * cast(float64) rss_bytes / cast(float64) physical_memory_capacity_bytes;
-            row[6] = tprint("%", fmt(phys_mem_usage, digits_after_comma=1));
+            row[MEM] = tprint("%", fmt(phys_mem_usage, digits_after_comma=1));
         }
 
         // COMMAND LINE
@@ -361,11 +365,11 @@ main :: () {
             }
             append(*builder, " ");
         }
-        row[7] = builder_to_string(*builder,, temp);
+        row[COMMAND] = builder_to_string(*builder,, temp);
 
         for *column_widths {
             visible_count := count_visible_characters(row[it_index]);
-            it.* = max(it.*, visible_count + 1); // `+ 1` for separator
+            it.* = max(it.*, visible_count + 2); // `+ 2` for separator
         }
     }
 
@@ -378,7 +382,9 @@ main :: () {
         } else {
             for 1..(column_widths[it_index] - col.count) append(*builder, " ");
         }
+        append(*builder, "\e[2;36m"); // color dark cyan
         append(*builder, col);
+        append(*builder, "\e[0m");
     }
     append(*builder, "\n");
 
