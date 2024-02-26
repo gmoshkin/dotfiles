@@ -124,8 +124,12 @@ main :: () {
             tail := stat;
             i := 1;
 
-            info: Process_Info;
+            // Either add a new entry, or get an entry which was inserted by this one's child
+            info, not_found := find_or_add(*state.process_infos, pid);
             info.pid = pid;
+
+            borrow_checker_my_ass := state.process_infos.entries.data;
+
             while tail {
                 defer i += 1;
                 found:, s:, tail = split_from_left(tail, #char " ");
@@ -178,10 +182,6 @@ main :: () {
                 }
             }
 
-            parent_info, not_found := find_or_add(*state.process_infos, info.parent_pid);
-            // don't really care if not_found or not
-            array_add(*parent_info.children, pid);
-
             if info.tty_number != 0 && info.tty_number != -1 {
                 tty_name, not_found := find_or_add(*state.tty_number_to_name, info.tty_number);
                 if not_found {
@@ -205,7 +205,13 @@ main :: () {
                 }
             }
 
-            table_set(*state.process_infos, pid, info);
+            parent_pid := info.parent_pid;
+            assert(borrow_checker_my_ass == state.process_infos.entries.data, "no use after free please");
+
+            // Insert a new parent info if we encountered the child first,
+            // or add a child to an existing parent.
+            parent_info:, not_found = find_or_add(*state.process_infos, parent_pid);
+            array_add(*parent_info.children, pid);
 
             // info.command_line will be set later so as to not read extra files
             // we don't have to
