@@ -1,6 +1,6 @@
 #run {
     #import "Compiler";
-    set_build_options_dc(.{ output_executable_name = "pageview" });
+    set_build_options_dc(.{ output_executable_name = "pageview", write_added_strings=true });
 }
 
 /* TODO:
@@ -189,6 +189,9 @@ main :: () {
         print("Need a command to run\n");
         exit(1);
     }
+
+    // Initialize command
+    init_commands();
 
     // Preallocate memory
     array_reserve(*state.search_string_buffer, 4096);
@@ -1324,25 +1327,63 @@ jump_to_previous_search_match :: () {
 Command :: struct {
     name: string;
     type: Type_Info_Procedure;
-    proc_pointer: *void;
+    proc_wrapper: (args: .. Any) -> (bool, string);
 }
 
-make_command :: (name: string, proc: $T) -> Command {
+make_command :: (name: string, $proc: Code) -> Command #expand {
+    #insert #run -> string {
+        builder: String_Builder;
+        defer free_buffers(*builder);
+
+        base_code := compiler_get_nodes(proc);
+        assert(base_code.kind == .IDENT);
+        code := cast(*Code_Ident) base_code;
+        assert(code.type.type == .PROCEDURE);
+
+        print(*builder, #string CODE
+
+proc_wrapper :: (args: .. Any) -> (ok: bool, error_message: string) {
+
+        CODE);
+
+        type := cast(*Type_Info_Procedure) code.type;
+        for type.argument_types {
+            print(*builder, #string CODE
+
+    arg_%1 := << cast(* %2) args[%1].value_pointer;
+
+            CODE, it_index, get_type(it));
+        }
+
+        print(*builder, "ok, error_message := %(", code.name);
+        for type.argument_types print(*builder, "arg_%, ", it_index);
+        print(*builder, ");");
+
+        print(*builder, #string CODE
+
+    return ok, error_message;
+}
+
+        CODE);
+
+        return builder_to_string(*builder);
+    };
+
     return Command.{
-        name,
-        type_info(T),
-        xx proc,
+        name = name,
+        type = type_info(type_of(#insert proc)),
+        proc_wrapper = proc_wrapper,
     };
 }
 
-_commands: [..] Command;
-commands :: () -> [] Command {
-    if !_commands {
-        array_add(*_commands, make_command("period", change_command_rerun_period));
-        array_add(*_commands, make_command("interval", change_command_rerun_period));
+commands: [..] Command;
+init_commands :: () {
+    if !commands {
+        array_add(*commands, make_command("period", change_command_rerun_period));
+        array_add(*commands, make_command("interval", change_command_rerun_period));
     }
 
-    return _commands;
+    print_vars(commands);
 }
 
 execute_command :: (command_line: string) {
@@ -1353,7 +1394,7 @@ execute_command :: (command_line: string) {
     if !ok return;
 
     command: *Command;
-    for *commands() {
+    for *commands {
         if it.name == command_name {
             command = it;
             break;
@@ -1365,27 +1406,37 @@ execute_command :: (command_line: string) {
         return;
     }
 
-    if command.type.argument_types.count > 1 {
-        set_error_message("multiple arguments aren't supported yet");
-        return;
-    }
+    argument_types := command.type.argument_types;
+    args: [..] Any; args.allocator = temp;
+    array_reserve(*args, argument_types.count);
 
-    for command.type.argument_types {
-        if it == type_info(float32) {
-            value, ok := parse_float(*tail);
-            if !ok {
-                set_error_message("a number is required after `%`", command_name);
+    for argument_types {
+        arg := array_add(*args);
+        arg.type = it;
+        arg.value_pointer = talloc(arg.type.runtime_size);
+
+        value_string := tail;
+        ok := set_value_from_string(arg.*, *tail);
+        value_string.count -= tail.count;
+
+        if !ok {
+            value_string = trim(value_string);
+            if !value_string then value_string = trim(tail);
+
+            if !value_string {
+                set_error_message("expected % arguments, but got only %", argument_types.count, args.count - 1); // `- 1` cause an empty slot was already added
                 return;
             }
 
-            proc := cast((float32) -> (bool, string)) command.proc_pointer;
-            ok=, message := proc(value);
-            if !ok set_error_message("%", message);
-            return;
-        } else {
-            set_error_message("unsupported argument type %", it);
+            set_error_message("'%' is not a valid argument #%, expected a %", value_string, it_index + 1, type_to_string(arg.type));
             return;
         }
+    }
+
+    ok=, error_message := command.proc_wrapper(..args);
+    if !ok {
+        set_error_message("%", error_message);
+        return;
     }
 }
 
@@ -1403,7 +1454,7 @@ set_error_message :: (format: string, args: .. Any) {
 
     reset(*error_message_builder);
     print(*error_message_builder, format, ..args);
-    error_message_deadline = frame_time + 2;
+    error_message_deadline = frame_time + 3;
 } @PrintLike
 
 //
@@ -1647,4 +1698,5 @@ fmt :: inline (v: s64, minimum_digits := 1, $padding := "0") -> FormatInt #expan
 #import "File";
 #import "Flat_Pool";
 #import "Print_Vars";
+#import "Reflection";
 System :: #import "System";
