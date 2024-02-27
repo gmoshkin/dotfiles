@@ -1229,11 +1229,18 @@ input_handle_character :: (char: u8) {
                 case #char "\x01"; /* CTRL+A */ input_cursor = 0;
                 case #char "\x05"; /* CTRL+E */ input_cursor = command_line.count;
 
+                case #char "\x09"; /* CTRL+I or TAB */
+                    if input_mode == .INPUT_COMMAND {
+                        complete_command();
+                    }
+
                 case #char "\x08"; /* CTRL+H */ #through;
                 case #char "\x7f"; /* BACKSPACE */
                     if command_line.count > 0 && input_cursor > 0 {
                         array_ordered_remove_range(*command_line, input_cursor - 1, input_cursor);
                         input_cursor -= 1;
+                    } else {
+                        next_input_mode = .NAVIGATE;
                     }
 
                 case #char "\x04"; /* CTRL+D */
@@ -1437,6 +1444,32 @@ execute_command :: (command_line: string) {
     if !ok {
         set_error_message("%", error_message);
         return;
+    }
+}
+
+complete_command :: () {
+    using context.state;
+
+    if input_cursor != command_line.count {
+        // TODO: could do something smarter here
+        return;
+    }
+
+    if command_line.count == 0 return;
+
+    // TODO: pressing TAB once starts COMMAND_COMPLETION input mode in which
+    // the completion list is diplayed on the screen and pressing ctrl+p/ctrl+n
+    // (or even arrows if you're into that) iterates over the list.
+    // Pressing any character key exits completion mode into INPUT_COMMAND mode
+    // Moving the cursor also exits completion mode
+    // Pressing enter runs the command
+    for commands {
+        if !starts_with(it.name, xx command_line) continue;
+
+        command_line.count = 0;
+        array_add(*command_line, ..cast([] u8) it.name);
+        input_cursor = command_line.count;
+        break;
     }
 }
 
