@@ -601,13 +601,10 @@ count_visible_characters :: (text: string) -> visible_count: s64 {
         if index < 0 return visible_count + text.count - cursor;
 
         visible_count += index - cursor;
-        cursor = index + 1;
+        cursor = index + 1; // `+ 1` to skip the current "\e"
 
-        while cursor < text.count {
-            char := text[cursor];
-
-            if char != #char "[" break;
-
+        char := text[cursor];
+        if char == #char "[" {
             cursor += 1;
             while cursor < text.count {
                 char = text[cursor];
@@ -615,6 +612,8 @@ count_visible_characters :: (text: string) -> visible_count: s64 {
 
                 if char == #char "m" break;
             }
+        } else {
+            // TODO: don't care about other escape codes for now
         }
     }
     return visible_count;
@@ -627,6 +626,7 @@ test_count_visible_characters :: () {
     assert(count_visible_characters("") == 0);
     assert(count_visible_characters("\e[31231;123123m\e[31323;313321m") == 0);
     assert(count_visible_characters("\e[31231;123123ma\e[31323;313321m") == 1);
+    assert(count_visible_characters("\e[31m[31m") == 4);
 }
 
 //
