@@ -4,9 +4,8 @@
 }
 
 /* TODO:
-   - implement commands during runtime
-      - command to save the current buffer and show diffs (maybe even in split view)
-          although I can just use the tmux splits for that....
+  - command to save the current buffer and show diffs (maybe even in split view)
+      although I can just use the tmux splits for that....
    - add line numberring option
    - implement saving buffer history so that it's easy to cycle back and see if
      there was anything interesting
@@ -46,9 +45,13 @@ State :: struct {
     input_cursor: s64;
 
     command_line: [..] u8;
+    command_line_history: [..] string;
+    history_cursor := -1;
+    history_stash: string;
 
     search_string_buffer: [..] u8;
     search_string: string; // this is always just the search_string_buffer converted to string
+    search_string_history: [..] string;
 
     input_buffer: [32] u8;
     input_buffer_count: s64;
@@ -172,7 +175,7 @@ main :: () {
                     print("Expected a log file after '%'\n", arg);
                     exit(1);
                 }
-                state.log_file_name = args[cursor];
+                state.log_file_name = copy_string(args[cursor]);
 
             // TODO: a flag to just watch a file's contents, so I don't have to
             // do `cat filename`
@@ -769,6 +772,11 @@ main :: () {
 
             assert(get_current_buffer(*builder) == buffer);
             write_builder(*builder);
+
+            history := get_history_for_input_mode();
+            if history for history.* {
+                write_strings("\n", it);
+            }
         }
 
         if should_exit break;
@@ -1187,8 +1195,9 @@ input_handle_character :: (char: u8) {
 
                 case #char "/"; {
                     next_input_mode = .INPUT_SEARCH_STRING;
-                    array_add(*command_line, ..search_string_buffer);
+                    array_replace(*command_line, search_string_buffer);
                     input_cursor = command_line.count;
+                    history_cursor = -1;
                     // turn off error message instantly
                     error_message_deadline = frame_time - 1;
                 }
@@ -1196,6 +1205,7 @@ input_handle_character :: (char: u8) {
                 case #char ";";
                     next_input_mode = .INPUT_COMMAND;
                     input_cursor = command_line.count;
+                    history_cursor = -1;
                     // turn off error message instantly
                     error_message_deadline = frame_time - 1;
 
@@ -1220,12 +1230,27 @@ input_handle_character :: (char: u8) {
                 array_insert_at(*command_line, char, input_cursor);
                 input_cursor += 1;
             } else if char == {
-                case #char "\e"; /* ESCAPE */ next_input_mode = .NAVIGATE;
-                case #char "\n"; /* ENTER */
+                case #char "\e"; /* ESCAPE */
+                    history_cursor = -1;
                     next_input_mode = .NAVIGATE;
+
+                case #char "\n"; /* ENTER */
+                    history := get_history_for_input_mode();
+                    if command_line && (!history.count || cast(string) command_line != history.*[history.count - 1]) {
+                        array_add(history, copy_string(xx command_line));
+                    }
                     if input_mode == .INPUT_COMMAND {
                         execute_command(xx command_line);
+                        command_line.count = 0;
                     }
+                    history_cursor = -1;
+                    next_input_mode = .NAVIGATE;
+
+                case #char "\x10"; /* CTRL+P */
+                    history_previous();
+
+                case #char "\x0e"; /* CTRL+N */
+                    history_next();
 
                 case #char "\x02"; /* CTRL+B */ if input_cursor > 0 then input_cursor -= 1;
                 case #char "\x06"; /* CTRL+F */ if input_cursor < command_line.count then input_cursor += 1;
@@ -1286,6 +1311,61 @@ input_handle_character :: (char: u8) {
     // Set the actual input mode at the end so that it doesn't interfere with other stuff
     input_mode = next_input_mode;
 }
+
+//
+// command line key handling procs
+//
+
+get_history_for_input_mode :: () -> *[..] string {
+    using context.state;
+
+    if input_mode == {
+        case .INPUT_COMMAND;        return *command_line_history;
+        case .INPUT_SEARCH_STRING;  return *search_string_history;
+    }
+    return null;
+}
+
+history_previous :: () {
+    using context.state;
+
+    history := get_history_for_input_mode();
+
+    if history_cursor == -1 {
+        free(history_stash);
+        history_stash = copy_string(xx command_line);
+        history_cursor = history.count;
+    }
+    if history_cursor > 0 {
+        history_cursor -= 1;
+        command_line.count = 0;
+        array_replace(*command_line, history.*[history_cursor]);
+        input_cursor = command_line.count;
+    }
+}
+
+history_next :: () {
+    using context.state;
+
+    history := get_history_for_input_mode();
+
+    if history_cursor == -1 return;
+    if history_cursor < history.count - 1 {
+        history_cursor += 1;
+        command_line.count = 0;
+        array_replace(*command_line, history.*[history_cursor]);
+        input_cursor = command_line.count;
+    } else {
+        history_cursor = -1;
+        command_line.count = 0;
+        array_replace(*command_line, history_stash);
+        input_cursor = command_line.count;
+    }
+}
+
+//
+// navigate mode key handling procs
+//
 
 jump_to_next_search_match :: () {
     using context.state;
@@ -1386,17 +1466,6 @@ proc_wrapper :: (args: .. Any) -> (ok: bool, error_message: string) {
     };
 }
 
-commands: [..] Command;
-init_commands :: () {
-    if !commands {
-        array_add(*commands, make_command("period", change_command_rerun_period));
-        array_add(*commands, make_command("interval", change_command_rerun_period));
-        array_add(*commands, make_command("command", set_external_command));
-    }
-
-    print_vars(commands);
-}
-
 execute_command :: (command_line: string) {
     using,except.["command_line", "command"] context.state;
 
@@ -1479,9 +1548,31 @@ complete_command :: () {
         if !starts_with(it.name, xx command_line) continue;
 
         command_line.count = 0;
-        array_add(*command_line, ..cast([] u8) it.name);
+        array_replace(*command_line, it.name);
         input_cursor = command_line.count;
         break;
+    }
+}
+
+set_error_message :: (format: string, args: .. Any) {
+    using context.state;
+
+    reset(*error_message_builder);
+    print(*error_message_builder, format, ..args);
+    error_message_deadline = frame_time + 3;
+} @PrintLike
+
+//
+// command procs
+//
+
+commands: [..] Command;
+init_commands :: () {
+    if !commands {
+        array_add(*commands, make_command("period", change_command_rerun_period));
+        array_add(*commands, make_command("interval", change_command_rerun_period));
+        array_add(*commands, make_command("command", set_external_command));
+        array_add(*commands, make_command("log", set_log_file));
     }
 }
 
@@ -1504,13 +1595,28 @@ set_external_command :: (new_command: string) -> (ok: bool, error_message: strin
     return true, "";
 }
 
-set_error_message :: (format: string, args: .. Any) {
+set_log_file :: (new_log_file: string) -> (ok: bool, error_message: string) {
     using context.state;
 
-    reset(*error_message_builder);
-    print(*error_message_builder, format, ..args);
-    error_message_deadline = frame_time + 3;
-} @PrintLike
+    if find_index_from_left(new_log_file, #char " ") != -1 {
+        return false, "log filename can't contain spaces";
+    }
+
+    if log_file_name == new_log_file return false, "nothing changed";
+
+    free(log_file_name);
+    log_file_name = new_log_file;
+
+    if log_file.handle file_close(*log_file);
+
+    log_file=, ok := file_open(log_file_name, for_writing = true, keep_existing_content = true, log_errors = false);
+    if !ok {
+        code, message := System.get_error_value_and_string();
+        return false, tprint("open('%'): (%) %", new_log_file, code, message);
+    }
+    log_file = log_file;
+    return true, "";
+}
 
 //
 // logging
@@ -1638,6 +1744,19 @@ advance :: inline (a: *[] $T, amount: s64 = 1) {
     a.count -= amount;
     a.data  += amount;
 }
+
+// TODO: come up with a better name
+array_replace :: inline (a: *[..] u8, b: string) {
+    a.count = 0;
+    array_add(a, ..cast([] u8)b);
+}
+
+// TODO: come up with a better name
+array_replace :: inline (a: *[..] u8, b: [] u8) {
+    a.count = 0;
+    array_add(a, ..b);
+}
+
 
 //
 // miscellaneous utilities
