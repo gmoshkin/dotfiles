@@ -75,7 +75,7 @@ State :: struct {
     // command
     //
 
-    command: [] string;
+    command: [..] string;
 
     command_run_period_seconds := 1.0;
     time_next_command_run : float64 = -1.0;
@@ -182,8 +182,11 @@ main :: () {
         cursor += 1;
     }
 
-    state.command.data = args.data + cursor;
-    state.command.count = args.count - cursor;
+    command_size := args.count - cursor;
+    array_reserve(*state.command, command_size);
+    for 0..command_size-1 {
+        array_add(*state.command, copy_string(args[cursor + it]));
+    }
 
     if state.command.count == 0 {
         print("Need a command to run\n");
@@ -307,7 +310,7 @@ main :: () {
 
             // If the command is a single argument which contains a string,
             // assume it's some shell pipeline & run it in a shell
-            temp_command := command;
+            temp_command : [] string = xx command;
             if command.count == 1 && find_index_from_left(command[0], #char " ") != -1 {
                 temp_command = .["/bin/sh", "-c", command[0]];
                 // temp_command = NewArray(3, string,, temp);
@@ -1388,6 +1391,7 @@ init_commands :: () {
     if !commands {
         array_add(*commands, make_command("period", change_command_rerun_period));
         array_add(*commands, make_command("interval", change_command_rerun_period));
+        array_add(*commands, make_command("command", set_external_command));
     }
 
     print_vars(commands);
@@ -1422,7 +1426,15 @@ execute_command :: (command_line: string) {
         arg.type = it;
         arg.value_pointer = talloc(arg.type.runtime_size);
 
+        tail = trim_left(tail);
+        if argument_types.count == 1 && arg.type == type_info(string) {
+            (cast(*string) arg.value_pointer).* = tail;
+            break;
+        }
+
         value_string := tail;
+        // TODO: for strings it requires the thing to be surrounded with double quotes.
+        // Instead it should consume any sequence until whitespace
         ok := set_value_from_string(arg.*, *tail);
         value_string.count -= tail.count;
 
@@ -1479,6 +1491,16 @@ change_command_rerun_period :: (time: float32) -> (ok: bool, error_msg: string) 
     if time <= 0.0001 return false, "value must not be less than 0.0001";
 
     command_run_period_seconds = time;
+    return true, "";
+}
+
+set_external_command :: (new_command: string) -> (ok: bool, error_message: string) {
+    using context.state;
+
+    for command free(it);
+    command.count = 0;
+    array_add(*command, copy_string(new_command));
+    time_next_command_run = frame_time;
     return true, "";
 }
 
