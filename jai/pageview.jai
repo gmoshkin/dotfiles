@@ -5,10 +5,11 @@
 
 /* TODO:
    - implement commands during runtime
-      - command to change time before retry
       - command to save the current buffer and show diffs (maybe even in split view)
           although I can just use the tmux splits for that....
    - add line numberring option
+   - implement saving buffer history so that it's easy to cycle back and see if
+     there was anything interesting
    - I support running command in shell, so that you can do stuff like
         `pv "cat /proc/123/stat | tr ' ' '\n'"`
         although maybe doing simple filters is going to be simple?
@@ -37,14 +38,28 @@ State :: struct {
     // input
     //
 
-    input_mode: enum { NAVIGATE; INPUT_SEARCH_STRING; } = .NAVIGATE;
+    input_mode: enum {
+        NAVIGATE;
+        INPUT_SEARCH_STRING;
+        INPUT_COMMAND;
+    } = .NAVIGATE;
     input_cursor: s64;
+
+    command_line: [..] u8;
+
     search_string_buffer: [..] u8;
     search_string: string; // this is always just the search_string_buffer converted to string
 
     input_buffer: [32] u8;
     input_buffer_count: s64;
     input_received_this_tick: bool;
+
+    //
+    // status
+    //
+    frame_time: float64;
+    error_message_builder: String_Builder;
+    error_message_deadline: float64 = -1.0;
 
     //
     // logging
@@ -64,6 +79,7 @@ State :: struct {
 
     command_run_period_seconds := 1.0;
     time_next_command_run : float64 = -1.0;
+    last_command_run_date_time: Calendar_Time;
     last_command_result: Process_Result;
 
     main_window_buffer: Window_Buffer;
@@ -173,6 +189,10 @@ main :: () {
         print("Need a command to run\n");
         exit(1);
     }
+
+    // Preallocate memory
+    array_reserve(*state.search_string_buffer, 4096);
+    array_reserve(*state.command_line, 4096);
 
     // Setup logger
     state.error_log_builder.allocator = temp;
@@ -302,6 +322,8 @@ main :: () {
             }
             time_next_command_run = time + command_run_period_seconds;
 
+            last_command_run_date_time = to_calendar(current_time_consensus(), .LOCAL);
+
             if last_command_result.type == .FAILED_TO_LAUNCH {
                 free(raw_text_and_control_codes);
                 prefix :: "\e[31m";
@@ -311,6 +333,8 @@ main :: () {
 
             separate_control_codes(raw_text_and_control_codes);
         }
+
+        frame_time = seconds_since_init();
 
         // Handle input
         if input_received_this_tick {
@@ -365,6 +389,42 @@ main :: () {
                     append(*builder, " -> %", last_command_result.exit_code);
                     // TODO: display stderr also in this case
                 }
+
+                // command rerun period
+                {
+                    append(*builder, "\e[2;37m"); // color gray (dark + white)
+                    append(*builder, " T: ");
+                    // XXX: am I stupid, or is stb_print_float doing something
+                    // weird when removing zero and when trailing_width is not zero?
+                    text := tprint("%", fmt(command_run_period_seconds, digits_after_comma=1));
+                    text = trim(text);
+                    append(*builder, text);
+                    append(*builder, "s");
+                    append(*builder, "\e[0m");
+                }
+
+                left_side := to_string(*builder);
+
+                right_side_builder: String_Builder; right_side_builder.allocator = temp;
+                right_side: string;
+                // right side
+                {
+                    using last_command_run_date_time;
+                    month_short :: string.["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                    append(*right_side_builder, "\e[32m"); // color green
+                    print(*right_side_builder, "% % %:%:%", month_short[month_starting_at_0], day_of_month_starting_at_0,
+                                                            fmt(hour, 2), fmt(minute, 2), fmt(second, 2));
+                    append(*right_side_builder, "\e[0m");
+                    right_side = to_string(*right_side_builder);
+                }
+
+                // padding between left side & right side
+                padding := terminal_size.cols - count_visible_characters(left_side) - count_visible_characters(right_side);
+                if padding >= 0 {
+                    for 1..padding append(*builder, " ");
+                    append(*builder, right_side);
+                }
+
                 append(*builder, "\n");
             }
 
@@ -639,7 +699,11 @@ main :: () {
             append(*builder, "\e[K"); // "\e[K": erase in line
             append(*builder, "\e[2;37m"); // color gray
 
-            if input_mode == .NAVIGATE {
+            if frame_time < error_message_deadline {
+                append(*builder, "\e[0;31m"); // color red;
+                append(*builder, to_string(*error_message_builder));
+                append(*builder, "\e[0m");
+            } else if input_mode == .NAVIGATE {
                 text_start := buffer.count;
                 {
                     print_to_builder(*builder, "offset: %, %   ", row_offset, col_offset);
@@ -661,14 +725,17 @@ main :: () {
                 if overflow > 0 {
                     buffer.count -= overflow;
                 }
-            } else if input_mode == .INPUT_SEARCH_STRING {
-                append(*builder, "/");
+            } else if input_mode == .INPUT_SEARCH_STRING || input_mode == .INPUT_COMMAND {
+                prefix := "??";
+                text := "<unknown mode>";
+                if input_mode == .INPUT_SEARCH_STRING { prefix = "/";  text = search_string; }
+                if input_mode == .INPUT_COMMAND       { prefix = "> "; text = xx command_line; }
+                append(*builder, prefix);
 
-                // `- 1` for the leading `/`
-                visible_columns_budget := terminal_size.cols - 1;
+                visible_columns_budget := terminal_size.cols - prefix.count;
 
                 cursor_column := 0;
-                overflow := search_string.count - visible_columns_budget;
+                overflow := text.count - visible_columns_budget;
                 // FIXME: I just want the last column to be left for the cursor
                 // if the cursor is at the last column, but than be filled with
                 // the search string otherwise... but I'm a sleepy head right
@@ -677,13 +744,13 @@ main :: () {
                     // Add extra space at the end for the cursor
                     overflow += 1;
                     slice_start := clamp(input_cursor - 2, 0, overflow);
-                    append(*builder, substring(search_string, slice_start, count=visible_columns_budget - 1));
-                    // `+ 1` for the leading "/" & `+ 1` because rows start at 1
-                    cursor_column = input_cursor - slice_start + 2;
+                    append(*builder, substring(text, slice_start, count=visible_columns_budget - 1));
+                    // `+ 1` because rows start at 1
+                    cursor_column = input_cursor - slice_start + prefix.count + 1;
                 } else {
-                    append(*builder, search_string);
-                    // `+ 1` for the leading "/" & `+ 1` because rows start at 1
-                    cursor_column = input_cursor + 2;
+                    append(*builder, text);
+                    // `+ 1` because rows start at 1
+                    cursor_column = input_cursor + prefix.count + 1;
                 }
 
                 // move the cursor to where the user is editting text
@@ -1083,6 +1150,7 @@ my_run_command :: (args: .. string, working_directory := "", capture_and_return_
 input_handle_character :: (char: u8) {
     using context.state;
 
+    next_input_mode := input_mode;
     if input_mode == {
         case .NAVIGATE;
             if char == {
@@ -1112,9 +1180,18 @@ input_handle_character :: (char: u8) {
                 case #char "L"; if !line_wrapping col_offset += terminal_size.cols / 2;
 
                 case #char "/"; {
-                    input_mode = .INPUT_SEARCH_STRING;
-                    input_cursor = search_string_buffer.count;
+                    next_input_mode = .INPUT_SEARCH_STRING;
+                    array_add(*command_line, ..search_string_buffer);
+                    input_cursor = command_line.count;
+                    // turn off error message instantly
+                    error_message_deadline = frame_time - 1;
                 }
+
+                case #char ";";
+                    next_input_mode = .INPUT_COMMAND;
+                    input_cursor = command_line.count;
+                    // turn off error message instantly
+                    error_message_deadline = frame_time - 1;
 
                 case #char "n"; jump_to_next_search_match();
                 case #char "N"; jump_to_previous_search_match();
@@ -1129,54 +1206,72 @@ input_handle_character :: (char: u8) {
 
             col_offset = max(col_offset, -(cast(int) terminal_size.cols - 1));
             col_offset = min(col_offset, main_window_buffer.max_line_length - 1);
-        case .INPUT_SEARCH_STRING;
+
+        case .INPUT_SEARCH_STRING; #through;
+        case .INPUT_COMMAND;
+
             if char >= #char " " && char <= #char "~" {
-                array_insert_at(*search_string_buffer, char, input_cursor);
+                array_insert_at(*command_line, char, input_cursor);
                 input_cursor += 1;
             } else if char == {
-                case #char "\e"; /* ESCAPE */ input_mode = .NAVIGATE;
-                case #char "\n"; /* ENTER */ input_mode = .NAVIGATE; // TODO: jump to first match
+                case #char "\e"; /* ESCAPE */ next_input_mode = .NAVIGATE;
+                case #char "\n"; /* ENTER */
+                    next_input_mode = .NAVIGATE;
+                    if input_mode == .INPUT_COMMAND {
+                        execute_command(xx command_line);
+                    }
 
                 case #char "\x02"; /* CTRL+B */ if input_cursor > 0 then input_cursor -= 1;
-                case #char "\x06"; /* CTRL+F */ if input_cursor < search_string_buffer.count then input_cursor += 1;
+                case #char "\x06"; /* CTRL+F */ if input_cursor < command_line.count then input_cursor += 1;
                 case #char "\x01"; /* CTRL+A */ input_cursor = 0;
-                case #char "\x05"; /* CTRL+E */ input_cursor = search_string_buffer.count;
+                case #char "\x05"; /* CTRL+E */ input_cursor = command_line.count;
 
                 case #char "\x08"; /* CTRL+H */ #through;
                 case #char "\x7f"; /* BACKSPACE */
-                    if search_string_buffer.count > 0 && input_cursor > 0 {
-                        array_ordered_remove_range(*search_string_buffer, input_cursor - 1, input_cursor);
+                    if command_line.count > 0 && input_cursor > 0 {
+                        array_ordered_remove_range(*command_line, input_cursor - 1, input_cursor);
                         input_cursor -= 1;
                     }
 
                 case #char "\x04"; /* CTRL+D */
-                    if search_string_buffer.count > 0 && input_cursor < search_string_buffer.count {
-                        array_ordered_remove_range(*search_string_buffer, input_cursor, input_cursor + 1);
+                    if command_line.count > 0 && input_cursor < command_line.count {
+                        array_ordered_remove_range(*command_line, input_cursor, input_cursor + 1);
                     }
 
                 case #char "\x0b"; /* CTRL+K */
-                    if search_string_buffer.count > 0 && input_cursor < search_string_buffer.count {
-                        array_ordered_remove_range(*search_string_buffer, input_cursor, search_string_buffer.count);
+                    if command_line.count > 0 && input_cursor < command_line.count {
+                        array_ordered_remove_range(*command_line, input_cursor, command_line.count);
                     }
 
                 case #char "\x17"; /* CTRL+W */
-                    if search_string_buffer.count > 0 && input_cursor > 0 {
-                        string_before_cursor := cast(string) search_string_buffer;
+                    if command_line.count > 0 && input_cursor > 0 {
+                        string_before_cursor := cast(string) command_line;
                         string_before_cursor.count = input_cursor;
                         to_delete_from := find_index_from_right(string_before_cursor, #char " ");
                         if to_delete_from == -1 then to_delete_from = 0;
-                        array_ordered_remove_range(*search_string_buffer, to_delete_from, input_cursor);
+                        array_ordered_remove_range(*command_line, to_delete_from, input_cursor);
                         input_cursor = to_delete_from;
                     }
 
                 case #char "\x15"; /* CTRL+U */ {
-                    search_string_buffer.count = 0;
+                    command_line.count = 0;
                     input_cursor = 0;
                 }
             }
 
-            search_string = xx search_string_buffer;
+            if input_mode == .INPUT_SEARCH_STRING {
+                search_string_buffer.count = 0;
+                array_add(*search_string_buffer, ..command_line);
+                search_string = xx search_string_buffer;
+            }
+
+            if next_input_mode == .NAVIGATE {
+                command_line.count = 0;
+            }
     }
+
+    // Set the actual input mode at the end so that it doesn't interfere with other stuff
+    input_mode = next_input_mode;
 }
 
 jump_to_next_search_match :: () {
@@ -1223,6 +1318,95 @@ jump_to_previous_search_match :: () {
 }
 
 //
+// commands
+//
+
+Command :: struct {
+    name: string;
+    type: Type_Info_Procedure;
+    proc_pointer: *void;
+}
+
+make_command :: (name: string, proc: $T) -> Command {
+    return Command.{
+        name,
+        type_info(T),
+        xx proc,
+    };
+}
+
+_commands: [..] Command;
+commands :: () -> [] Command {
+    if !_commands {
+        array_add(*_commands, make_command("period", change_command_rerun_period));
+        array_add(*_commands, make_command("interval", change_command_rerun_period));
+    }
+
+    return _commands;
+}
+
+execute_command :: (command_line: string) {
+    using,except.["command_line", "command"] context.state;
+
+    tail := command_line;
+    command_name, ok := parse_token(*tail);
+    if !ok return;
+
+    command: *Command;
+    for *commands() {
+        if it.name == command_name {
+            command = it;
+            break;
+        }
+    }
+
+    if !command {
+        set_error_message("unknown command `%`", command_name);
+        return;
+    }
+
+    if command.type.argument_types.count > 1 {
+        set_error_message("multiple arguments aren't supported yet");
+        return;
+    }
+
+    for command.type.argument_types {
+        if it == type_info(float32) {
+            value, ok := parse_float(*tail);
+            if !ok {
+                set_error_message("a number is required after `%`", command_name);
+                return;
+            }
+
+            proc := cast((float32) -> (bool, string)) command.proc_pointer;
+            ok=, message := proc(value);
+            if !ok set_error_message("%", message);
+            return;
+        } else {
+            set_error_message("unsupported argument type %", it);
+            return;
+        }
+    }
+}
+
+change_command_rerun_period :: (time: float32) -> (ok: bool, error_msg: string) {
+    using context.state;
+
+    if time <= 0.0001 return false, "value must not be less than 0.0001";
+
+    command_run_period_seconds = time;
+    return true, "";
+}
+
+set_error_message :: (format: string, args: .. Any) {
+    using context.state;
+
+    reset(*error_message_builder);
+    print(*error_message_builder, format, ..args);
+    error_message_deadline = frame_time + 2;
+} @PrintLike
+
+//
 // logging
 //
 
@@ -1259,23 +1443,10 @@ ascii_or_hex_printer :: (builder: *String_Builder, any: Any, struct_printer_data
     return true;
 }
 
-NOT_SPECIFIED :: 0x7fff_ffff_ffff_ffff;
-substring :: (s: string, start := 0, end := NOT_SPECIFIED, count := NOT_SPECIFIED) -> string {
-    _count := count;
-    _start := ifx start < 0 then s.count + start else start;
-    if end == NOT_SPECIFIED && count == NOT_SPECIFIED {
-        _count = s.count - _start;
-    } else {
-        assert(end == NOT_SPECIFIED || count == NOT_SPECIFIED);
-        _end := ifx end < 0 then s.count + end else end;
-        if count == NOT_SPECIFIED then _count = _end - _start;
-    }
-    assert(_start >= 0,                 "s.count: %, start: %, end: %, count: %", s.count, start, end, count);
-    assert(_start <= s.count,           "s.count: %, start: %, end: %, count: %", s.count, start, end, count);
-    assert(_count >= 0,                 "s.count: %, start: %, end: %, count: %", s.count, start, end, count);
-    assert(_start + _count <= s.count,  "s.count: %, start: %, end: %, count: %", s.count, start, end, count);
-
-    return string.{ data = s.data + _start, count = _count };
+to_string :: (builder: *String_Builder) -> string {
+    buffer := get_base_buffer(builder);
+    assert(buffer == get_current_buffer(builder), "should've used builder_to_string this time");
+    return to_string(get_buffer_data(buffer), buffer.count);
 }
 
 is_mode_reset_control_sequence :: inline (s: string) -> bool {
@@ -1288,45 +1459,6 @@ is_mode_reset_control_sequence :: inline (s: string) -> bool {
             return false;
 
     return true;
-}
-
-eat_visible_or_escape_sequence :: (text: string) -> head: string, visible_count: s64, tail: string {
-    if !text return "", 0, "";
-
-    count := find_index_from_left(text, #char "\e");
-    if count < 0 then count = text.count;
-
-    if count > 0 {
-        // Visible character sequence
-        head := substring(text, 0, count = count);
-        tail := substring(text, count);
-        return head, count, tail;
-    }
-
-    // Escape sequence
-    count += 1;
-
-    while count < text.count {
-        char := text[count];
-
-        if char == {
-            case #char "[";
-                count += 1;
-
-                while count < text.count {
-                    char = text[count];
-                    count += 1;
-
-                    if char == #char "m" break;
-                }
-            case;
-                break;
-        }
-    }
-
-    head := substring(text, 0, count = count);
-    tail := substring(text, count);
-    return head, 0, tail;
 }
 
 print_ascii_or_hex :: inline (builder: *String_Builder, char: u8) {
@@ -1493,90 +1625,21 @@ tcgetattr :: (fd: s32, termios: *Termios) -> s32 #foreign libc;
 tcsetattr :: (fd: s32, optional_actions: s32, termios: *Termios) -> s32 #foreign libc;
 
 //
-// pretty assert
+// formatting utilities
 //
 
-// Constant structs don't work with compile time constructs yet, so we return
-// all fields directly
-get_expr_info :: (code: Code) -> kind: Code_Node.Kind, op_type: s32, full_expr: string, proc_expr: string, lhs: Code, rhs: Code {
-    #import "Program_Print";
-
-    root := compiler_get_nodes(code);
-
-    builder: String_Builder;
-    print_expression(*builder, root);
-    full_expr := builder_to_string(*builder);
-
-    if root.kind == {
-        case .BINARY_OPERATOR;
-            binop := cast(*Code_Binary_Operator) root;
-            op_type := binop.operator_type;
-            lhs := compiler_get_code(binop.left, code);
-            rhs := compiler_get_code(binop.right, code);
-            return xx root.kind, op_type, full_expr, "", lhs, rhs;
-
-        case .PROCEDURE_CALL;
-            proccall := cast(*Code_Procedure_Call) root;
-            if proccall.arguments_sorted.count != 2 {
-                dummy : Code = #code null;
-                return xx root.kind, -1, full_expr, "", dummy, dummy;
-            }
-
-            builder: String_Builder;
-            print_expression(*builder, proccall.procedure_expression);
-            proc_expr := builder_to_string(*builder);
-
-            lhs := compiler_get_code(proccall.arguments_sorted[0], code);
-            rhs := compiler_get_code(proccall.arguments_sorted[1], code);
-            return xx root.kind, -1, full_expr, proc_expr, lhs, rhs;
-
-        case;
-
-    }
-
-    dummy : Code = #code null;
-    return xx root.kind, -1, full_expr, "", dummy, dummy;
+fmt :: inline (v: float64, digits_after_comma := -1, keep_zero := false) -> FormatFloat #expand {
+    return FormatFloat.{ value = v, trailing_width = digits_after_comma, zero_removal = ifx keep_zero then .NO else .YES };
 }
 
-pretty_assert :: (code: Code, loc := #caller_location) #expand {
-    if #insert code return;
-
-    if context.handling_assertion_failure  return;  // Avoid infinite loops.
-    context.handling_assertion_failure = true;
-
-    kind, op_type, full_expr, proc_expr, lhs, rhs :: #run get_expr_info(code);
-
-    message := "";
-
-    #if kind == .BINARY_OPERATOR {
-        builder : String_Builder;
-        builder.allocator = temporary_allocator;
-
-        print_to_builder(*builder, "(%) = (% ", full_expr, #insert lhs);
-
-        if op_type < 128 {
-            append(*builder, cast(u8) op_type);
-        } else {
-            append(*builder, operator_to_string(xx op_type));
-        }
-
-        print_to_builder(*builder, " %) = false", #insert rhs);
-        message = builder_to_string(*builder, temporary_allocator);
-    } else #if kind == .PROCEDURE_CALL {
-        message = tprint("(%) = (%(%, %)) = false", full_expr, proc_expr, #insert lhs, #insert rhs);
-    } else {
-        message = tprint("(%) = false", full_expr);
-    }
-
-    // We provide 'loc' in case _STACK_TRACE is turned off, but assertion_failed may well
-    // look at the stack trace if it is available.
-    context.assertion_failed(loc, message);
-    context.handling_assertion_failure = false;
-
-} @NoProfile
+fmt :: inline (v: s64, minimum_digits := 1, $padding := "0") -> FormatInt #expand {
+    #assert(padding.count == 1);
+    return FormatInt.{ value = v, minimum_digits = minimum_digits, padding = padding[0] };
+}
 
 
 #import "Basic";
+#import "My_Util";
 #import "Process";
 #import "String";
 #import "POSIX";

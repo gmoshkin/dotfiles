@@ -91,6 +91,89 @@ count_visible_characters :: (text: string) -> visible_count: s64 {
 }
 
 //
+// pretty assert
+//
+
+// Constant structs don't work with compile time constructs yet, so we return
+// all fields directly
+get_expr_info :: (code: Code) -> kind: Code_Node.Kind, op_type: s32, full_expr: string, proc_expr: string, lhs: Code, rhs: Code {
+    #import "Program_Print";
+
+    root := compiler_get_nodes(code);
+
+    builder: String_Builder;
+    print_expression(*builder, root);
+    full_expr := builder_to_string(*builder);
+
+    if root.kind == {
+        case .BINARY_OPERATOR;
+            binop := cast(*Code_Binary_Operator) root;
+            op_type := binop.operator_type;
+            lhs := compiler_get_code(binop.left, code);
+            rhs := compiler_get_code(binop.right, code);
+            return xx root.kind, op_type, full_expr, "", lhs, rhs;
+
+        case .PROCEDURE_CALL;
+            proccall := cast(*Code_Procedure_Call) root;
+            if proccall.arguments_sorted.count != 2 {
+                dummy : Code = #code null;
+                return xx root.kind, -1, full_expr, "", dummy, dummy;
+            }
+
+            builder: String_Builder;
+            print_expression(*builder, proccall.procedure_expression);
+            proc_expr := builder_to_string(*builder);
+
+            lhs := compiler_get_code(proccall.arguments_sorted[0], code);
+            rhs := compiler_get_code(proccall.arguments_sorted[1], code);
+            return xx root.kind, -1, full_expr, proc_expr, lhs, rhs;
+
+        case;
+
+    }
+
+    dummy : Code = #code null;
+    return xx root.kind, -1, full_expr, "", dummy, dummy;
+}
+
+pretty_assert :: (code: Code, loc := #caller_location) #expand {
+    if #insert code return;
+
+    if context.handling_assertion_failure  return;  // Avoid infinite loops.
+    context.handling_assertion_failure = true;
+
+    kind, op_type, full_expr, proc_expr, lhs, rhs :: #run get_expr_info(code);
+
+    message := "";
+
+    #if kind == .BINARY_OPERATOR {
+        builder : String_Builder;
+        builder.allocator = temporary_allocator;
+
+        print_to_builder(*builder, "(%) = (% ", full_expr, #insert lhs);
+
+        if op_type < 128 {
+            append(*builder, cast(u8) op_type);
+        } else {
+            append(*builder, operator_to_string(xx op_type));
+        }
+
+        print_to_builder(*builder, " %) = false", #insert rhs);
+        message = builder_to_string(*builder, temporary_allocator);
+    } else #if kind == .PROCEDURE_CALL {
+        message = tprint("(%) = (%(%, %)) = false", full_expr, proc_expr, #insert lhs, #insert rhs);
+    } else {
+        message = tprint("(%) = false", full_expr);
+    }
+
+    // We provide 'loc' in case _STACK_TRACE is turned off, but assertion_failed may well
+    // look at the stack trace if it is available.
+    context.assertion_failed(loc, message);
+    context.handling_assertion_failure = false;
+
+} @NoProfile
+
+//
 // private imports
 //
 
@@ -98,3 +181,4 @@ count_visible_characters :: (text: string) -> visible_count: s64 {
 
 #import "Basic";
 #import "String";
+#import "Compiler";
