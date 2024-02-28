@@ -323,7 +323,7 @@ main :: () {
             }
 
             t0 := time;
-            last_command_result, raw_text_and_control_codes = my_run_command(..temp_command, capture_and_return_output = true);
+            last_command_result=, normal_output, error_output := my_run_command(..temp_command, capture_and_return_output = true);
             elapsed := seconds_since_init() - t0;
             // TODO: also I don't see these logs, am I stupid??
             if elapsed > 0.5 {
@@ -333,11 +333,41 @@ main :: () {
 
             last_command_run_date_time = to_calendar(current_time_consensus(), .LOCAL);
 
-            if last_command_result.type == .FAILED_TO_LAUNCH {
-                free(raw_text_and_control_codes);
+            if last_command_result.type == .FAILED_TO_LAUNCH
+            {
                 prefix :: "\e[31m";
                 raw_text_and_control_codes = builder_to_string(*error_log_builder, extra_bytes_to_prepend=prefix.count);
                 memcpy(raw_text_and_control_codes.data, prefix.data, prefix.count);
+            }
+            else if error_output
+            {
+                error_builder: String_Builder; error_builder.allocator = temp;
+                tail := error_output;
+                while tail {
+                    _, line:, tail = split_from_left(tail, #char "\n");
+                    append(*error_builder, "\e[31m"); // color red
+                    append(*error_builder, line);
+                    append(*error_builder, "\n");
+                }
+
+                buffer: [..] u8;
+                total_size := builder_string_length(*error_builder) + normal_output.count;
+                array_reserve(*buffer, total_size);
+
+                builder_buffer := get_base_buffer(*error_builder);
+                while builder_buffer {
+                    array_add(*buffer, ..cast([] u8) to_string(builder_buffer));
+                    builder_buffer = builder_buffer.next;
+                }
+                array_add(*buffer, ..cast([] u8) normal_output);
+
+                raw_text_and_control_codes = xx buffer;
+                free(normal_output);
+                free(error_output);
+            }
+            else
+            {
+                raw_text_and_control_codes = normal_output;
             }
 
             separate_control_codes(raw_text_and_control_codes);
@@ -378,7 +408,7 @@ main :: () {
                 // "\e[K": erase in line
                 append(*builder, "\e[K");
 
-                append(*builder, "\e[35m");
+                append(*builder, "\e[35m"); // color magenta
                 append(*builder, "$(");
                 append(*builder, "\e[0m");
 
@@ -391,12 +421,15 @@ main :: () {
                     append(*builder, command[it]);
                 }
 
-                append(*builder, "\e[35m");
+                append(*builder, "\e[35m"); // color magenta
                 append(*builder, ")");
                 append(*builder, "\e[0m");
                 if last_command_result.exit_code != 0 {
-                    append(*builder, " -> %", last_command_result.exit_code);
-                    // TODO: display stderr also in this case
+                    append(*builder, "\e[35m"); // color magenta
+                    append(*builder, " -> ");
+                    append(*builder, "\e[31m"); // color red
+                    print(*builder, "%", last_command_result.exit_code);
+                    append(*builder, "\e[0m");
                 }
 
                 // command rerun period
@@ -611,6 +644,8 @@ main :: () {
 
                 line_tail := line;
                 first := true;
+
+                // FIXME: empty lines are skipped for some reason!
 
                 // Iterate over line pieces
                 while line_tail && line_buffer.count < main_window_height {

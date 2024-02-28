@@ -23,6 +23,14 @@ substring :: (s: string, start := 0, end := NOT_SPECIFIED, count := NOT_SPECIFIE
 }
 
 //
+// string builder utilities
+//
+
+to_string :: inline (buffer: *String_Builder.Buffer) -> string {
+    return string.{ data = get_buffer_data(buffer), count = buffer.count };
+}
+
+//
 // ascii escape sequence handling
 //
 
