@@ -182,6 +182,47 @@ pretty_assert :: (code: Code, loc := #caller_location) #expand {
 } @NoProfile
 
 //
+// Mem_Dump
+//
+
+Setup_Mem_Dump_Printer :: () #expand {
+    old_struct_printer := context.print_style.struct_printer;
+    `defer context.print_style.struct_printer = old_struct_printer;
+    context.print_style.struct_printer = mem_dump_printer;
+}
+
+Mem_Dump :: #type,distinct [] u8;
+mem_dump_printer :: (builder: *String_Builder, any: Any, data: *void) -> handled: bool {
+    if any.type != type_info(Mem_Dump) return false;
+
+    data := << cast(*[] u8) any.value_pointer;
+    mem_dump_to_builder(builder, data);
+    return true;
+}
+
+mem_dump_to_builder :: (builder: *String_Builder, data: [] u8) {
+    old_default_format_int := context.print_style.default_format_int;
+    defer context.print_style.default_format_int = old_default_format_int;
+    context.print_style.default_format_int = FormatInt.{ base = 16, minimum_digits = 2 };
+
+    leading_spaces := cast(s64) (cast(u64) data.data) % 16;
+    start_addr := cast(* u8) (cast(u64) data.data) & 0xffff_ffff_ffff_fff0;
+
+    print_to_builder(builder, "%: ", start_addr);
+    for 0..(data.count + leading_spaces - 1) {
+        if it < leading_spaces then
+            append(builder, "  ");
+        else
+            print_to_builder(builder, "%", data[it - leading_spaces]);
+
+        if (it + 1) % 16 == 0 && it + 1 != data.count + leading_spaces
+            print_to_builder(builder, "\n%: ", start_addr + it + 1);
+        else if (it + 1) % 4 == 0
+            append(builder, " ");
+    }
+}
+
+//
 // private imports
 //
 
