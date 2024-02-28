@@ -421,7 +421,7 @@ main :: () {
                     using last_command_run_date_time;
                     month_short :: string.["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
                     append(*right_side_builder, "\e[32m"); // color green
-                    print(*right_side_builder, "% % %:%:%", month_short[month_starting_at_0], day_of_month_starting_at_0,
+                    print(*right_side_builder, "% % %:%:%", month_short[month_starting_at_0], day_of_month_starting_at_0 + 1,
                                                             fmt(hour, 2), fmt(minute, 2), fmt(second, 2));
                     append(*right_side_builder, "\e[0m");
                     right_side = to_string(*right_side_builder);
