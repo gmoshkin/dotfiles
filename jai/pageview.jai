@@ -772,11 +772,6 @@ main :: () {
 
             assert(get_current_buffer(*builder) == buffer);
             write_builder(*builder);
-
-            history := get_history_for_input_mode();
-            if history for history.* {
-                write_strings("\n", it);
-            }
         }
 
         if should_exit break;
