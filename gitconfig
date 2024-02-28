@@ -14,13 +14,13 @@
 	cp          = cherry-pick
 	cpc         = cherry-pick --continue
 	cpa         = cherry-pick --abort
-	d           = diff
-	dc          = diff --cached
+	d           = -c color.ui=always diff
+	dc          = -c color.ui=always diff --cached
 	f           = fetch
 	p           = pull
 	pr          = pull --rebase
 	pu          = push
-	s           = status
+	s           = -c color.ui=always status
 	ss          = stash save
 	sp          = stash pop
 	sh          = show
@@ -30,21 +30,8 @@
 	rc          = rebase --continue
 	ra          = rebase --abort
 	ro          = rebase --onto
-	lg          = log --graph
-	logg        = log --graph
-	l1          = log --oneline
-	log1        = log --oneline
-	l1g         = log --oneline --graph
-	log1g       = log --oneline --graph
-	lg1         = log --graph --oneline
-	logg1       = log --graph --oneline
-	lt          = log -1
-	last        = log -1
-	lgp         = log --graph --pretty='%Cgreen%ar%Creset %Cblue%h%Creset (%Cred%an%Creset) %s'
-	loggp       = log --graph --pretty='%Cgreen%ar%Creset %Cblue%h%Creset (%Cred%an%Creset) %s'
-	l           = log --graph --pretty='%Cgreen%ar%Creset %Cblue%h%Creset (%Cred%an%Creset) %s'
-	la          = log --all --graph --pretty='%Cgreen%ar%Creset %Cblue%h%Creset (%Cred%an%Creset)%C(yellow)%d%Creset %s'
-	loggpa      = log --all --graph --pretty='%Cgreen%ar%Creset %Cblue%h%Creset (%Cred%an%Creset)%C(yellow)%d%Creset %s'
+	l           = log --graph --color --pretty='%Cgreen%ar%Creset %Cblue%h%Creset (%Cred%an%Creset) %s'
+	la          = log --all --graph --color --pretty='%Cgreen%ar%Creset %Cblue%h%Creset (%Cred%an%Creset)%C(yellow)%d%Creset %s'
 	m           = merge
 	ma          = merge --abort
 [core]
