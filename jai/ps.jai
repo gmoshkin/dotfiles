@@ -101,8 +101,14 @@ main :: () {
     visitor :: (info: *File_Visit_Info, pids: *[..] string) {
         array_add(pids, copy_string(info.short_name));
     };
-    ok := visit_files("/proc", recursive=false, user_data=*pids, proc=visitor, visit_files=false, visit_directories=true, follow_symlinks=false);
-    assert(ok);
+    {
+        // Disable log_error, because this function doesn't take a log_errors parameter
+        saved_logger := context.logger;
+        defer context.logger = saved_logger;
+        context.logger = (_: string, _: *void, _: Log_Info) {};
+        ok := visit_files("/proc", recursive=false, user_data=*pids, proc=visitor, visit_files=false, visit_directories=true, follow_symlinks=false);
+        assert(ok);
+    }
 
     //
     // Get process's infos, collect root candidates
