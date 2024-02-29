@@ -75,9 +75,24 @@ State :: struct {
     error_log_builder: String_Builder;
 
     //
-    // command
+    // sources of text
     //
+    main_window_source: enum {
+        NONE;
+        EXTERNAL_COMMAND;
+        STANDARD_INPUT;
+        // TODO: FILE;
+    }
 
+    //
+    // source: STANDARD_INPUT
+    //
+    input_stream_builder: String_Builder;
+    input_stream_fd: s32 = -1;
+
+    //
+    // source: EXTERNAL_COMMAND
+    //
     command: [..] string;
 
     command_run_period_seconds := 1.0;
@@ -85,6 +100,9 @@ State :: struct {
     last_command_run_date_time: Calendar_Time;
     last_command_result: Process_Result;
 
+    //
+    // rendering
+    //
     main_window_buffer: Window_Buffer;
 
     memory_pool_for_building_a_line: Flat_Pool;
@@ -98,6 +116,7 @@ State :: struct {
     //
 
     saved_termios: Termios;
+    tty_name: string;
 
     epoll_fd: s32;
     epoll_events: [1] epoll_event;
@@ -132,16 +151,12 @@ main :: () {
     // return;
 
     args := get_command_line_arguments();
-    if args.count == 1 {
-        print("Need a command to run\n");
-        return;
-    }
 
     state := *context.state;
     context.current_window = *state.main_window_buffer;
 
     cursor := 1;
-    while true {
+    while cursor < args.count {
         arg := args[cursor];
         if arg == {
             case "-f"; #through;
@@ -191,13 +206,19 @@ main :: () {
         array_add(*state.command, copy_string(args[cursor + it]));
     }
 
-    if state.command.count == 0 {
-        print("Need a command to run\n");
+    if !isatty(STDOUT_FILENO) {
+        print("Stdout needs to be connected to a terminal.\n");
         exit(1);
     }
 
-    // Initialize command
-    init_commands();
+    if !isatty(STDIN_FILENO) {
+        state.main_window_source = .STANDARD_INPUT;
+    } else if state.command {
+        state.main_window_source = .EXTERNAL_COMMAND;
+    } else {
+        print("Specify a command to run or pipe in some text on the stdin\n");
+        exit(1);
+    }
 
     // Preallocate memory
     array_reserve(*state.search_string_buffer, 4096);
@@ -213,12 +234,45 @@ main :: () {
     context.logger = my_logger;
     context.logger_data = *context.state;
 
+    // Initialize command
+    init_commands();
+
+    // Setup signal handlers
     signal(SIGINT, shutdown_signal_handler);
     signal(SIGTERM, shutdown_signal_handler);
     signal(SIGWINCH, window_size_changed_signal_handler);
 
+    // Read the initial portion of standard input
+    if state.main_window_source == .STANDARD_INPUT {
+        using context.state;
+
+        print("Reading input from standard input...\n");
+
+        // Duplicate stdin to a different file descriptor
+        input_stream_fd = dupfd(STDIN_FILENO);
+        assert(input_stream_fd >= 0);
+        flags := fcntl(input_stream_fd, F_GETFL);
+        flags |= O_NONBLOCK;
+        rc := fcntl(input_stream_fd, F_SETFL, flags);
+        assert(rc != -1);
+
+        // Save tty_name
+        tty_name_cstr := ttyname(STDOUT_FILENO);
+        assert(tty_name_cstr != null);
+        tty_name.count = c_style_strlen(tty_name_cstr);
+        tty_name.data = alloc(tty_name.count + 1); // `+ 1` for the nul byte
+        memcpy(tty_name.data, tty_name_cstr, tty_name.count + 1);
+
+        // Re attach our stdin to the terminal
+        new_stdin_fd := open(tty_name_cstr, O_RDONLY);
+        assert(new_stdin_fd >= 0);
+        rc = dup2(new_stdin_fd, STDIN_FILENO);
+        assert(rc >= 0);
+    }
+
     // Get terminal size
     rc := ioctl(STDIN_FILENO, TIOCGWINSZ, *state.terminal_size);
+    assert(rc == 0);
 
     // `- 2` for 2 status lines
     state.main_window_height = state.terminal_size.rows - 2;
@@ -276,12 +330,16 @@ main :: () {
     rc = epoll_ctl(state.epoll_fd, .ADD, STDIN_FILENO, state.epoll_events.data);
     assert(rc == 0);
 
+    first_time := true;
     while !should_exit {
+        defer first_time = false;
         using state;
         reset(*error_log_builder);
 
         // Wait for events
-        rc := epoll_wait(epoll_fd, epoll_events.data, epoll_events.count, 1000 / 10);
+        timeout: s32 = 1000 / 10;
+        if first_time then timeout = 0;
+        rc := epoll_wait(epoll_fd, epoll_events.data, epoll_events.count, timeout);
         if rc == -1 {
             assert(errno() == EINTR);
         }
@@ -304,73 +362,10 @@ main :: () {
             state.main_window_height = state.terminal_size.rows - 2;
         }
 
-        // Run command if needed
-        time := seconds_since_init();
-        if time >= time_next_command_run {
-            using main_window_buffer;
-
-            if raw_text_and_control_codes free(raw_text_and_control_codes);
-
-            // If the command is a single argument which contains a string,
-            // assume it's some shell pipeline & run it in a shell
-            temp_command : [] string = xx command;
-            if command.count == 1 && find_index_from_left(command[0], #char " ") != -1 {
-                temp_command = .["/bin/sh", "-c", command[0]];
-                // temp_command = NewArray(3, string,, temp);
-                // temp_command[0] = "/bin/sh";
-                // temp_command[1] = "-c";
-                // temp_command[2] = command[0];
-            }
-
-            t0 := time;
-            last_command_result=, normal_output, error_output := my_run_command(..temp_command, capture_and_return_output = true);
-            elapsed := seconds_since_init() - t0;
-            // TODO: also I don't see these logs, am I stupid??
-            if elapsed > 0.5 {
-                log("executing % took % seconds", temp_command, elapsed);
-            }
-            time_next_command_run = time + command_run_period_seconds;
-
-            last_command_run_date_time = to_calendar(current_time_consensus(), .LOCAL);
-
-            if last_command_result.type == .FAILED_TO_LAUNCH
-            {
-                prefix :: "\e[31m";
-                raw_text_and_control_codes = builder_to_string(*error_log_builder, extra_bytes_to_prepend=prefix.count);
-                memcpy(raw_text_and_control_codes.data, prefix.data, prefix.count);
-            }
-            else if error_output
-            {
-                error_builder: String_Builder; error_builder.allocator = temp;
-                tail := error_output;
-                while tail {
-                    _, line:, tail = split_from_left(tail, #char "\n");
-                    append(*error_builder, "\e[31m"); // color red
-                    append(*error_builder, line);
-                    append(*error_builder, "\n");
-                }
-
-                buffer: [..] u8;
-                total_size := builder_string_length(*error_builder) + normal_output.count;
-                array_reserve(*buffer, total_size);
-
-                builder_buffer := get_base_buffer(*error_builder);
-                while builder_buffer {
-                    array_add(*buffer, ..cast([] u8) to_string(builder_buffer));
-                    builder_buffer = builder_buffer.next;
-                }
-                array_add(*buffer, ..cast([] u8) normal_output);
-
-                raw_text_and_control_codes = xx buffer;
-                free(normal_output);
-                free(error_output);
-            }
-            else
-            {
-                raw_text_and_control_codes = normal_output;
-            }
-
-            separate_control_codes(raw_text_and_control_codes);
+        // Update main window buffer from the current source
+        if state.main_window_source == {
+            case .EXTERNAL_COMMAND; maybe_get_external_command_output();
+            case .STANDARD_INPUT; read_some_from_input_stream();
         }
 
         frame_time = seconds_since_init();
@@ -386,95 +381,8 @@ main :: () {
             row_offset = max(row_offset, main_window_buffer.line_offsets.count - main_window_height);
         }
 
-        //
-        // Status line
-        //
-        {
-            builder: String_Builder;
-            builder.allocator = temp;
 
-            // first line
-            {
-                // hide the cursor, so it doesn't flicker all around the screen
-                // while the ui is being drawn
-                append(*builder, "\e[?25l");
-
-                // "\e[H": move cursor to "home" position (row 0, column 0)
-                append(*builder, "\e[H");
-
-                // "\e[0J": erase from cursor to end of screen
-                // append(*builder, "\e[0J");
-
-                // "\e[K": erase in line
-                append(*builder, "\e[K");
-
-                append(*builder, "\e[35m"); // color magenta
-                append(*builder, "$(");
-                append(*builder, "\e[0m");
-
-                append(*builder, "\e[32m");
-                append(*builder, command[0]);
-                append(*builder, "\e[0m");
-
-                for 1..command.count-1 {
-                    append(*builder, " ");
-                    append(*builder, command[it]);
-                }
-
-                append(*builder, "\e[35m"); // color magenta
-                append(*builder, ")");
-                append(*builder, "\e[0m");
-                if last_command_result.exit_code != 0 {
-                    append(*builder, "\e[35m"); // color magenta
-                    append(*builder, " -> ");
-                    append(*builder, "\e[31m"); // color red
-                    print(*builder, "%", last_command_result.exit_code);
-                    append(*builder, "\e[0m");
-                }
-
-                // command rerun period
-                {
-                    append(*builder, "\e[2;37m"); // color gray (dark + white)
-                    append(*builder, " T: ");
-                    // XXX: am I stupid, or is stb_print_float doing something
-                    // weird when removing zero and when trailing_width is not zero?
-                    text := tprint("%", fmt(command_run_period_seconds, digits_after_comma=1));
-                    text = trim(text);
-                    append(*builder, text);
-                    append(*builder, "s");
-                    append(*builder, "\e[0m");
-                }
-
-                left_side := to_string(*builder);
-
-                right_side_builder: String_Builder; right_side_builder.allocator = temp;
-                right_side: string;
-                // right side
-                {
-                    using last_command_run_date_time;
-                    month_short :: string.["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-                    append(*right_side_builder, "\e[32m"); // color green
-                    print(*right_side_builder, "% % %:%:%", month_short[month_starting_at_0], day_of_month_starting_at_0 + 1,
-                                                            fmt(hour, 2), fmt(minute, 2), fmt(second, 2));
-                    append(*right_side_builder, "\e[0m");
-                    right_side = to_string(*right_side_builder);
-                }
-
-                // padding between left side & right side
-                padding := terminal_size.cols - count_visible_characters(left_side) - count_visible_characters(right_side);
-                if padding >= 0 {
-                    for 1..padding append(*builder, " ");
-                    append(*builder, right_side);
-                }
-
-                append(*builder, "\n");
-            }
-
-            // second line is drawn at the end
-            append(*builder, "\n");
-
-            write_builder(*builder);
-        }
+        render_status_line_1();
 
         //
         // Main window
@@ -820,6 +728,245 @@ main :: () {
     if signalled_with_signal != -1 {
         print("got signal %\n", signalled_with_signal);
     }
+}
+
+//
+// text sources
+//
+
+//
+// text source: EXTERNAL_COMMAND
+//
+
+maybe_get_external_command_output :: () {
+    using context.state;
+
+    time := seconds_since_init();
+    if time < time_next_command_run return;
+
+    using main_window_buffer;
+
+    if raw_text_and_control_codes free(raw_text_and_control_codes);
+
+    // If the command is a single argument which contains a string,
+    // assume it's some shell pipeline & run it in a shell
+    temp_command : [] string = xx command;
+    if command.count == 1 && find_index_from_left(command[0], #char " ") != -1 {
+        temp_command = .["/bin/sh", "-c", command[0]];
+    }
+
+    t0 := time;
+    last_command_result=, normal_output, error_output := my_run_command(..temp_command, capture_and_return_output = true);
+    elapsed := seconds_since_init() - t0;
+    // TODO: also I don't see these logs, am I stupid??
+    if elapsed > 0.5 {
+        log("executing % took % seconds", temp_command, elapsed);
+    }
+    time_next_command_run = time + command_run_period_seconds;
+
+    last_command_run_date_time = to_calendar(current_time_consensus(), .LOCAL);
+
+    if last_command_result.type == .FAILED_TO_LAUNCH
+    {
+        prefix :: "\e[31m";
+        raw_text_and_control_codes = builder_to_string(*error_log_builder, extra_bytes_to_prepend=prefix.count);
+        memcpy(raw_text_and_control_codes.data, prefix.data, prefix.count);
+    }
+    else if error_output
+    {
+        error_builder: String_Builder; error_builder.allocator = temp;
+        tail := error_output;
+        while tail {
+            _, line:, tail = split_from_left(tail, #char "\n");
+            append(*error_builder, "\e[31m"); // color red
+            append(*error_builder, line);
+            append(*error_builder, "\n");
+        }
+
+        buffer: [..] u8;
+        total_size := builder_string_length(*error_builder) + normal_output.count;
+        array_reserve(*buffer, total_size);
+
+        builder_buffer := get_base_buffer(*error_builder);
+        while builder_buffer {
+            array_add(*buffer, ..cast([] u8) to_string(builder_buffer));
+            builder_buffer = builder_buffer.next;
+        }
+        array_add(*buffer, ..cast([] u8) normal_output);
+
+        raw_text_and_control_codes = xx buffer;
+        free(normal_output);
+        free(error_output);
+    }
+    else
+    {
+        raw_text_and_control_codes = normal_output;
+    }
+
+    separate_control_codes(raw_text_and_control_codes);
+}
+
+//
+// text source: STANDARD_INPUT
+//
+
+read_some_from_input_stream :: () {
+    using context.state;
+
+    if input_stream_fd == -1 return;
+
+    if !read_all_available_data_from_input_stream() return;
+
+    free(main_window_buffer.raw_text_and_control_codes);
+    main_window_buffer.raw_text_and_control_codes = builder_to_string(*input_stream_builder, do_reset=false);
+    separate_control_codes(main_window_buffer.raw_text_and_control_codes);
+}
+
+read_all_available_data_from_input_stream :: () -> has_new_data: bool {
+    using context.state;
+
+    if input_stream_fd == -1 return false;
+
+    has_new_data := false;
+    while true {
+        buffer := ensure_contiguous_space_and_return_available_range(*input_stream_builder);
+
+        read_count := read(input_stream_fd, buffer.data, xx buffer.count);
+        if read_count > 0 {
+            advance_through_ensured_space(*input_stream_builder, xx read_count);
+            has_new_data = true;
+            continue;
+        }
+
+        if read_count < 0 {
+            code, message := System.get_error_value_and_string();
+            if code != EAGAIN && code != EWOULDBLOCK {
+                append(*input_stream_builder, "\e[31m"); // color red
+                print(*input_stream_builder, "Error: (%) %\n", code, message);
+                append(*input_stream_builder, "\e[0m");
+                close(input_stream_fd);
+                input_stream_fd = -1;
+            }
+        }
+
+        return has_new_data;
+    }
+}
+
+//
+// status lines
+//
+
+render_status_line_1 :: () {
+    using context.state;
+
+    builder: String_Builder;
+    builder.allocator = temp;
+
+    // hide the cursor, so it doesn't flicker all around the screen
+    // while the ui is being drawn
+    append(*builder, "\e[?25l");
+
+    // "\e[H": move cursor to "home" position (row 0, column 0)
+    append(*builder, "\e[H");
+
+    // "\e[0J": erase from cursor to end of screen
+    // append(*builder, "\e[0J");
+
+    // "\e[K": erase in line
+    append(*builder, "\e[K");
+
+    //
+    // left side
+    //
+    if main_window_source == {
+        case .EXTERNAL_COMMAND; {
+            append(*builder, "\e[35m"); // color magenta
+            append(*builder, "$(");
+            append(*builder, "\e[0m");
+
+            append(*builder, "\e[32m");
+            append(*builder, command[0]);
+            append(*builder, "\e[0m");
+
+            for 1..command.count-1 {
+                append(*builder, " ");
+                append(*builder, command[it]);
+            }
+
+            append(*builder, "\e[35m"); // color magenta
+            append(*builder, ")");
+            append(*builder, "\e[0m");
+            if last_command_result.exit_code != 0 {
+                append(*builder, "\e[35m"); // color magenta
+                append(*builder, " -> ");
+                append(*builder, "\e[31m"); // color red
+                print(*builder, "%", last_command_result.exit_code);
+                append(*builder, "\e[0m");
+            }
+
+            // command rerun period
+            {
+                append(*builder, "\e[2;37m"); // color gray (dark + white)
+                append(*builder, " T: ");
+                // XXX: am I stupid, or is stb_print_float doing something
+                // weird when removing zero and when trailing_width is not zero?
+                text := tprint("%", fmt(command_run_period_seconds, digits_after_comma=1));
+                text = trim(text);
+                append(*builder, text);
+                append(*builder, "s");
+                append(*builder, "\e[0m");
+            }
+        }
+        case .STANDARD_INPUT; {
+            append(*builder, "\e[35m"); // color magenta
+            append(*builder, "<stdin>");
+            append(*builder, "\e[0m");
+
+            if input_stream_fd != -1 {
+                append(*builder, "\e[35m"); // color magenta
+                append(*builder, "...");
+                append(*builder, "\e[0m");
+            }
+        }
+    }
+
+    left_side := to_string(*builder);
+
+    right_side_builder: String_Builder; right_side_builder.allocator = temp;
+    right_side: string;
+    //
+    // right side
+    //
+    {
+        date_time: Calendar_Time;
+        if main_window_source == {
+            case .STANDARD_INPUT;   date_time = to_calendar(current_time_consensus(), .LOCAL);
+            case .EXTERNAL_COMMAND; date_time = last_command_run_date_time;
+        }
+
+        using date_time;
+        month_short :: string.["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        append(*right_side_builder, "\e[32m"); // color green
+        print(*right_side_builder, "% % %:%:%", month_short[month_starting_at_0], day_of_month_starting_at_0 + 1,
+        fmt(hour, 2), fmt(minute, 2), fmt(second, 2));
+        append(*right_side_builder, "\e[0m");
+        right_side = to_string(*right_side_builder);
+    }
+
+    // padding between left side & right side
+    padding := terminal_size.cols - count_visible_characters(left_side) - count_visible_characters(right_side);
+    if padding >= 0 {
+        for 1..padding append(*builder, " ");
+        append(*builder, right_side);
+    }
+
+    append(*builder, "\n");
+
+    // second line is drawn at the end
+    append(*builder, "\n");
+
+    write_builder(*builder);
 }
 
 //
@@ -1622,6 +1769,7 @@ set_external_command :: (new_command: string) -> (ok: bool, error_message: strin
     command.count = 0;
     array_add(*command, copy_string(new_command));
     time_next_command_run = frame_time;
+    main_window_source = .EXTERNAL_COMMAND;
     return true, "";
 }
 
@@ -1892,6 +2040,12 @@ fmt :: inline (v: s64, minimum_digits := 1, $padding := "0") -> FormatInt #expan
     return FormatInt.{ value = v, minimum_digits = minimum_digits, padding = padding[0] };
 }
 
+//
+// isatty
+//
+
+isatty :: (__fd: s32) -> s32 #foreign libc;
+ttyname :: (__fd: s32) -> *u8 #foreign libc;
 
 #import "Basic";
 #import "My_Util";
