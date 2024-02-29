@@ -556,7 +556,7 @@ main :: () {
                 // FIXME: empty lines are skipped for some reason!
 
                 // Iterate over line pieces
-                while line_tail && line_buffer.count < main_window_height {
+                while first || line_tail && line_buffer.count < main_window_height {
                     defer first = false;
                     visible_columns_budget : int = min(terminal_size.cols, xx line_tail.count);
 
