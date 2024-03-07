@@ -3,8 +3,6 @@
     set_build_options_dc(.{ output_executable_name = "ps" });
 }
 
-Pid :: #type,distinct s64;
-
 State :: struct {
     tty: string;
 
@@ -14,26 +12,11 @@ State :: struct {
 
     maybe_roots: Table(Pid, void);
     parent_to_children: Table(Pid, Pid);
-    process_infos: Table(Pid, Process_Info);
+    process_infos: Table(Pid, Extended_Process_Info);
 }
 
-Process_Info :: struct {
-    pid: Pid;
-    parent_pid: Pid = -1;
-
-    command_line: [] string;
-
-    state: [1] u8;
-
-    started_seconds_since_boot: s64;
-    user_mode_time_seconds: u64;
-    kernel_mode_time_seconds: u64;
-
-    virtual_memory_kibi_bytes: u64;
-    resident_set_pages_count: u64;
-
-    tty: string;
-    tty_number: s64;
+Extended_Process_Info :: struct {
+    #as using base: Process_Info;
 
     children: [..] Pid;
 
@@ -70,7 +53,7 @@ main :: () {
     }
 
     clock_ticks_per_second = xx sysconf(_SC_CLK_TCK);
-    system_page_size := cast(u64) sysconf(_SC_PAGESIZE);
+    system_page_size := cast(s64) sysconf(_SC_PAGESIZE);
 
     // Read tty numbers
     {
@@ -120,106 +103,45 @@ main :: () {
         if !ok continue;
         pid : Pid = xx pid_value;
 
-        // Read tty
-        stat:, ok = my_read_entire_file(tprint("/proc/%/stat", it), log_errors=false,, temp);
+        // Either add a new entry, or get an entry which was inserted by this one's child
+        info, not_found := find_or_add(*state.process_infos, pid);
+        info.pid = pid;
+
+        ok = get_process_info(pid, info, clock_ticks_per_second=clock_ticks_per_second, log_errors=false, get_command_line=false);
         if !ok continue;
 
-        {
-            tail := stat;
-            i := 1;
+        borrow_checker_my_ass := state.process_infos.entries.data;
 
-            // Either add a new entry, or get an entry which was inserted by this one's child
-            info, not_found := find_or_add(*state.process_infos, pid);
-            info.pid = pid;
-
-            borrow_checker_my_ass := state.process_infos.entries.data;
-
-            while tail {
-                defer i += 1;
-                found:, s:, tail = split_from_left(tail, #char " ");
-
-                if s[0] == #char "(" && find_index_from_left(s, #char ")") == -1 {
-                    count := find_index_from_left(tail, #char ")");
-                    assert(count > 0);
-                    // Skip ')' & ' ' right after it
-                    advance(*tail, count + 2);
-                    s.count += count + 2;
-                    continue;
-                }
-
-                if i == 3 {
-                    assert(s.count == 1);
-                    info.state[0] = s[0];
-                }
-                if i == 4 {
-                    parent_pid_value:, ok = string_to_int(s, base=10, T=s64);
-                    assert(ok);
-                    info.parent_pid = xx parent_pid_value;
-                }
-                if i == 7 {
-                    info.tty_number, ok = string_to_int(s, base=10, T=s64);
-                    assert(ok);
-                }
-                if i == 14 {
-                    umode:, ok = string_to_int(s, base=10, T=u64);
-                    assert(ok);
-                    info.user_mode_time_seconds = umode / clock_ticks_per_second;
-                }
-                if i == 15 {
-                    smode:, ok = string_to_int(s, base=10, T=u64);
-                    assert(ok);
-                    info.kernel_mode_time_seconds = smode / clock_ticks_per_second;
-                }
-                if i == 22 {
-                    starttime:, ok = string_to_int(s, base=10, T=u64);
-                    assert(ok);
-                    info.started_seconds_since_boot = xx (starttime / clock_ticks_per_second);
-                }
-                if i == 23 {
-                    // XXX: this is some weird value, don't think it's actually usefull
-                    info.virtual_memory_kibi_bytes, ok = string_to_int(s, base=10, T=u64);
-                    assert(ok);
-                }
-                if i == 24 {
-                    info.resident_set_pages_count, ok = string_to_int(s, base=10, T=u64);
-                    assert(ok);
-                }
-            }
-
-            if info.tty_number != 0 && info.tty_number != -1 {
-                tty_name, not_found := find_or_add(*state.tty_number_to_name, info.tty_number);
-                if not_found {
-                    driver_number := cast(u8) ((info.tty_number >> 8) & 0xff);
-                    // TODO: sometimes there's a index part in higher bits?
-                    tty_index := info.tty_number & 0xff;
-                    driver_name, ok := table_find(*state.tty_drivers, driver_number);
-                    if ok {
-                        if driver_name == "/dev/tty" {
-                            tty_name.* = sprint("/dev/tty%", tty_index);
-                        } else {
-                            tty_name.* = sprint("%/%", driver_name, tty_index);
-                        }
+        if info.tty_number != 0 && info.tty_number != -1 {
+            tty_name, not_found := find_or_add(*state.tty_number_to_name, info.tty_number);
+            if not_found {
+                driver_number := cast(u8) ((info.tty_number >> 8) & 0xff);
+                // TODO: sometimes there's a index part in higher bits?
+                tty_index := info.tty_number & 0xff;
+                driver_name, ok := table_find(*state.tty_drivers, driver_number);
+                if ok {
+                    if driver_name == "/dev/tty" {
+                        tty_name.* = sprint("/dev/tty%", tty_index);
+                    } else {
+                        tty_name.* = sprint("%/%", driver_name, tty_index);
                     }
                 }
-
-                info.tty = tty_name.*;
-
-                if state.tty && state.tty == tty_name.* {
-                    table_set(*state.maybe_roots, pid, Void);
-                }
             }
 
-            parent_pid := info.parent_pid;
-            assert(borrow_checker_my_ass == state.process_infos.entries.data, "no use after free please");
+            info.tty_name = tty_name.*;
 
-            // Insert a new parent info if we encountered the child first,
-            // or add a child to an existing parent.
-            parent_info:, not_found = find_or_add(*state.process_infos, parent_pid);
-            array_add(*parent_info.children, pid);
-
-            // info.command_line will be set later so as to not read extra files
-            // we don't have to
+            if state.tty && state.tty == tty_name.* {
+                table_set(*state.maybe_roots, pid, Void);
+            }
         }
+
+        parent_pid := info.parent_pid;
+        assert(borrow_checker_my_ass == state.process_infos.entries.data, "no use after free please");
+
+        // Insert a new parent info if we encountered the child first,
+        // or add a child to an existing parent.
+        parent_info:, not_found = find_or_add(*state.process_infos, parent_pid);
+        array_add(*parent_info.children, pid);
     }
 
     roots := get_only_roots(*state);
@@ -228,7 +150,7 @@ main :: () {
         exit(1);
     }
 
-    flattened_tree: [..] *Process_Info;
+    flattened_tree: [..] *Extended_Process_Info;
     flattened_tree.allocator = temp;
     for roots {
         depth_first_children(*state.process_infos, it, *flattened_tree);
@@ -300,7 +222,7 @@ main :: () {
         row[STATE] = tprint("%", cast(string) it.state);
 
         // TTY
-        tty := it.tty;
+        tty := it.tty_name;
         if tty.count > 5 && substring(tty, count = 5) == "/dev/" {
             tty = substring(tty, start = 5);
         }
@@ -453,7 +375,7 @@ get_only_roots :: (state: *State) -> [] Pid {
 // tree traversal
 //
 
-depth_first_children :: (tree: *Table(Pid, Process_Info), root: Pid, result: *[..] *Process_Info, depth := 0) {
+depth_first_children :: (tree: *Table(Pid, Extended_Process_Info), root: Pid, result: *[..] *Extended_Process_Info, depth := 0) {
     info := table_find_pointer(tree, root);
     if !info return;
     info.depth = depth;
@@ -462,78 +384,6 @@ depth_first_children :: (tree: *Table(Pid, Process_Info), root: Pid, result: *[.
     for info.children {
         depth_first_children(tree, it, result, depth + 1);
     }
-}
-
-//
-// process info utilities
-//
-
-get_process_command_line :: (pid: Pid) -> [] string, ok: bool {
-    cmdline, ok := my_read_entire_file(tprint("/proc/%/cmdline", pid), log_errors=false,, temp);
-    if !ok return .[], false;
-
-    if !cmdline return .[], true;
-
-    result: [..] string;
-    result.allocator = context.allocator;
-
-    tail := cmdline;
-    while tail {
-        found:, arg:, tail = split_from_left(tail, #char "\x00");
-        array_add(*result, arg);
-    }
-    return result, true;
-}
-
-//
-// file utilities
-//
-
-my_read_entire_file :: (name: string, log_errors := true) -> string, bool {
-    s: string;
-    f, success := file_open(name, log_errors = log_errors);
-    if !success return s, false;
-
-    defer file_close(*f);
-
-    s, success = my_read_entire_file(f);
-
-    if log_errors && !success {
-        System :: #import "System";
-
-        // If we put this error report at a lower level, we could
-        // indicate how far into the file the error occurred, etc.
-        code, s := System.get_error_value_and_string();
-        log("Read of '%' failed: code %, '%'.\n", name, code, s);
-    }
-
-    return s, success;
-}
-
-my_read_entire_file :: (f: File, log_errors := true) -> string, bool {
-    length, success := file_length(f);
-    if !success  return "", false;
-
-    assert(length >= 0);
-    if length > 0 {
-        data, ok := read_entire_file(f);
-        return data, ok;
-    }
-
-    // Maybe special linux "file"
-    builder: String_Builder;
-    builder.allocator = context.allocator;
-
-    while true {
-        buffer := ensure_contiguous_space_and_return_available_range(*builder);
-        read_count := fread(buffer.data, 1, xx buffer.count, f.handle);
-        if read_count == 0 break;
-        assert(read_count > 0);
-
-        advance_through_ensured_space(*builder, xx read_count);
-    }
-
-    return builder_to_string(*builder), true;
 }
 
 //
@@ -550,11 +400,6 @@ is_same_day :: inline (lhs: Calendar_Time, rhs: Calendar_Time) -> bool {
 //
 // formatting utilities
 //
-
-fmt :: inline (v: Pid, minimum_digits := 1, $padding := "0") -> FormatInt #expand {
-    #assert(padding.count == 1);
-    return FormatInt.{ value = v, minimum_digits = minimum_digits, padding = padding[0] };
-}
 
 fmt :: inline (v: u64, minimum_digits := 1, $padding := "0") -> FormatInt #expand {
     #assert(padding.count == 1);
@@ -584,7 +429,7 @@ test_count_visible_characters :: () {
 // sysconf (unistd.h)
 //
 
-clock_ticks_per_second: u64;
+clock_ticks_per_second: s64;
 
 libc :: #system_library "libc";
 sysconf :: (name: s32) -> s64 #foreign libc;
