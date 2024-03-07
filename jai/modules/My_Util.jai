@@ -30,6 +30,43 @@ to_string :: inline (buffer: *String_Builder.Buffer) -> string {
     return string.{ data = get_buffer_data(buffer), count = buffer.count };
 }
 
+append_padding :: inline (builder: *String_Builder, count: s64, $padding := " ") {
+    #assert(padding.count == 1); // TODO: it's pretty easy actually to support other counts
+    global_buffer :: #run -> string {
+        buffer: [] u8;
+        buffer.count = 64;
+        buffer.data = alloc(buffer.count);
+        for *buffer it.* = padding[0];
+        return xx add_global_data(buffer, .READ_ONLY);
+    };
+
+    n_repeats := count / global_buffer.count;
+    for 1..n_repeats {
+        append(builder, global_buffer);
+    }
+
+    tail := global_buffer;
+    tail.count = count % global_buffer.count;
+    append(builder, tail);
+}
+
+test_append_padding :: () {
+    Check :: ($n: int, $padding: string) #expand {
+        builder: String_Builder;
+        append_padding(*builder, n, padding);
+        s := builder_to_string(*builder);
+        assert(s.count == n);
+        for cast([] u8) s assert(it == padding[0]);
+    }
+
+    Check(3, " ");
+    Check(65, " ");
+    Check(64 * 7 + 13, " ");
+    Check(3, "!");
+    Check(65, "2");
+    Check(64 * 7 + 13, "@");
+}
+
 //
 // ascii escape sequence handling
 //

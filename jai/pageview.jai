@@ -957,7 +957,7 @@ render_status_line_1 :: () {
     // padding between left side & right side
     padding := terminal_size.cols - count_visible_characters(left_side) - count_visible_characters(right_side);
     if padding >= 0 {
-        for 1..padding append(*builder, " ");
+        append_padding(*builder, padding);
         append(*builder, right_side);
     }
 
