@@ -182,6 +182,11 @@ main :: () {
             case "--memory-usage";
                 state.show_memory_usage = true;
 
+            case "-n"; #through;
+            case "--line-number"; #through;
+            case "--line-numbers";
+                state.line_numberring = true;
+
             case "-t"; #through;
             case "--time"; #through;
             case "--time-before-repeat";
@@ -434,6 +439,10 @@ main :: () {
             }
         }
 
+        number_of_first_shown_line := row_offset + 1;
+        number_of_last_shown_line := number_of_first_shown_line + main_window_height - 1;
+        line_number_max_digits := tprint("%", number_of_last_shown_line).count;
+
         // these are used and reused for each line
         codes: [..] Control_Code_Info;
         codes.allocator = temp;
@@ -447,6 +456,7 @@ main :: () {
             if line_index > line_offsets.count - 1 break;
             line_start := line_offsets[line_index];
             line_end := ifx line_index < line_offsets.count - 1 then line_offsets[line_index + 1] else only_text.count;
+            line_number := line_index + 1;
             line_index += 1;
             line := substring(xx only_text, line_start, line_end);
 
@@ -474,7 +484,13 @@ main :: () {
             if !line_wrapping {
                 visible_columns_budget : int = terminal_size.cols;
                 visible_slice := line;
-                truncated_string_match_end := 0; // :search_string_highlight
+
+                if line_numberring {
+                    append(*builder, "\e[2;37m"); // color gray (dark white)
+                    print(*builder, "% ", fmt(line_number, line_number_max_digits, padding=" "));
+                    append(*builder, "\e[0m"); // color gray (dark white)
+                    visible_columns_budget -= line_number_max_digits + 1; // `+ 1` for extra space
+                }
 
                 if col_offset > 0 {
                     // Skip `col_offset` visible characters `+ 1` for the :line_overflow_character
@@ -580,24 +596,41 @@ main :: () {
                 line_tail := line;
                 first := true;
 
-                // FIXME: empty lines are skipped for some reason!
-
                 // Iterate over line pieces
                 while first || line_tail && line_buffer.count < main_window_height {
                     defer first = false;
-                    visible_columns_budget : int = min(terminal_size.cols, xx line_tail.count);
+                    visible_columns_budget : int = terminal_size.cols;
 
-                    if !first {
+                    if first {
+                        first = false;
+                        if line_numberring {
+                            append(*builder, "\e[2;37m"); // color gray (dark white)
+                            print(*builder, "% ", fmt(line_number, line_number_max_digits, padding=" "));
+                            append(*builder, "\e[0m"); // color gray (dark white)
+                            visible_columns_budget -= line_number_max_digits + 1; // `+ 1` for extra space
+                        }
+                    } else {
+                        if line_numberring {
+                            append_padding(*builder, line_number_max_digits + 1); // `+ 1` for extra space
+                            visible_columns_budget -= line_number_max_digits + 1; // `+ 1` for extra space
+                        }
                         prefix :: "";
                         append(*builder, prefix);
                         visible_columns_budget -= prefix.count;
-                    } else {
-                        first = false;
                     }
 
+                    visible_columns_budget = min(visible_columns_budget, xx line_tail.count);
+
                     current_slice := substring(line_tail, 0, visible_columns_budget);
+                    // TODO: maybe not just space but also other punctuation
+                    if current_slice.count < line_tail.count {
+                        last_space := find_index_from_right(current_slice, #char " ");
+                        if last_space != -1 {
+                            current_slice.count = last_space + 1; // `+1` so that space is left on this line
+                        }
+                    }
                     current_slice_end := current_slice.data + current_slice.count;
-                    line_tail = substring(line_tail, visible_columns_budget);
+                    line_tail = substring(line_tail, current_slice.count);
 
                     codes.count = 0;
                     if !strip_control_codes {
@@ -1865,6 +1898,10 @@ init_commands :: () {
         array_add(*commands, make_command("command", set_external_command));
         array_add(*commands, make_command("log", set_log_file));
         array_add(*commands, make_command("memory_usage", toggle_memory_usage));
+        array_add(*commands, make_command("number_lines", toggle_line_numberring));
+        array_add(*commands, make_command("line_numberring", toggle_line_numberring));
+        array_add(*commands, make_command("wrap_lines", toggle_line_wrapping));
+        array_add(*commands, make_command("line_wrapping", toggle_line_wrapping));
     }
 }
 
@@ -1916,6 +1953,20 @@ toggle_memory_usage :: () -> (ok := true, error_message := "") {
 
     if show_memory_usage redraw_once = true;
     show_memory_usage = !show_memory_usage;
+    return;
+}
+
+toggle_line_numberring :: () -> (ok := true, error_message := "") {
+    using context.state;
+
+    line_numberring = !line_numberring;
+    return;
+}
+
+toggle_line_wrapping :: () -> (ok := true, error_message := "") {
+    using context.state;
+
+    line_wrapping = !line_wrapping;
     return;
 }
 
