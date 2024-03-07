@@ -1578,6 +1578,8 @@ jump_to_previous_search_match :: () {
 
     if index == -1 return; // match not found
 
+    stick_to_the_bottom = false;
+
     while row_offset >= 0 {
         if line_offsets[row_offset] < index {
             return;
