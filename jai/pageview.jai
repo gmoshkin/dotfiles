@@ -100,6 +100,7 @@ State :: struct {
     //
     input_stream_builder: String_Builder;
     input_stream_fd: s32 = -1;
+    parent_process_command_line: [] string;
 
     //
     // source: EXTERNAL_COMMAND
@@ -275,6 +276,19 @@ main :: () {
         using context.state;
 
         print("Reading input from standard input...\n");
+
+        my_pid := getpid();
+        info: Process_Info;
+        ok := get_process_info(my_pid, *info, log_errors=false,, temp);
+        assert(ok);
+        parent_info: Process_Info;
+        ok = get_process_info(info.parent_pid, *parent_info,, temp);
+        if ok {
+            parent_process_command_line = NewArray(parent_info.command_line.count, string);
+            for parent_info.command_line {
+                parent_process_command_line[it_index] = copy_string(it);
+            }
+        }
 
         // Duplicate stdin to a different file descriptor
         input_stream_fd = dupfd(STDIN_FILENO);
@@ -947,16 +961,28 @@ maybe_get_external_command_output :: () {
 //
 
 read_some_from_input_stream :: () {
-    // TODO: it would be super cool if I detect here that our parent process is a
-    // git command and once the input is fully read I just go into the external
-    // command mode with the command which spawned my process. That way any
-    // regula git command which uses the `PAGER` env var automatically becomes
-    // interactive.
     using context.state;
 
     if input_stream_fd == -1 return;
 
-    if !read_all_available_data_from_input_stream() return;
+    has_new_data := read_all_available_data_from_input_stream();
+    if !has_new_data {
+        if !parent_process_command_line return;
+
+        if path_filename(parent_process_command_line[0]) == "git" {
+            for command free(it);
+            command.count = 0;
+            array_reserve(*command, parent_process_command_line.count);
+            for parent_process_command_line {
+                array_add(*command, copy_string(it));
+            }
+            time_next_command_run = frame_time;
+            main_window_source = .EXTERNAL_COMMAND;
+            maybe_get_external_command_output();
+        }
+
+        return;
+    }
 
     free(main_window_buffer.raw_text_and_control_codes);
     main_window_buffer.raw_text_and_control_codes = builder_to_string(*input_stream_builder, do_reset=false);
@@ -1030,6 +1056,8 @@ render_status_line_1 :: () {
             append(*builder, command[0]);
             append(*builder, "\e[0m");
 
+            // FIXME: this may become too long and the status line is scuffed.
+            // Probably want to truncate it and maybe even rotate the line over time?
             for 1..command.count-1 {
                 append(*builder, " ");
                 append(*builder, command[it]);
@@ -1069,6 +1097,8 @@ render_status_line_1 :: () {
                 append(*builder, "...");
                 append(*builder, "\e[0m");
             }
+
+            print(*builder, "%", command);
         }
     }
 
