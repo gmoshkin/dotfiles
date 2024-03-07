@@ -15,6 +15,8 @@
         Like having an array of simple filters of kind
           - replace all ' ' with '\n' and stuff
           But I don't wanna be supporting regular expressions though
+
+   - CAPTURE MOUSE!
 */
 State :: struct {
 
@@ -26,9 +28,13 @@ State :: struct {
     col_offset: s64;
     stick_to_the_bottom := false;
 
+    // TODO: support virtual line offsets like in vim (so that in wrapping mode
+    // it doesnt jump over the whole screen if a line is too long)
     wrapped_line_offset: s64;
     line_wrapping := false;
     strip_control_codes := false;
+    line_numberring := false;
+    show_memory_usage := false;
 
     main_window_height: s64;
     terminal_size: Terminal_Size_Info;
@@ -43,6 +49,11 @@ State :: struct {
         INPUT_COMMAND;
     } = .NAVIGATE;
     input_cursor: s64;
+
+    // I need to render the cursor at the very end, but it's position is
+    // determined a bit earlier, so I store it in the state.
+    cursor_line: s64; // if -1, the cursor is hidden
+    cursor_column: s64; // if -1, the cursor is hidden
 
     command_line: [..] u8;
     command_line_history: [..] string;
@@ -103,18 +114,21 @@ State :: struct {
     //
     // rendering
     //
+    redraw_once := false;
     main_window_buffer: Window_Buffer;
-
-    memory_pool_for_building_a_line: Flat_Pool;
 
     // Stores pointers into `last_shown_line_buffer_flat_pool`.
     last_shown_line_buffer: [..] string;
     memory_pool_for_last_shown_line_buffer: Flat_Pool;
+    memory_pool_for_last_shown_line_buffer_high_water_mark: s64;
+
+    temporary_storage_memory_pool: Flat_Pool;
+    temporary_storage_high_water_mark: s64;
 
     //
     // miscellaneous internals
     //
-
+    default_allocated_high_water_mark : s64;
     saved_termios: Termios;
     tty_name: string;
 
@@ -163,6 +177,11 @@ main :: () {
             case "--follow";
                 state.stick_to_the_bottom = true;
 
+            case "-m"; #through;
+            case "--memory"; #through;
+            case "--memory-usage";
+                state.show_memory_usage = true;
+
             case "-t"; #through;
             case "--time"; #through;
             case "--time-before-repeat";
@@ -207,6 +226,8 @@ main :: () {
     }
 
     if !isatty(STDOUT_FILENO) {
+        // TODO: I could just pipe the command in to the out fd.
+        // What would be the point though?
         print("Stdout needs to be connected to a terminal.\n");
         exit(1);
     }
@@ -223,6 +244,8 @@ main :: () {
     // Preallocate memory
     array_reserve(*state.search_string_buffer, 4096);
     array_reserve(*state.command_line, 4096);
+    context.temporary_storage.overflow_allocator.proc = flat_pool_allocator_proc;
+    context.temporary_storage.overflow_allocator.data = *state.temporary_storage_memory_pool;
 
     // Setup logger
     state.error_log_builder.allocator = temp;
@@ -242,7 +265,7 @@ main :: () {
     signal(SIGTERM, shutdown_signal_handler);
     signal(SIGWINCH, window_size_changed_signal_handler);
 
-    // Read the initial portion of standard input
+    // Reconfigure stdin to work properly
     if state.main_window_source == .STANDARD_INPUT {
         using context.state;
 
@@ -352,8 +375,12 @@ main :: () {
             input_received_this_tick = true;
         }
 
+        // FIXME: stupid fucking windows terminal flickers when you redraw a
+        // large portion of the screen. I could check per line if something
+        // changed and only redraw given lines... This is very very sad...
         if window_size_changed {
             window_size_changed = false;
+            redraw_once = true;
 
             // Get terminal size
             rc := ioctl(STDIN_FILENO, TIOCGWINSZ, *state.terminal_size);
@@ -377,6 +404,7 @@ main :: () {
             }
         }
 
+        // FIXME: this doesn't work in line-wrapping mode
         if stick_to_the_bottom {
             row_offset = max(row_offset, main_window_buffer.line_offsets.count - main_window_height);
         }
@@ -440,8 +468,7 @@ main :: () {
             }
             search_matches_tail: [] Pointer_Range = search_matches;
 
-            memory_pool := Allocator.{ flat_pool_allocator_proc, *memory_pool_for_building_a_line };
-            builder := String_Builder.{ allocator = memory_pool };
+            builder := String_Builder.{ allocator = temp };
             ensure_contiguous_space(*builder, line.count);
 
             if !line_wrapping {
@@ -618,7 +645,8 @@ main :: () {
                 }
             }
         }
-        if changed {
+        if changed || redraw_once {
+            redraw_once = false;
             write_string("\e[0J");
             write_strings(..line_buffer);
 
@@ -627,6 +655,7 @@ main :: () {
             memory_pool_allocator.proc = flat_pool_allocator_proc;
             memory_pool_allocator.data = *memory_pool_for_last_shown_line_buffer;
 
+            memory_pool_for_last_shown_line_buffer_high_water_mark = max(memory_pool_for_last_shown_line_buffer_high_water_mark, flat_pool_allocated(*memory_pool_for_last_shown_line_buffer));
             reset(*memory_pool_for_last_shown_line_buffer);
             last_shown_line_buffer.allocator = memory_pool_allocator;
             array_reset(*last_shown_line_buffer);
@@ -636,6 +665,7 @@ main :: () {
                 line := copy_string(it,, memory_pool_allocator);
                 array_add(*last_shown_line_buffer, line);
             }
+            memory_pool_for_last_shown_line_buffer_high_water_mark = max(memory_pool_for_last_shown_line_buffer_high_water_mark, flat_pool_allocated(*memory_pool_for_last_shown_line_buffer));
         }
 
         //
@@ -645,6 +675,9 @@ main :: () {
             builder: String_Builder;
             builder.allocator = temp;
             buffer := get_base_buffer(*builder);
+
+            cursor_line = -1;
+            cursor_column = -1;
 
             // "\e[H": move cursor to position (row 2, column 1)
             append(*builder, "\e[2;1H");
@@ -686,7 +719,6 @@ main :: () {
 
                 visible_columns_budget := terminal_size.cols - prefix.count;
 
-                cursor_column := 0;
                 overflow := text.count - visible_columns_budget;
                 // FIXME: I just want the last column to be left for the cursor
                 // if the cursor is at the last column, but than be filled with
@@ -698,17 +730,14 @@ main :: () {
                     slice_start := clamp(input_cursor - 2, 0, overflow);
                     append(*builder, substring(text, slice_start, count=visible_columns_budget - 1));
                     // `+ 1` because rows start at 1
+                    cursor_line = 2;
                     cursor_column = input_cursor - slice_start + prefix.count + 1;
                 } else {
                     append(*builder, text);
                     // `+ 1` because rows start at 1
+                    cursor_line = 2;
                     cursor_column = input_cursor + prefix.count + 1;
                 }
-
-                // move the cursor to where the user is editting text
-                print(*builder, "\e[2;%H", cursor_column);
-                // show the cursor, so user knows they're editing text
-                append(*builder, "\e[?25h");
             }
 
             append(*builder, "\e[0m");
@@ -717,8 +746,83 @@ main :: () {
             write_builder(*builder);
         }
 
+        // memory usage window
+        if show_memory_usage
+        {
+            builder := String_Builder.{ allocator = temp };
+
+            fmt_mem :: inline (value: int) -> FormatInt {
+                return FormatInt.{ value=value, minimum_digits=7, padding=#char " " };
+            }
+
+            // prepare window lines
+            append(*builder, "\e[100m"); // background color gray
+            print(*builder, "temp:        % [hvm: %]",
+                            fmt_mem(context.temporary_storage.total_bytes_occupied),
+                            fmt_mem(temporary_storage_high_water_mark));
+
+            append(*builder, "\n");
+            append(*builder, "\e[100m"); // background color gray
+            print(*builder, "buffer pool: % [hvm: %]",
+                            fmt_mem(flat_pool_allocated(*memory_pool_for_last_shown_line_buffer)),
+                            fmt_mem(memory_pool_for_last_shown_line_buffer_high_water_mark));
+
+            // TODO: the builtin Memory_Debugger is too expensive, it seems that
+            // it expects to only be called once per program execution (or maybe
+            // a few times), but not every frame? Or there's the wire protocol
+            // for an external visualizer program which is cool and all, but not
+            // my use case. So probably I should do something myself here...
+
+            // default_allocated := 0;
+            // for address_table if it.is_live default_allocated += it.size;
+            // default_allocated_high_water_mark = max(default_allocated_high_water_mark, default_allocated);
+
+            // append(*builder, "\n");
+            // append(*builder, "\e[100m"); // background color gray
+            // print(*builder, "default:     % [hvm: %]",
+            //                 fmt_mem(default_allocated),
+            //                 fmt_mem(default_allocated_high_water_mark));
+
+            lines: [..] string; lines.allocator = temp;
+            max_width := 0;
+            tail := to_string(*builder);
+            while tail {
+                found:, line:, tail = split_from_left(tail, #char "\n");
+                max_width = max(max_width, count_visible_characters(line));
+                array_add(*lines, line);
+            }
+
+            window_row_offset := terminal_size.rows - lines.count;
+            window_col_offset := terminal_size.cols - max_width;
+
+            // render the window
+            start := builder_string_length(*builder);
+            for line: lines {
+                // "\e[H": move cursor to given position (row, col) (1-based)
+                print(*builder, "\e[%;%H", window_row_offset + 1 + it_index, window_col_offset + 1);
+                append(*builder, line);
+                append_padding(*builder, max_width - line.count);
+            }
+            append(*builder, "\e[0m");
+
+            total_string := builder_to_string(*builder,, temp);
+            write_string(substring(total_string, start));
+        }
+
+        // show the cursor at the very end
+        if cursor_column != -1 {
+            builder := String_Builder.{ allocator = temp };
+            // move the cursor to where the user is editting text
+            print(*builder, "\e[%;%H", cursor_line, cursor_column);
+            // show the cursor, so user knows they're editing text
+            append(*builder, "\e[?25h");
+            append(*builder, "\e[0m");
+            write_builder(*builder);
+        }
+
         if should_exit break;
 
+        temporary_storage_high_water_mark = max(temporary_storage_high_water_mark, context.temporary_storage.high_water_mark);
         reset_temporary_storage();
     }
 
@@ -758,7 +862,6 @@ maybe_get_external_command_output :: () {
     t0 := time;
     last_command_result=, normal_output, error_output := my_run_command(..temp_command, capture_and_return_output = true);
     elapsed := seconds_since_init() - t0;
-    // TODO: also I don't see these logs, am I stupid??
     if elapsed > 0.5 {
         log("executing % took % seconds", temp_command, elapsed);
     }
@@ -811,6 +914,11 @@ maybe_get_external_command_output :: () {
 //
 
 read_some_from_input_stream :: () {
+    // TODO: it would be super cool if I detect here that our parent process is a
+    // git command and once the input is fully read I just go into the external
+    // command mode with the command which spawned my process. That way any
+    // regula git command which uses the `PAGER` env var automatically becomes
+    // interactive.
     using context.state;
 
     if input_stream_fd == -1 return;
@@ -1437,6 +1545,10 @@ input_handle_character :: (char: u8) {
                 case #char "\x09"; /* CTRL+I or TAB */
                     if input_mode == .INPUT_COMMAND {
                         complete_command();
+                    } else if input_mode == .INPUT_SEARCH_STRING {
+                        // TODO: complete identifiers in the fucking text yo,
+                        // give priority to the ones on the fucking screen.
+                        // This would be a fucking geanious feature
                     }
 
                 case #char "\x08"; /* CTRL+H */ #through;
@@ -1752,6 +1864,7 @@ init_commands :: () {
         array_add(*commands, make_command("interval", change_command_rerun_period));
         array_add(*commands, make_command("command", set_external_command));
         array_add(*commands, make_command("log", set_log_file));
+        array_add(*commands, make_command("memory_usage", toggle_memory_usage));
     }
 }
 
@@ -1796,6 +1909,14 @@ set_log_file :: (new_log_file: string) -> (ok: bool, error_message: string) {
     }
     log_file = log_file;
     return true, "";
+}
+
+toggle_memory_usage :: () -> (ok := true, error_message := "") {
+    using context.state;
+
+    if show_memory_usage redraw_once = true;
+    show_memory_usage = !show_memory_usage;
+    return;
 }
 
 //
@@ -2049,7 +2170,8 @@ fmt :: inline (v: s64, minimum_digits := 1, $padding := "0") -> FormatInt #expan
 isatty :: (__fd: s32) -> s32 #foreign libc;
 ttyname :: (__fd: s32) -> *u8 #foreign libc;
 
-#import "Basic";
+#import "Basic"()(MEMORY_DEBUGGER=true);
+#import "Hash_Table";
 #import "My_Util";
 #import "Process";
 #import "String";

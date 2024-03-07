@@ -260,6 +260,14 @@ mem_dump_to_builder :: (builder: *String_Builder, data: [] u8) {
 }
 
 //
+// flat pool utilities
+//
+
+flat_pool_allocated :: (pool: *Flat_Pool) -> s64 {
+    return pool.current_point - pool.memory_base;
+}
+
+//
 // private imports
 //
 
@@ -268,3 +276,4 @@ mem_dump_to_builder :: (builder: *String_Builder, data: [] u8) {
 #import "Basic";
 #import "String";
 #import "Compiler";
+#import "Flat_Pool";
