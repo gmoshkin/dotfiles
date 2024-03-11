@@ -74,6 +74,10 @@ State :: struct {
     frame_time: float64;
     error_message_builder: String_Builder;
     error_message_deadline: float64 = -1.0;
+    status_scroll_interval_seconds := 0.1;
+    next_status_scroll_time : float64 = -1.0;
+    before_scroll_time_seconds : float64 = 2.0;
+    current_command_string_scroll_offset := 0;
 
     //
     // logging
@@ -371,6 +375,8 @@ main :: () {
     state.epoll_events[0].events = EPOLLIN;
     rc = epoll_ctl(state.epoll_fd, .ADD, STDIN_FILENO, state.epoll_events.data);
     assert(rc == 0);
+
+    status_line_init();
 
     first_time := true;
     while !should_exit {
@@ -1042,6 +1048,13 @@ read_all_available_data_from_input_stream :: () -> has_new_data: bool {
 // status lines
 //
 
+status_line_init :: () {
+    using context.state;
+
+    buffer_zone := cast(int) (before_scroll_time_seconds / status_scroll_interval_seconds);
+    current_command_string_scroll_offset = -buffer_zone;
+}
+
 render_status_line_1 :: () {
     using context.state;
 
@@ -1066,19 +1079,50 @@ render_status_line_1 :: () {
     //
     if main_window_source == {
         case .EXTERNAL_COMMAND; {
+            max_command_string_length : s64 = terminal_size.cols / 2;
+
             append(*builder, "\e[35m"); // color magenta
             append(*builder, "$(");
             append(*builder, "\e[0m");
 
-            append(*builder, "\e[32m");
-            append(*builder, command[0]);
-            append(*builder, "\e[0m");
+            {
+                temp_builder := String_Builder.{ allocator = temp };
+                append(*temp_builder, "\e[32m");
+                append(*temp_builder, command[0]);
+                append(*temp_builder, "\e[0m");
 
-            // FIXME: this may become too long and the status line is scuffed.
-            // Probably want to truncate it and maybe even rotate the line over time?
-            for 1..command.count-1 {
-                append(*builder, " ");
-                append(*builder, command[it]);
+                for 1..command.count-1 {
+                    append(*temp_builder, " ");
+                    if find_index_from_left(command[it], #char " ") != -1 {
+                        append(*temp_builder, "\"");
+                        print_ascii_or_hex(*temp_builder, command[it]);
+                        append(*temp_builder, "\"");
+                    } else {
+                        append(*temp_builder, command[it]);
+                    }
+                }
+
+                command_string := to_string(*temp_builder);
+
+                command_string_overflow := count_visible_characters(command_string) - max_command_string_length;
+                if command_string_overflow > 0 {
+                    if frame_time > next_status_scroll_time {
+                        next_status_scroll_time = frame_time + status_scroll_interval_seconds;
+                        current_command_string_scroll_offset += 1;
+
+                        // buffer_zone is kind of a hack which makes it so the
+                        // string doesn't scroll for some time in the left most
+                        // and in the rightmost positions
+                        buffer_zone := cast(int) (before_scroll_time_seconds / status_scroll_interval_seconds);
+                        if current_command_string_scroll_offset > command_string_overflow + buffer_zone {
+                            current_command_string_scroll_offset = -buffer_zone;
+                        }
+                    }
+                    clamped_offset := clamp(current_command_string_scroll_offset, 0, command_string_overflow);
+                    scroll_string_with_control_codes(*builder, command_string, clamped_offset, max_command_string_length);
+                } else {
+                    append(*builder, command_string);
+                }
             }
 
             append(*builder, "\e[35m"); // color magenta
@@ -1421,6 +1465,48 @@ separate_control_codes :: (raw_text: string) {
 
     only_text = xx only_text_storage;
     line_offsets.count -= last_empty_lines_count;
+}
+
+scroll_string_with_control_codes :: (builder: *String_Builder, scrolling_text: string, offset: s64, max_width: s64) {
+    started_codes: [..] string; started_codes.allocator = temp;
+
+    visible_characters_skipped := 0;
+    tail := scrolling_text;
+    while tail {
+        head:, visible_count:, tail = eat_visible_or_escape_sequence(tail);
+        if visible_count == 0 {
+            if is_mode_reset_control_sequence(head) {
+                started_codes.count = 0;
+            } else {
+                array_add(*started_codes, head);
+            }
+        }
+
+        visible_characters_skipped += visible_count;
+        if visible_characters_skipped == offset break;
+
+        overflow := visible_characters_skipped - offset;
+        if overflow > 0 {
+            tail.data -= overflow;
+            tail.count += overflow;
+            break;
+        }
+    }
+    for started_codes append(builder, it);
+
+    visible_budget := max_width;
+    while tail {
+        head:, visible_count:, tail = eat_visible_or_escape_sequence(tail);
+        visible_budget -= visible_count;
+        if visible_budget > 0 {
+            append(builder, head);
+        } else {
+            overflow := -visible_budget;
+            head.count -= overflow;
+            append(builder, head);
+            break;
+        }
+    }
 }
 
 //
@@ -2057,9 +2143,7 @@ ascii_or_hex_printer :: (builder: *String_Builder, any: Any, struct_printer_data
     if any.type != type_info(Ascii_Or_Hex) return false;
 
     s := << cast(*string) any.value_pointer;
-    for 0..s.count - 1 {
-        print_ascii_or_hex(builder, s[it]);
-    }
+    print_ascii_or_hex(builder, s);
 
     return true;
 }
@@ -2080,16 +2164,6 @@ is_mode_reset_control_sequence :: inline (s: string) -> bool {
             return false;
 
     return true;
-}
-
-print_ascii_or_hex :: inline (builder: *String_Builder, char: u8) {
-    if char >= #char " " && char <= #char "~" {
-        if char == #char "\\" || char == #char "\""
-            append(builder, "\\");
-        append(builder, char);
-    } else {
-        print_to_builder(builder, "\\x%", FormatInt.{ value = char, base = 16, minimum_digits = 2 });
-    }
 }
 
 //

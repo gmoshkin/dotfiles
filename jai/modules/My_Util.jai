@@ -67,6 +67,24 @@ test_append_padding :: () {
     Check(64 * 7 + 13, "@");
 }
 
+print_ascii_or_hex :: (builder: *String_Builder, s: string) {
+    for 0..s.count-1 {
+        char := s[it];
+        if char >= #char " " && char <= #char "~" {
+            if char == #char "\\" || char == #char "\""
+                append(builder, "\\");
+            append(builder, char);
+        } else {
+            print_to_builder(builder, "\\x%", FormatInt.{ value = char, base = 16, minimum_digits = 2 });
+        }
+    }
+}
+
+print_ascii_or_hex :: inline (builder: *String_Builder, char: u8) {
+    s: [1] u8 = .[char];
+    print_ascii_or_hex(builder, cast(string) s);
+}
+
 //
 // ascii escape sequence handling
 //
