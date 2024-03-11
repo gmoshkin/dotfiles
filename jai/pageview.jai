@@ -442,7 +442,6 @@ main :: () {
         line_buffer.allocator = temp;
         array_reserve(*line_buffer, main_window_height);
 
-        tail := only_text;
         line_index := 0;
         if row_offset > 0 {
             line_index = row_offset;
@@ -583,6 +582,15 @@ main :: () {
                 }
 
                 // Build the line string
+                // {
+                //     // Fucking tab characters, jesus christ, this sucks so much....
+                //     tail := visible_slice;
+                //     while tail {
+                //         found:, head:, tail = split_from_left(tail, #char "\t");
+                //         build_line_with_control_codes(*builder, head, codes);
+                //         if found append_padding(*builder, 8);
+                //     }
+                // }
                 build_line_with_control_codes(*builder, visible_slice, codes);
 
                 // Reset color codes
@@ -668,6 +676,16 @@ main :: () {
                     }
 
                     // Build the line string
+                    // {
+                    //     // Fucking tab characters, jesus christ, this sucks so much....
+                    //     tail := current_slice;
+                    //     while tail {
+                    //         found:, head:, tail = split_from_left(tail, #char "\t");
+                    //         build_line_with_control_codes(*builder, head, codes);
+                    //         if found append_padding(*builder, 8);
+
+                    //     }
+                    // }
                     build_line_with_control_codes(*builder, current_slice, codes);
 
                     if line_buffer.count != line_buffer.allocated - 1 {
@@ -1097,8 +1115,6 @@ render_status_line_1 :: () {
                 append(*builder, "...");
                 append(*builder, "\e[0m");
             }
-
-            print(*builder, "%", command);
         }
     }
 
@@ -1384,8 +1400,19 @@ separate_control_codes :: (raw_text: string) {
             if visible_count == 0 {
                 array_add(*control_codes, .{ only_text_storage.count, xx head });
             } else {
-                memcpy(only_text_storage.data + only_text_storage.count, head.data, head.count);
-                only_text_storage.count += head.count;
+                // Expand any tab characters with spaces, because fuck tab characters,
+                // all my homies use spaces
+                t := head;
+                while t {
+                    found:, piece:, t = split_from_left(t, #char "\t");
+                        memcpy(only_text_storage.data + only_text_storage.count, piece.data, piece.count);
+                        only_text_storage.count += piece.count;
+                        if found {
+                            expanded_tab :: "        ";
+                            memcpy(only_text_storage.data + only_text_storage.count, expanded_tab.data, expanded_tab.count);
+                            only_text_storage.count += expanded_tab.count;
+                        }
+                }
             }
         }
 
