@@ -295,7 +295,7 @@ main :: () {
         }
 
         // Duplicate stdin to a different file descriptor
-        input_stream_fd = dupfd(STDIN_FILENO);
+        input_stream_fd = dup(STDIN_FILENO);
         assert(input_stream_fd >= 0);
         flags := fcntl(input_stream_fd, F_GETFL);
         flags |= O_NONBLOCK;
@@ -2133,7 +2133,6 @@ my_logger :: (message: string, data: *void, info: Log_Info) {
     file_write(*state.log_file, "\n");
     fflush(state.log_file.handle);
 }
-fflush :: (handle: *FILE) -> s32 #foreign libc;
 
 //
 // string utilities
@@ -2268,8 +2267,6 @@ window_size_changed_signal_handler :: (signal: s32) #c_call #no_context {
 }
 
 libc :: #system_library "libc";
-Signal_Handler :: #type (s32) -> void #c_call #no_context;
-signal :: (signal: s32, handler: Signal_Handler) #foreign libc;
 
 //
 // terminal settings
@@ -2286,8 +2283,6 @@ restore_terminal_settings :: () {
 //
 // terminfo
 //
-
-TIOCGWINSZ :: 0x5413;
 
 Terminal_Size_Info :: struct {
     rows: u16;
@@ -2347,19 +2342,13 @@ fmt :: inline (v: s64, minimum_digits := 1, $padding := "0") -> FormatInt #expan
     return FormatInt.{ value = v, minimum_digits = minimum_digits, padding = padding[0] };
 }
 
-//
-// isatty
-//
-
-isatty :: (__fd: s32) -> s32 #foreign libc;
-ttyname :: (__fd: s32) -> *u8 #foreign libc;
-
 #import "Basic"()(MEMORY_DEBUGGER=true);
 #import "Hash_Table";
 #import "My_Util";
 #import "Process";
 #import "String";
 #import "POSIX";
+#import "Linux";
 #import "System";
 #import "File";
 #import "Flat_Pool";
