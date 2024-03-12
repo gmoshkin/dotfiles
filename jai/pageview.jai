@@ -1094,9 +1094,11 @@ render_status_line_1 :: () {
                 for 1..command.count-1 {
                     append(*temp_builder, " ");
                     if find_index_from_left(command[it], #char " ") != -1 {
+                        append(*temp_builder, "\e[33m"); // color yellow
                         append(*temp_builder, "\"");
                         print_ascii_or_hex(*temp_builder, command[it]);
                         append(*temp_builder, "\"");
+                        append(*temp_builder, "\e[0m");
                     } else {
                         append(*temp_builder, command[it]);
                     }
