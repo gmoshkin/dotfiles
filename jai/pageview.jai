@@ -35,6 +35,7 @@ State :: struct {
     strip_control_codes := false;
     line_numberring := false;
     show_memory_usage := false;
+    visualize_control_codes := false;
 
     main_window_height: s64;
     terminal_size: Terminal_Size_Info;
@@ -1088,7 +1089,8 @@ render_status_line_1 :: () {
             {
                 temp_builder := String_Builder.{ allocator = temp };
                 append(*temp_builder, "\e[32m");
-                append(*temp_builder, command[0]);
+                if path_filename(command[0]) == "git" then append(*temp_builder, "git");
+                else                                       append(*temp_builder, command[0]);
                 append(*temp_builder, "\e[0m");
 
                 for 1..command.count-1 {
@@ -1894,18 +1896,27 @@ make_command :: (name: string, $proc: Code) -> Command #expand {
         builder: String_Builder;
         defer free_buffers(*builder);
 
-        base_code := compiler_get_nodes(proc);
-        assert(base_code.kind == .IDENT);
-        code := cast(*Code_Ident) base_code;
-        assert(code.type.type == .PROCEDURE);
-
         print(*builder, #string CODE
 
 proc_wrapper :: (args: .. Any) -> (ok: bool, error_message: string) {
 
         CODE);
 
-        type := cast(*Type_Info_Procedure) code.type;
+        proc_name: string;
+
+        base_code := compiler_get_nodes(proc);
+        if base_code.kind == .IDENT {
+            code := cast(*Code_Ident) base_code;
+            assert(code.type.type == .PROCEDURE);
+            proc_name = code.name;
+        } else {
+            proc_name = "unique_proc_name";
+            print(*builder, "% := ", proc_name);
+            print_expression(*builder, base_code);
+            append(*builder, ";");
+        }
+
+        type := cast(*Type_Info_Procedure) base_code.type;
         for type.argument_types {
             print(*builder, #string CODE
 
@@ -1914,7 +1925,7 @@ proc_wrapper :: (args: .. Any) -> (ok: bool, error_message: string) {
             CODE, it_index, get_type(it));
         }
 
-        print(*builder, "ok, error_message := %(", code.name);
+        print(*builder, "ok, error_message := %(", proc_name);
         for type.argument_types print(*builder, "arg_%, ", it_index);
         print(*builder, ");");
 
@@ -2042,11 +2053,13 @@ init_commands :: () {
         array_add(*commands, make_command("interval", change_command_rerun_period));
         array_add(*commands, make_command("command", set_external_command));
         array_add(*commands, make_command("log", set_log_file));
-        array_add(*commands, make_command("memory_usage", toggle_memory_usage));
-        array_add(*commands, make_command("number_lines", toggle_line_numberring));
-        array_add(*commands, make_command("line_numberring", toggle_line_numberring));
-        array_add(*commands, make_command("wrap_lines", toggle_line_wrapping));
-        array_add(*commands, make_command("line_wrapping", toggle_line_wrapping));
+        array_add(*commands, make_command("memory_usage", make_toggle("show_memory_usage")));
+        array_add(*commands, make_command("strip_control_codes", make_toggle("strip_control_codes")));
+        array_add(*commands, make_command("number_lines", make_toggle("line_numberring")));
+        array_add(*commands, make_command("line_numberring", make_toggle("line_numberring")));
+        array_add(*commands, make_command("wrap_lines", make_toggle("line_wrapping")));
+        array_add(*commands, make_command("line_wrapping", make_toggle("line_wrapping")));
+        array_add(*commands, make_command("visualize_control_codes", make_toggle("visualize_control_codes")));
     }
 }
 
@@ -2093,26 +2106,27 @@ set_log_file :: (new_log_file: string) -> (ok: bool, error_message: string) {
     return true, "";
 }
 
-toggle_memory_usage :: () -> (ok := true, error_message := "") {
+Toggle_Field_Callback :: #type () -> (bool, string);
+
+make_toggle :: ($field: string) -> Toggle_Field_Callback #expand {
+    #insert #run -> string {
+        builder: String_Builder;
+        defer free_buffers(*builder);
+
+        print(*builder, #string CODE
+
+proc :: () -> (bool, string) {
     using context.state;
 
-    if show_memory_usage redraw_once = true;
-    show_memory_usage = !show_memory_usage;
-    return;
+    %1 = !%1;
+    return true, "";
 }
 
-toggle_line_numberring :: () -> (ok := true, error_message := "") {
-    using context.state;
+        CODE, field);
+        return builder_to_string(*builder);
+    };
 
-    line_numberring = !line_numberring;
-    return;
-}
-
-toggle_line_wrapping :: () -> (ok := true, error_message := "") {
-    using context.state;
-
-    line_wrapping = !line_wrapping;
-    return;
+    return proc;
 }
 
 //
@@ -2354,4 +2368,5 @@ fmt :: inline (v: s64, minimum_digits := 1, $padding := "0") -> FormatInt #expan
 #import "Flat_Pool";
 #import "Print_Vars";
 #import "Reflection";
+#import "Program_Print";
 System :: #import "System";
