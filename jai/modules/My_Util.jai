@@ -22,6 +22,18 @@ substring :: (s: string, start := 0, end := NOT_SPECIFIED, count := NOT_SPECIFIE
     return string.{ data = s.data + _start, count = _count };
 }
 
+count_matches :: (text: string, c: u8) -> s64 {
+    count := 0;
+    cursor := 0;
+    while true {
+        index := find_index_from_left(text, c, cursor);
+        if index == -1 return count;
+        count += 1;
+        cursor = index + 1;
+    }
+    return 0;
+}
+
 //
 // string builder utilities
 //
@@ -99,7 +111,11 @@ eat_visible_or_escape_sequence :: (text: string) -> head: string, visible_count:
         // Visible character sequence
         head := substring(text, 0, count = count);
         tail := substring(text, count);
-        return head, count, tail;
+
+        // FIXME: this is a temporary solution probably...
+        backspaces_count := count_matches(head, #char "\x08"); // '\b' in C
+
+        return head, count - backspaces_count * 2, tail;
     }
 
     // Escape sequence

@@ -1464,13 +1464,66 @@ separate_control_codes :: (raw_text: string) {
                 t := head;
                 while t {
                     found:, piece:, t = split_from_left(t, #char "\t");
-                        memcpy(only_text_storage.data + only_text_storage.count, piece.data, piece.count);
-                        only_text_storage.count += piece.count;
-                        if found {
-                            expanded_tab :: "        ";
-                            memcpy(only_text_storage.data + only_text_storage.count, expanded_tab.data, expanded_tab.count);
-                            only_text_storage.count += expanded_tab.count;
+
+                    // XXX: this shit is crazy! man is doing some retarded shit where it outputs
+                    // `N\bNA\bAM\bME\bE` to mean `\e[1mNAME\e[0m` (which means
+                    // bold). And same shit for underlined text.
+                    // And now I have too deal with this....
+                    Flush_Highlighted_Piece :: (count: *s64, start_code: string, end_code: string) #expand {
+                        if count.* == 0 return;
+                        array_add(*`control_codes, .{ `only_text_storage.count, xx start_code });
+                        start := `piece.data + `cursor - count.* * 3;
+                        // @Robustness: here we append every 3rd character, because this
+                        // works for both bold (B\bBO\bOL\bLD\bD) and underline
+                        // (_\bU_\bN_\bD_\bE_\bR...) the way `man` is using
+                        // them, but this may not be enough for some other weirdos
+                        for 0..count.*-1 array_add(*`only_text_storage, start[it * 3 + 2]);
+                        array_add(*`control_codes, .{ `only_text_storage.count, xx end_code });
+                        count.* = 0;
+                    }
+                    Flush_Regular_Piece :: () #expand {
+                        if `regular_count == 0 return;
+                        start := `piece.data + `cursor - `regular_count;
+                        memcpy(`only_text_storage.data + `only_text_storage.count, start, `regular_count);
+                        `only_text_storage.count += `regular_count;
+                        `regular_count = 0;
+                    }
+
+                    bold_count := 0;
+                    underline_count := 0;
+                    regular_count := 0;
+                    cursor := 0;
+                    while cursor < piece.count {
+                        if cursor <= piece.count - 3 && piece[cursor + 1] == #char "\x08" // '\b'
+                            && piece[cursor] == piece[cursor + 2]
+                        {
+                            Flush_Regular_Piece();
+                            Flush_Highlighted_Piece(*underline_count, "\e[4m", "\e[24m"); // underline mode
+                            bold_count += 1;
+                            cursor += 3;
+                        } else if cursor <= piece.count - 3 && piece[cursor + 1] == #char "\x08" // '\b'
+                            && piece[cursor] == #char "_"
+                        {
+                            Flush_Regular_Piece();
+                            Flush_Highlighted_Piece(*bold_count, "\e[1m", "\e[22m"); // bold mode
+                            underline_count += 1;
+                            cursor += 3;
+                        } else {
+                            Flush_Highlighted_Piece(*bold_count, "\e[1m", "\e[22m"); // bold mode
+                            Flush_Highlighted_Piece(*underline_count, "\e[4m", "\e[24m"); // underline mode
+                            regular_count += 1;
+                            cursor += 1;
                         }
+                    }
+                    Flush_Regular_Piece();
+                    Flush_Highlighted_Piece(*bold_count, "\e[1m", "\e[22m"); // bold mode
+                    Flush_Highlighted_Piece(*underline_count, "\e[4m", "\e[24m"); // underline mode
+
+                    if found {
+                        expanded_tab :: "        ";
+                        memcpy(only_text_storage.data + only_text_storage.count, expanded_tab.data, expanded_tab.count);
+                        only_text_storage.count += expanded_tab.count;
+                    }
                 }
             }
         }
