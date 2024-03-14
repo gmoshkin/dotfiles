@@ -35,6 +35,8 @@ State :: struct {
     strip_control_codes := false;
     line_numberring := false;
     show_memory_usage := false;
+    // FIXME: this mode doesn't 100% work right now, but may help somewhat
+    // sometimes...
     visualize_control_codes := false;
 
     main_window_height: s64;
@@ -1222,14 +1224,23 @@ build_line_with_control_codes :: (builder: *String_Builder, text_slice: string, 
     cursor := start;
     for codes {
         position_clamped := clamp(it.position_in_text, start, end);
-        append(builder, substring(only_text, cursor, position_clamped));
+
+        piece := substring(only_text, cursor, position_clamped);
+        if context.state.visualize_control_codes then print(builder, "%", cast(Ascii_Or_Hex) piece);
+        else                                          append(builder, piece);
+
         if it.position_in_text > end return codes.count - it_index;
 
-        append(builder, it.data);
+        if context.state.visualize_control_codes then print(builder, "%", cast(Ascii_Or_Hex) it.data);
+        else                                          append(builder, it.data);
+
         cursor = position_clamped;
     }
-    if cursor < end
-        append(builder, substring(only_text, cursor, end));
+    if cursor < end {
+        piece := substring(only_text, cursor, end);
+        if context.state.visualize_control_codes then print(builder, "%", cast(Ascii_Or_Hex) piece);
+        else                                          append(builder, piece);
+    }
 
     return 0;
 }
