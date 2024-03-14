@@ -35,6 +35,51 @@ count_matches :: (text: string, c: u8) -> s64 {
 }
 
 //
+// unicode utilities
+//
+
+utf8_count :: (utf8: string) -> s64 {
+    count := 0;
+    cursor := 0;
+    while cursor < utf8.count {
+        ofs := trailing_bytes_for_utf8[utf8[cursor]];
+        cursor += ofs + 1;
+        count += 1;
+    }
+    assert(cursor == utf8.count);
+
+    return count;
+}
+
+utf8_substring :: (utf8: string, count: s64) -> string, actual_count: s64 {
+    assert(count >= 0);
+
+    result := utf8;
+    result.count = 0;
+    actual_count := 0;
+    while result.count < utf8.count && actual_count < count {
+        ofs := trailing_bytes_for_utf8[utf8[result.count]];
+        result.count += ofs + 1;
+        actual_count += 1;
+    }
+    assert(result.count <= utf8.count);
+
+    return result, actual_count;
+}
+
+// Yoinked from modules/Unicode.jai
+trailing_bytes_for_utf8 :: u8.[
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+	2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2, 3,3,3,3,3,3,3,3,4,4,4,4,5,5,5,5
+];
+
+//
 // string builder utilities
 //
 

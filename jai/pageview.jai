@@ -549,10 +549,11 @@ main :: () {
                     }
                 }
 
-                line_overflowed := visible_slice.count > visible_columns_budget;
+                line_overflowed := utf8_count(visible_slice) > visible_columns_budget;
                 if line_overflowed {
                     // Leave space for the :line_overflow_character
-                    visible_slice.count = visible_columns_budget - 1;
+                    // FIXME: unicode characters are not accounted properly here
+                    visible_slice = utf8_substring(visible_slice, visible_columns_budget - 1);
                 }
 
                 codes.count = 0;
@@ -648,11 +649,9 @@ main :: () {
                         visible_columns_budget -= prefix.count;
                     }
 
-                    visible_columns_budget = min(visible_columns_budget, xx line_tail.count);
-
-                    current_slice := substring(line_tail, 0, visible_columns_budget);
+                    current_slice := utf8_substring(line_tail, visible_columns_budget);
                     // TODO: maybe not just space but also other punctuation
-                    if current_slice.count < line_tail.count {
+                    if current_slice.count < line_tail.count && current_slice.data[current_slice.count] != #char " " {
                         last_space := find_index_from_right(current_slice, #char " ");
                         if last_space != -1 {
                             current_slice.count = last_space + 1; // `+1` so that space is left on this line
