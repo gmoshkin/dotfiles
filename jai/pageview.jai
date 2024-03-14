@@ -461,9 +461,7 @@ main :: () {
             }
         }
 
-        number_of_first_shown_line := row_offset + 1;
-        number_of_last_shown_line := number_of_first_shown_line + main_window_height - 1;
-        line_number_max_digits := tprint("%", number_of_last_shown_line).count;
+        line_number_max_digits := tprint("%", main_window_buffer.line_offsets.count).count;
 
         // these are used and reused for each line
         codes: [..] Control_Code_Info;
@@ -474,7 +472,7 @@ main :: () {
         // Preprocess lines to be displayed
         // TODO: tabs aren't handled correctly yet,
         // terminal displays them with different widths, but I count them as 1 always
-        if main_window_height != 0 while line_buffer.count < main_window_height {
+        if main_window_height != 0 while line_buffer.count < main_window_height || (line_wrapping && stick_to_the_bottom) {
             if line_index > line_offsets.count - 1 break;
             line_start := line_offsets[line_index];
             line_end := ifx line_index < line_offsets.count - 1 then line_offsets[line_index + 1] else only_text.count;
@@ -628,7 +626,7 @@ main :: () {
                 first := true;
 
                 // Iterate over line pieces
-                while first || line_tail && line_buffer.count < main_window_height {
+                while first || line_tail && (stick_to_the_bottom || line_buffer.count < main_window_height) {
                     defer first = false;
                     visible_columns_budget : int = terminal_size.cols;
 
@@ -684,20 +682,9 @@ main :: () {
                         advance(*search_matches_tail, 1);
                     }
 
-                    // Build the line string
-                    // {
-                    //     // Fucking tab characters, jesus christ, this sucks so much....
-                    //     tail := current_slice;
-                    //     while tail {
-                    //         found:, head:, tail = split_from_left(tail, #char "\t");
-                    //         build_line_with_control_codes(*builder, head, codes);
-                    //         if found append_padding(*builder, 8);
-
-                    //     }
-                    // }
                     build_line_with_control_codes(*builder, current_slice, codes);
 
-                    if line_buffer.count != line_buffer.allocated - 1 {
+                    if stick_to_the_bottom || line_buffer.count != line_buffer.allocated - 1 {
                         append(*builder, "\n");
                     } else {
                         // Reset color codes
@@ -706,6 +693,13 @@ main :: () {
                     array_add(*line_buffer, builder_to_string(*builder,, temp));
                 }
             }
+        }
+
+        overflow := line_buffer.count - main_window_height;
+        if overflow > 0 {
+            assert(stick_to_the_bottom, "shouldn't happen otherwise");
+            line_buffer.data += overflow;
+            line_buffer.count -= overflow;
         }
 
         changed := false;
@@ -722,7 +716,15 @@ main :: () {
         if changed || redraw_once {
             redraw_once = false;
             write_string("\e[0J");
-            write_strings(..line_buffer);
+            if line_buffer.count > 0 {
+                all_but_last_line := line_buffer;
+                all_but_last_line.count -= 1;
+                write_strings(..all_but_last_line);
+
+                last_line := line_buffer[line_buffer.count - 1];
+                if last_line[last_line.count - 1] == #char "\n" last_line.count -= 1;
+                write_string(last_line);
+            }
 
             // Save last shown line buffer
             memory_pool_allocator: Allocator;
