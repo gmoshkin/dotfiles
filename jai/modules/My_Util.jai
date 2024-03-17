@@ -215,6 +215,31 @@ count_visible_characters :: (text: string) -> visible_count: s64 {
 }
 
 //
+// data & time utilities
+//
+
+print_date_time_for_humans :: (builder: *String_Builder, date_time: Calendar_Time) {
+    using date_time;
+    month_short :: string.["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    print(builder, "% % %:%:%", month_short[month_starting_at_0],
+                                day_of_month_starting_at_0 + 1,
+                                FormatInt.{value = hour,   minimum_digits = 2},
+                                FormatInt.{value = minute, minimum_digits = 2},
+                                FormatInt.{value = second, minimum_digits = 2});
+}
+
+print_date_time_for_log :: (builder: *String_Builder, date_time: Calendar_Time) {
+    using date_time;
+    print(builder, "%-%-% %:%:%.%", year,
+                                    FormatInt.{value = month_starting_at_0 + 1,        minimum_digits = 2},
+                                    FormatInt.{value = day_of_month_starting_at_0 + 1, minimum_digits = 2},
+                                    FormatInt.{value = hour,                           minimum_digits = 2},
+                                    FormatInt.{value = minute,                         minimum_digits = 2},
+                                    FormatInt.{value = second,                         minimum_digits = 2},
+                                    FormatInt.{value = millisecond,                    minimum_digits = 3});
+}
+
+//
 // pretty assert
 //
 
@@ -283,7 +308,7 @@ pretty_assert :: (code: Code, loc := #caller_location) #expand {
         }
 
         print_to_builder(*builder, " %) = false", #insert rhs);
-        message = builder_to_string(*builder, temporary_allocator);
+        message = builder_to_string(*builder,, temporary_allocator);
     } else #if kind == .PROCEDURE_CALL {
         message = tprint("(%) = (%(%, %)) = false", full_expr, proc_expr, #insert lhs, #insert rhs);
     } else {

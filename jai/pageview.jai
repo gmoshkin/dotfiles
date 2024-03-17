@@ -52,6 +52,10 @@ State :: struct {
         INPUT_COMMAND;
     } = .NAVIGATE;
     input_cursor: s64;
+    mouse_position: struct {
+        row: s64 = -1;
+        column: s64 = -1;
+    };
 
     // I need to render the cursor at the very end, but it's position is
     // determined a bit earlier, so I store it in the state.
@@ -67,7 +71,7 @@ State :: struct {
     search_string: string; // this is always just the search_string_buffer converted to string
     search_string_history: [..] string;
 
-    input_buffer: [32] u8;
+    input_buffer: [..] u8;
     input_buffer_count: s64;
     input_received_this_tick: bool;
 
@@ -138,6 +142,7 @@ State :: struct {
     //
     default_allocated_high_water_mark : s64;
     saved_termios: Termios;
+    setup_control_codes: [..] string;
     tty_name: string;
 
     epoll_fd: s32;
@@ -238,22 +243,6 @@ main :: () {
         array_add(*state.command, copy_string(args[cursor + it]));
     }
 
-    if !isatty(STDOUT_FILENO) {
-        // TODO: I could just pipe the command in to the out fd.
-        // What would be the point though?
-        print("Stdout needs to be connected to a terminal.\n");
-        exit(1);
-    }
-
-    if !isatty(STDIN_FILENO) {
-        state.main_window_source = .STANDARD_INPUT;
-    } else if state.command {
-        state.main_window_source = .EXTERNAL_COMMAND;
-    } else {
-        print("Specify a command to run or pipe in some text on the stdin\n");
-        exit(1);
-    }
-
     // Preallocate memory
     array_reserve(*state.search_string_buffer, 4096);
     array_reserve(*state.command_line, 4096);
@@ -269,6 +258,25 @@ main :: () {
     }
     context.logger = my_logger;
     context.logger_data = *context.state;
+
+    if !isatty(STDOUT_FILENO) {
+        // TODO: I could just pipe the command in to the out fd.
+        // What would be the point though?
+        print("Stdout needs to be connected to a terminal.\n");
+        exit(1);
+    }
+
+    // Choose input source
+    if !isatty(STDIN_FILENO) {
+        state.main_window_source = .STANDARD_INPUT;
+        log("main window source is stdin");
+    } else if state.command {
+        state.main_window_source = .EXTERNAL_COMMAND;
+        log("main window source is external command: %", state.command);
+    } else {
+        print("Specify a command to run or pipe in some text on the stdin\n");
+        exit(1);
+    }
 
     // Initialize command
     init_commands();
@@ -333,9 +341,13 @@ main :: () {
             return runtime_support_assertion_failed(loc, message);
         };
 
-        // "\e[?1049h": enable the alternative buffer
-        // "\e[?25l": hide cursor
-        write_strings("\e[?1049h", "\e[?25l");
+        array_add(*state.setup_control_codes,
+            "\e[?1049h", // enable the alternative buffer
+            "\e[?25l", // hide cursor
+            "\e[?1002h", // enable mouse events: click, wheel + drag
+            "\e[?1006h", // alternate mouse input format
+        );
+        write_strings(..state.setup_control_codes);
 
         rc := tcgetattr(STDIN_FILENO, *state.saved_termios);
         assert(rc == 0);
@@ -381,6 +393,9 @@ main :: () {
 
     status_line_init();
 
+    // Initialize input
+    array_reserve(*state.input_buffer, 4096);
+
     first_time := true;
     while !should_exit {
         defer first_time = false;
@@ -395,13 +410,22 @@ main :: () {
             assert(errno() == EINTR);
         }
 
-        input_received_this_tick = false;
-        if rc == 1 {
-            assert(epoll_events[0].data.fd == STDIN_FILENO);
-
-            input_buffer_count = read(STDIN_FILENO, input_buffer.data, xx input_buffer.count);
-            input_received_this_tick = true;
+        // Update main window buffer from the current source
+        if state.main_window_source == {
+            // TODO: get a stdout fd from the subcommand and jam it into the epoll wait group
+            case .EXTERNAL_COMMAND; maybe_get_external_command_output();
+            // TODO: jam the dupped stdin fd into the epoll wait group
+            case .STANDARD_INPUT; read_some_from_input_stream();
         }
+
+        input_received_this_tick = false;
+        for 0..rc-1 {
+            if epoll_events[it].data.fd == STDIN_FILENO {
+                input_received_this_tick = read_input();
+            }
+        }
+
+        frame_time = seconds_since_init();
 
         // FIXME: stupid fucking windows terminal flickers when you redraw a
         // large portion of the screen. I could check per line if something
@@ -417,19 +441,9 @@ main :: () {
             state.main_window_height = state.terminal_size.rows - 2;
         }
 
-        // Update main window buffer from the current source
-        if state.main_window_source == {
-            case .EXTERNAL_COMMAND; maybe_get_external_command_output();
-            case .STANDARD_INPUT; read_some_from_input_stream();
-        }
-
-        frame_time = seconds_since_init();
-
         // Handle input
         if input_received_this_tick {
-            for 0..input_buffer_count-1 {
-                input_handle_character(input_buffer[it]);
-            }
+            parse_and_handle_input();
         }
 
         // FIXME: this doesn't work in line-wrapping mode
@@ -681,6 +695,7 @@ main :: () {
                         advance(*search_matches_tail, 1);
                     }
 
+                    // Build the line string
                     build_line_with_control_codes(*builder, current_slice, codes);
 
                     if stick_to_the_bottom || line_buffer.count != line_buffer.allocated - 1 {
@@ -773,11 +788,9 @@ main :: () {
                     // Print current input buffer
                     append(*builder, "input: ");
 
-                    input_string: string;
-                    input_string.data = input_buffer.data;
-                    input_string.count = input_buffer_count;
-                    print_to_builder(*builder, "%", cast(Ascii_Or_Hex) input_string);
+                    print_to_builder(*builder, "%", cast(Ascii_Or_Hex) input_buffer);
 
+                    print(*builder, " mouse %, %", mouse_position.column, mouse_position.row);
                     // print(*builder, "  control codes count %", main_window_buffer.control_codes.count);
                 }
                 text_length := buffer.count - text_start;
@@ -1183,11 +1196,8 @@ render_status_line_1 :: () {
             case .EXTERNAL_COMMAND; date_time = last_command_run_date_time;
         }
 
-        using date_time;
-        month_short :: string.["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
         append(*right_side_builder, "\e[32m"); // color green
-        print(*right_side_builder, "% % %:%:%", month_short[month_starting_at_0], day_of_month_starting_at_0 + 1,
-        fmt(hour, 2), fmt(minute, 2), fmt(second, 2));
+        print_date_time_for_humans(*right_side_builder, date_time);
         append(*right_side_builder, "\e[0m");
         right_side = to_string(*right_side_builder);
     }
@@ -1691,60 +1701,319 @@ my_run_command :: (args: .. string, working_directory := "", capture_and_return_
 // input handling
 //
 
-input_handle_character :: (char: u8) {
+read_input :: () -> bool {
     using context.state;
+
+    input_buffer.count = 0;
+    while true {
+        rc: = xx read(STDIN_FILENO, input_buffer.data + input_buffer.count,
+                                   xx (input_buffer.allocated - input_buffer.count));
+        if rc < 0 {
+            code, message := System.get_error_value_and_string();
+            if code != EAGAIN && code != EWOULDBLOCK {
+                log_error("Failed reading from stdin: #% %", code, message);
+            }
+            return false;
+        }
+
+        input_buffer.count += rc;
+        if input_buffer.count != input_buffer.allocated {
+            return input_buffer.count != 0;
+        }
+        array_reserve(*input_buffer, input_buffer.allocated * 2);
+    }
+    return false;
+}
+
+Input_Event :: struct {
+    char: u8;
+    modifiers: enum_flags { ALT; CONTROL; SHIFT; };
+    Kind :: enum {
+        HANDLED; // -- not an event kind actually...
+        CHARACTER;
+        KEY_UP;
+        KEY_DOWN;
+        KEY_LEFT;
+        KEY_RIGHT;
+        MOUSE_WHEEL_UP;
+        MOUSE_WHEEL_DOWN;
+        MOUSE_LEFT_DOWN;
+        MOUSE_RIGHT_DOWN;
+        MOUSE_MIDDLE_DOWN;
+        MOUSE_ANY_UP;
+        MOUSE_LEFT_DRAG;
+        MOUSE_RIGHT_DRAG;
+        MOUSE_MIDDLE_DRAG;
+        MOUSE_MOVE;
+    };
+    kind: Kind;
+}
+
+parse_and_handle_input :: () {
+    using context.state;
+
+    // log("input_buffer: \"%\"", cast(Ascii_Or_Hex) input_buffer);
+
+    // for control codes
+    builder: String_Builder; builder.allocator = temp;
+
+    cursor := 0;
+    while cursor < input_buffer.count {
+        event: Input_Event;
+        if (input_buffer[cursor] != #char "\e") || (cursor >= input_buffer.count - 1) {
+            event.kind = .CHARACTER;
+            event.char = input_buffer[cursor];
+            // log("treating `%` as a character -> %", cast(Ascii_Or_Hex) substring(xx input_buffer, cursor, count=1), event);
+            cursor += 1;
+            input_handle_event(event);
+            continue;
+        }
+
+        if input_buffer[cursor + 1] != #char "[" {
+            // no a control sequence, probably just a ALT+<KEY>
+            event.kind = .CHARACTER;
+            event.char = input_buffer[cursor + 1];
+            event.modifiers = .ALT;
+            cursor += 2;
+            // log("treating `\\x1b[` as ALT+'%' -> %", cast(Ascii_Or_Hex) substring(xx input_buffer, cursor + 1, count=1), event);
+            input_handle_event(event);
+            continue;
+        }
+
+        /* input_buffer[cursor + 1] == #char "[" */
+        cursor += 2;
+        // control sequence start (not including the "\x1b[")
+        start := cursor;
+        while cursor < input_buffer.count && !is_alpha(input_buffer[cursor]) {
+            cursor += 1;
+        }
+
+        // Add the closing alpha character to the control sequence.
+        if cursor < input_buffer.count then cursor += 1;
+
+        if cursor == start {
+            pretty_assert(cursor == input_buffer.count);
+            // empty sequence means it's not a sequence, this could just be a ALT+'['
+            event.kind = .CHARACTER;
+            event.char = #char "[";
+            event.modifiers = .ALT;
+            // log("treating `\\x1b[` as ALT+'[' -> %", event);
+            input_handle_event(event);
+            continue;
+        }
+
+        sequence: string;
+        sequence.data = input_buffer.data + start;
+        sequence.count = cursor - start;
+        if try_parse_sgr_mouse_control_sequence(sequence, *event) {
+            // log("parsed a mouse event: `\\x1b[%` -> %", cast(Ascii_Or_Hex) sequence, event);
+            // handled
+        } else if try_parse_directional_key_sequence(sequence, *event) {
+            // log("parsed a direction key event: `\\x1b[%` -> %", cast(Ascii_Or_Hex) sequence, event);
+            // handled
+        } else {
+            // log("unparsed sequence: `\\x1b[%` -> %", cast(Ascii_Or_Hex) sequence, event);
+            continue;
+        }
+
+        input_handle_event(event);
+    }
+}
+
+try_parse_sgr_mouse_control_sequence :: (_sequence: string, event: *Input_Event) -> bool {
+    using context.state;
+
+    ok: bool;
+    sequence := _sequence;
+    if sequence[0] != #char "<" return false;
+    advance(*sequence, 1);
+
+    kind:, ok, sequence = string_to_int(sequence);
+    if !ok return false;
+
+    if sequence[0] != #char ";" return false;
+    advance(*sequence, 1);
+
+    column:, ok, sequence = string_to_int(sequence);
+    if !ok return false;
+
+    if sequence[0] != #char ";" return false;
+    advance(*sequence, 1);
+
+    row:, ok, sequence = string_to_int(sequence);
+    if !ok return false;
+
+    if sequence[0] == {
+        case #char "m";
+            event.kind = .MOUSE_ANY_UP;
+            return true;
+        case #char "M";
+            // all's well
+        case;
+            return false;
+    }
+
+    if kind == {
+        case 0;  event.kind = .MOUSE_LEFT_DOWN;
+        case 1;  event.kind = .MOUSE_MIDDLE_DOWN;
+        case 2;  event.kind = .MOUSE_RIGHT_DOWN;
+
+        case 8;  event.kind = .MOUSE_LEFT_DOWN;   event.modifiers = .ALT;
+        case 9;  event.kind = .MOUSE_MIDDLE_DOWN; event.modifiers = .ALT;
+        case 10; event.kind = .MOUSE_RIGHT_DOWN;  event.modifiers = .ALT;
+
+        case 16; event.kind = .MOUSE_LEFT_DOWN;   event.modifiers = .CONTROL;
+        case 17; event.kind = .MOUSE_MIDDLE_DOWN; event.modifiers = .CONTROL;
+        case 18; event.kind = .MOUSE_RIGHT_DOWN;  event.modifiers = .CONTROL;
+
+        case 32; event.kind = .MOUSE_LEFT_DRAG;
+        case 33; event.kind = .MOUSE_MIDDLE_DRAG;
+        case 34; event.kind = .MOUSE_RIGHT_DRAG;
+
+        case 36; event.kind = .MOUSE_LEFT_DRAG;   event.modifiers = .SHIFT;
+        case 37; event.kind = .MOUSE_MIDDLE_DRAG; event.modifiers = .SHIFT;
+        case 38; event.kind = .MOUSE_RIGHT_DRAG;  event.modifiers = .SHIFT;
+
+        case 40; event.kind = .MOUSE_LEFT_DRAG;   event.modifiers = .ALT;
+        case 41; event.kind = .MOUSE_MIDDLE_DRAG; event.modifiers = .ALT;
+        case 42; event.kind = .MOUSE_RIGHT_DRAG;  event.modifiers = .ALT;
+
+        case 48; event.kind = .MOUSE_LEFT_DRAG;   event.modifiers = .CONTROL;
+        case 49; event.kind = .MOUSE_MIDDLE_DRAG; event.modifiers = .CONTROL;
+        case 50; event.kind = .MOUSE_RIGHT_DRAG;  event.modifiers = .CONTROL;
+
+        case 64; event.kind = .MOUSE_WHEEL_DOWN;
+        case 65; event.kind = .MOUSE_WHEEL_UP;
+
+        case 68; event.kind = .MOUSE_WHEEL_DOWN;  event.modifiers = .SHIFT;
+        case 69; event.kind = .MOUSE_WHEEL_UP;    event.modifiers = .SHIFT;
+
+        case 72; event.kind = .MOUSE_WHEEL_DOWN;  event.modifiers = .ALT;
+        case 73; event.kind = .MOUSE_WHEEL_UP;    event.modifiers = .ALT;
+
+        case 76; event.kind = .MOUSE_WHEEL_DOWN;  event.modifiers = .ALT | .SHIFT;
+        case 77; event.kind = .MOUSE_WHEEL_UP;    event.modifiers = .ALT | .SHIFT;
+
+        case 80; event.kind = .MOUSE_WHEEL_DOWN;  event.modifiers = .CONTROL;
+        case 81; event.kind = .MOUSE_WHEEL_UP;    event.modifiers = .CONTROL;
+
+        case 84; event.kind = .MOUSE_WHEEL_DOWN;  event.modifiers = .CONTROL | .SHIFT;
+        case 85; event.kind = .MOUSE_WHEEL_UP;    event.modifiers = .CONTROL | .SHIFT;
+
+        case 88; event.kind = .MOUSE_WHEEL_DOWN;  event.modifiers = .ALT | .CONTROL;
+        case 89; event.kind = .MOUSE_WHEEL_UP;    event.modifiers = .ALT | .CONTROL;
+
+        case 92; event.kind = .MOUSE_WHEEL_DOWN;  event.modifiers = .ALT | .CONTROL | .SHIFT;
+        case 93; event.kind = .MOUSE_WHEEL_UP;    event.modifiers = .ALT | .CONTROL | .SHIFT;
+
+        case; return false;
+    }
+
+    mouse_position.row = row;
+    mouse_position.column = column;
+    return true;
+}
+
+try_parse_directional_key_sequence :: (sequence: string, event: *Input_Event) -> bool {
+    kind: Input_Event.Kind;
+    if sequence[sequence.count - 1] == {
+        case #char "A"; kind = .KEY_UP;
+        case #char "B"; kind = .KEY_DOWN;
+        case #char "C"; kind = .KEY_RIGHT;
+        case #char "D"; kind = .KEY_LEFT;
+        case; return false;
+    }
+    if sequence.count == 1 {
+        event.kind = kind;
+        return true;
+    }
+
+    if sequence.count != 4         return false;
+    if sequence[0]    != #char "1" return false;
+    if sequence[1]    != #char ";" return false;
+    if sequence[2] == {
+        case #char "2"; event.modifiers = .SHIFT;
+        case #char "3"; event.modifiers = .ALT;
+        case #char "4"; event.modifiers = .ALT | .SHIFT;
+        case #char "5"; event.modifiers = .CONTROL;
+        case #char "6"; event.modifiers = .CONTROL | .SHIFT;
+        case;           return false;
+    }
+
+    event.kind = kind;
+    return true;
+}
+
+input_handle_event :: (_event: Input_Event) {
+    using context.state;
+
+    event := _event;
+    if event.kind == {
+        case .MOUSE_WHEEL_UP;
+            if event.modifiers & .SHIFT then col_offset += 8;
+                                        else row_offset += 4;
+                event.kind = .HANDLED;
+        case .MOUSE_WHEEL_DOWN;
+            if event.modifiers & .SHIFT then col_offset -= 8;
+            else {
+                row_offset -= 4;
+                stick_to_the_bottom = false;
+            }
+            event.kind = .HANDLED;
+    }
 
     next_input_mode := input_mode;
     if input_mode == {
         case .NAVIGATE;
-            if char == {
-                case #char "j"; row_offset += 1;
-                case #char "k"; row_offset -= 1; stick_to_the_bottom = false;
+            if event.kind == {
+                case .CHARACTER; if event.char == {
+                    case #char "j"; row_offset += 1;
+                    case #char "k"; row_offset -= 1; stick_to_the_bottom = false;
 
-                case #char "d"; row_offset += terminal_size.rows / 2;
-                case #char "u"; row_offset -= terminal_size.rows / 2; stick_to_the_bottom = false;
+                    case #char "d"; row_offset += terminal_size.rows / 2;
+                    case #char "u"; row_offset -= terminal_size.rows / 2; stick_to_the_bottom = false;
 
-                case #char "t"; stick_to_the_bottom = !stick_to_the_bottom;
+                    case #char "t"; stick_to_the_bottom = !stick_to_the_bottom;
 
-                case #char "w"; line_wrapping = !line_wrapping;
+                    case #char "w"; line_wrapping = !line_wrapping;
 
-                case #char "g"; row_offset = 0; stick_to_the_bottom = false;
-                case #char "G"; {
-                    // FIXME: now this is broken somehow
-                    row_offset = main_window_buffer.line_offsets.count - main_window_height;
-                    stick_to_the_bottom = true;
+                    case #char "g"; row_offset = 0; stick_to_the_bottom = false;
+                    case #char "G"; {
+                        row_offset = main_window_buffer.line_offsets.count - main_window_height;
+                        stick_to_the_bottom = true;
+                    }
+
+                    case #char "0"; col_offset = 0;
+
+                    case #char "h"; if !line_wrapping col_offset -= 4;
+                    case #char "l"; if !line_wrapping col_offset += 4;
+
+                    case #char "H"; if !line_wrapping col_offset -= terminal_size.cols / 2;
+                    case #char "L"; if !line_wrapping col_offset += terminal_size.cols / 2;
+
+                    case #char "/"; {
+                        next_input_mode = .INPUT_SEARCH_STRING;
+                        array_replace(*command_line, search_string_buffer);
+                        input_cursor = command_line.count;
+                        history_cursor = -1;
+                        // turn off error message instantly
+                        error_message_deadline = frame_time - 1;
+                    }
+
+                    case #char ";";
+                        next_input_mode = .INPUT_COMMAND;
+                        input_cursor = command_line.count;
+                        history_cursor = -1;
+                        // turn off error message instantly
+                        error_message_deadline = frame_time - 1;
+
+                    case #char "n"; jump_to_next_search_match();
+                    case #char "N"; jump_to_previous_search_match();
+
+                    case #char "c"; strip_control_codes = !strip_control_codes;
+
+                    case #char "q"; should_exit = true;
                 }
-
-                case #char "0"; col_offset = 0;
-
-                case #char "h"; if !line_wrapping col_offset -= 4;
-                case #char "l"; if !line_wrapping col_offset += 4;
-
-                case #char "H"; if !line_wrapping col_offset -= terminal_size.cols / 2;
-                case #char "L"; if !line_wrapping col_offset += terminal_size.cols / 2;
-
-                case #char "/"; {
-                    next_input_mode = .INPUT_SEARCH_STRING;
-                    array_replace(*command_line, search_string_buffer);
-                    input_cursor = command_line.count;
-                    history_cursor = -1;
-                    // turn off error message instantly
-                    error_message_deadline = frame_time - 1;
-                }
-
-                case #char ";";
-                    next_input_mode = .INPUT_COMMAND;
-                    input_cursor = command_line.count;
-                    history_cursor = -1;
-                    // turn off error message instantly
-                    error_message_deadline = frame_time - 1;
-
-                case #char "n"; jump_to_next_search_match();
-                case #char "N"; jump_to_previous_search_match();
-
-                case #char "c"; strip_control_codes = !strip_control_codes;
-
-                case #char "q"; should_exit = true;
             }
 
             row_offset = max(row_offset, -(main_window_height - 1));
@@ -1756,10 +2025,10 @@ input_handle_character :: (char: u8) {
         case .INPUT_SEARCH_STRING; #through;
         case .INPUT_COMMAND;
 
-            if char >= #char " " && char <= #char "~" {
-                array_insert_at(*command_line, char, input_cursor);
+            if !(event.modifiers & .ALT) && event.char >= #char " " && event.char <= #char "~" {
+                array_insert_at(*command_line, event.char, input_cursor);
                 input_cursor += 1;
-            } else if char == {
+            } else if event.char == {
                 case #char "\e"; /* ESCAPE */
                     history_cursor = -1;
                     next_input_mode = .NAVIGATE;
@@ -1776,16 +2045,16 @@ input_handle_character :: (char: u8) {
                     history_cursor = -1;
                     next_input_mode = .NAVIGATE;
 
-                case #char "\x10"; /* CTRL+P */
-                    history_previous();
+                case #char "\x10"; /* CTRL+P */ history_previous();
+                case #char "\x0e"; /* CTRL+N */ history_next();
 
-                case #char "\x0e"; /* CTRL+N */
-                    history_next();
-
-                case #char "\x02"; /* CTRL+B */ if input_cursor > 0 then input_cursor -= 1;
-                case #char "\x06"; /* CTRL+F */ if input_cursor < command_line.count then input_cursor += 1;
+                case #char "\x02"; /* CTRL+B */ move_command_line_cursor_left();
+                case #char "\x06"; /* CTRL+F */ move_command_line_cursor_right();
                 case #char "\x01"; /* CTRL+A */ input_cursor = 0;
                 case #char "\x05"; /* CTRL+E */ input_cursor = command_line.count;
+
+                case #char "b"; if event.modifiers & .ALT /* ALT+B */ move_command_line_cursor_left_a_word();
+                case #char "f"; if event.modifiers & .ALT /* ALT+F */ move_command_line_cursor_right_a_word();
 
                 case #char "\x09"; /* CTRL+I or TAB */
                     if input_mode == .INPUT_COMMAND {
@@ -1830,6 +2099,19 @@ input_handle_character :: (char: u8) {
                     input_cursor = 0;
                 }
             }
+            if event.modifiers & .CONTROL {
+                if event.kind == {
+                    case .KEY_LEFT;  move_command_line_cursor_left_a_word();
+                    case .KEY_RIGHT; move_command_line_cursor_right_a_word();
+                }
+            } else {
+                if event.kind == {
+                    case .KEY_LEFT;  move_command_line_cursor_left();
+                    case .KEY_RIGHT; move_command_line_cursor_right();
+                    case .KEY_UP;    history_previous();
+                    case .KEY_DOWN;  history_next();
+                }
+            }
 
             if input_mode == .INPUT_SEARCH_STRING {
                 search_string_buffer.count = 0;
@@ -1844,6 +2126,55 @@ input_handle_character :: (char: u8) {
 
     // Set the actual input mode at the end so that it doesn't interfere with other stuff
     input_mode = next_input_mode;
+}
+
+move_command_line_cursor_left :: () {
+    using context.state;
+    if input_cursor > 0 then input_cursor -= 1;
+}
+
+move_command_line_cursor_right :: () {
+    using context.state;
+    if input_cursor < command_line.count then input_cursor += 1;
+}
+
+move_command_line_cursor_left_a_word :: () {
+    using context.state;
+
+    if !command_line return;
+    if input_cursor == 0 return;
+
+    string_before_cursor := cast(string) command_line;
+    string_before_cursor.count = input_cursor;
+    string_before_cursor = trim_right(string_before_cursor);
+    index := find_index_from_right(string_before_cursor, #char " ");
+    if index == -1 {
+        input_cursor = 0;
+        return;
+    }
+    // Put cursor to the right of the space
+    input_cursor = index + 1;
+}
+
+move_command_line_cursor_right_a_word :: () {
+    using context.state;
+
+    if !command_line return;
+    if input_cursor == command_line.count return;
+
+    index := find_index_from_left(xx command_line, #char " ", input_cursor);
+    if index == -1 {
+        input_cursor = command_line.count;
+        return;
+    }
+
+    // Skip all spaces
+    while command_line[index] == #char " " {
+        index += 1;
+        if index == command_line.count break;
+    }
+
+    input_cursor = index;
 }
 
 //
@@ -1914,7 +2245,7 @@ jump_to_next_search_match :: () {
 
     while row_offset < line_offsets.count {
         if line_offsets[row_offset] > index { // overshot by 1 line
-            row_offset -= 1;
+            if row_offset > 0 row_offset -= 1;
             return;
         }
 
@@ -2208,8 +2539,10 @@ my_logger :: (message: string, data: *void, info: Log_Info) {
 
     if !state.log_file.handle return;
 
-    file_write(*state.log_file, message);
-    file_write(*state.log_file, "\n");
+    builder: String_Builder;
+    print_date_time_for_log(*builder, to_calendar(current_time_consensus(), .LOCAL));
+    print(*builder, ": %\n", message);
+    file_write(*state.log_file, builder_to_string(*builder,, temp));
     fflush(state.log_file.handle);
 }
 
@@ -2352,9 +2685,19 @@ libc :: #system_library "libc";
 //
 
 restore_terminal_settings :: () {
-    // "\e[?1049l": disable the alternative buffer
-    // "\e[?25h": unhide cursor
-    write_strings("\e[?1049l", "\e[?25h");
+    using context.state;
+    // could copy the strings, but don't wanna
+    teardown_control_codes: [..] string;
+    for setup_control_codes array_add(*teardown_control_codes, copy_string(it));
+    for teardown_control_codes {
+        last_char := *it[it.count - 1];
+        if last_char.* == {
+            case #char "l"; last_char.* = #char "h";
+            case #char "h"; last_char.* = #char "l";
+            case; assert(false, "%: %", it_index, it);
+        }
+    }
+    write_strings(..teardown_control_codes);
 
     tcsetattr(STDIN_FILENO, TCSADRAIN, *context.state.saved_termios);
 }
