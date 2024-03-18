@@ -52,9 +52,10 @@ State :: struct {
         INPUT_COMMAND;
     } = .NAVIGATE;
     input_cursor: s64;
-    mouse_position: struct {
-        row: s64 = -1;
-        column: s64 = -1;
+    mouse_position := Cell_Position.{ -1, -1 };
+    delayed_action : enum {
+        NONE;
+        MOUSE_SELECTION_CLICK;
     };
 
     // I need to render the cursor at the very end, but it's position is
@@ -129,6 +130,13 @@ State :: struct {
     redraw_once := false;
     main_window_buffer: Window_Buffer;
 
+    selection_cursor := -1;
+    last_selected_string: string;
+
+    current_screen_row: s64;
+    current_row_left_offset: s64; // XXX: this name sucks
+    current_line_number: s64;
+
     // Stores pointers into `last_shown_line_buffer_flat_pool`.
     last_shown_line_buffer: [..] string;
     memory_pool_for_last_shown_line_buffer: Flat_Pool;
@@ -150,6 +158,11 @@ State :: struct {
 }
 #add_context state: State;
 #add_context current_window: *Window_Buffer;
+
+Cell_Position :: struct {
+    row: s32;
+    column: s32;
+}
 
 Window_Buffer :: struct {
     raw_text_and_control_codes: string;
@@ -278,6 +291,11 @@ main :: () {
         exit(1);
     }
 
+    // Initialize X11 for the clipboard, which doesn't fucking work, of course it doesn't, why would anything ever work?
+    #if OS == .LINUX {
+        if getenv("DISPLAY") init_global_display();
+    }
+
     // Initialize command
     init_commands();
 
@@ -331,7 +349,7 @@ main :: () {
     rc := ioctl(STDIN_FILENO, TIOCGWINSZ, *state.terminal_size);
     assert(rc == 0);
 
-    // `- 2` for 2 status lines
+    // `- 2` for :2_status_lines
     state.main_window_height = state.terminal_size.rows - 2;
 
     // Hide cursor, disable echo, etc.
@@ -442,6 +460,7 @@ main :: () {
         }
 
         // Handle input
+        state.delayed_action = .NONE;
         if input_received_this_tick {
             parse_and_handle_input();
         }
@@ -465,6 +484,9 @@ main :: () {
         line_buffer.allocator = temp;
         array_reserve(*line_buffer, main_window_height);
 
+        // starts from 1, `+2` for :2_status_lines
+        current_screen_row = 1 + 2;
+
         line_index := 0;
         if row_offset > 0 {
             line_index = row_offset;
@@ -473,9 +495,15 @@ main :: () {
             for 1..-row_offset {
                 array_add(*line_buffer, "\n");
             }
+            current_screen_row += -row_offset;
         }
 
         line_number_max_digits := tprint("%", main_window_buffer.line_offsets.count).count;
+        main_window_left_offset := 0;
+        if line_numberring then main_window_left_offset = line_number_max_digits + 1;
+        if col_offset < 0 {
+            main_window_left_offset += -col_offset;
+        }
 
         // these are used and reused for each line
         codes: [..] Control_Code_Info;
@@ -490,9 +518,11 @@ main :: () {
             if line_index > line_offsets.count - 1 break;
             line_start := line_offsets[line_index];
             line_end := ifx line_index < line_offsets.count - 1 then line_offsets[line_index + 1] else only_text.count;
-            line_number := line_index + 1;
-            line_index += 1;
+            current_line_number = line_index + 1;
+            defer line_index += 1;
             line := substring(xx only_text, line_start, line_end);
+
+            current_row_left_offset = main_window_left_offset;
 
             // :search_string_highlight
             search_matches.count = 0;
@@ -521,7 +551,7 @@ main :: () {
 
                 if line_numberring {
                     append(*builder, "\e[2;37m"); // color gray (dark white)
-                    print(*builder, "% ", fmt(line_number, line_number_max_digits, padding=" "));
+                    print(*builder, "% ", fmt(current_line_number, line_number_max_digits, padding=" "));
                     append(*builder, "\e[0m"); // color gray (dark white)
                     visible_columns_budget -= line_number_max_digits + 1; // `+ 1` for extra space
                 }
@@ -544,6 +574,7 @@ main :: () {
                                                 else append(*builder, "\e[2;37m"); // color gray
                     append(*builder, "<");
                     append(*builder, "\e[0m");
+                    current_row_left_offset += 1;
 
                     // add all control codes from the hidden part of the line
                     if !strip_control_codes {
@@ -603,16 +634,9 @@ main :: () {
                     }
                 }
 
+                select_word_delayed(visible_slice, *codes);
+
                 // Build the line string
-                // {
-                //     // Fucking tab characters, jesus christ, this sucks so much....
-                //     tail := visible_slice;
-                //     while tail {
-                //         found:, head:, tail = split_from_left(tail, #char "\t");
-                //         build_line_with_control_codes(*builder, head, codes);
-                //         if found append_padding(*builder, 8);
-                //     }
-                // }
                 build_line_with_control_codes(*builder, visible_slice, codes);
 
                 // Reset color codes
@@ -634,6 +658,7 @@ main :: () {
                     append(*builder, "\n");
                 }
                 array_add(*line_buffer, builder_to_string(*builder,, temp));
+                current_screen_row += 1;
             } else /* line_wrapping == true */ {
                 // col_offset is ignored
 
@@ -649,7 +674,7 @@ main :: () {
                         first = false;
                         if line_numberring {
                             append(*builder, "\e[2;37m"); // color gray (dark white)
-                            print(*builder, "% ", fmt(line_number, line_number_max_digits, padding=" "));
+                            print(*builder, "% ", fmt(current_line_number, line_number_max_digits, padding=" "));
                             append(*builder, "\e[0m"); // color gray (dark white)
                             visible_columns_budget -= line_number_max_digits + 1; // `+ 1` for extra space
                         }
@@ -695,6 +720,8 @@ main :: () {
                         advance(*search_matches_tail, 1);
                     }
 
+                    select_word_delayed(current_slice, *codes);
+
                     // Build the line string
                     build_line_with_control_codes(*builder, current_slice, codes);
 
@@ -705,6 +732,7 @@ main :: () {
                         append(*builder, "\e[0m");
                     }
                     array_add(*line_buffer, builder_to_string(*builder,, temp));
+                    current_screen_row += 1;
                 }
             }
         }
@@ -919,6 +947,60 @@ main :: () {
 
     if signalled_with_signal != -1 {
         print("got signal %\n", signalled_with_signal);
+    }
+}
+
+select_word_delayed :: (slice_of_only_text: string, codes: *[..] Control_Code_Info) {
+    using context.state;
+    using main_window_buffer;
+
+    assert(is_subslice(outer=only_text, inner=slice_of_only_text));
+    slice := slice_of_only_text;
+
+    if delayed_action == .MOUSE_SELECTION_CLICK {
+        if current_screen_row == mouse_position.row {
+            log("click at line #%", current_line_number);
+            column_in_window := mouse_position.column - 1 - current_row_left_offset;
+            s := utf8_substring(slice, column_in_window);
+            selection_cursor = slice.data + s.count - only_text.data;
+        }
+    }
+
+    selection_pointer := only_text.data + selection_cursor;
+    if selection_pointer >= slice.data && selection_pointer <= slice.data + slice.count {
+        cursor_in_visible_slice := selection_pointer - slice.data;
+        before_cursor := slice; before_cursor.count = cursor_in_visible_slice;
+        index := find_index_from_right(before_cursor, #char " ");
+        start := slice.data; if index != -1 then start += index + 1;
+
+        index = find_index_from_left(slice, #char " ", cursor_in_visible_slice);
+        end := slice.data + slice.count;
+        if index != -1 then end = slice.data + index;
+
+        if delayed_action == .MOUSE_SELECTION_CLICK {
+            last_selected_string = only_visible_text(.{ end - start, start });
+            log("selected string: %", last_selected_string);
+            // FIXME: this don't work:
+            os_clipboard_set_text(last_selected_string);
+
+            tmux_copy_to_clipboard(last_selected_string);
+        } else if last_selected_string != only_visible_text(.{ end - start, start }) {
+            selection_cursor = -1;
+        }
+
+        insert_control_code_range(codes, start, "\e[7m", // invert color mode
+                                         end,   "\e[27m"); // disable invert color mode
+    }
+}
+
+tmux_copy_to_clipboard :: (text: string) {
+    if !getenv("TMUX") return;
+
+    command := string.["tmux", "set-buffer", text];
+    log("running %", command);
+    res := my_run_command(..command, capture_and_return_output=false);
+    if res.type != .EXITED || res.exit_code != 0 {
+        log("command % failed: %", command, res);
     }
 }
 
@@ -1765,7 +1847,7 @@ parse_and_handle_input :: () {
             event.char = input_buffer[cursor];
             // log("treating `%` as a character -> %", cast(Ascii_Or_Hex) substring(xx input_buffer, cursor, count=1), event);
             cursor += 1;
-            input_handle_event(event);
+            handle_input_event(event);
             continue;
         }
 
@@ -1776,7 +1858,7 @@ parse_and_handle_input :: () {
             event.modifiers = .ALT;
             cursor += 2;
             // log("treating `\\x1b[` as ALT+'%' -> %", cast(Ascii_Or_Hex) substring(xx input_buffer, cursor + 1, count=1), event);
-            input_handle_event(event);
+            handle_input_event(event);
             continue;
         }
 
@@ -1798,7 +1880,7 @@ parse_and_handle_input :: () {
             event.char = #char "[";
             event.modifiers = .ALT;
             // log("treating `\\x1b[` as ALT+'[' -> %", event);
-            input_handle_event(event);
+            handle_input_event(event);
             continue;
         }
 
@@ -1816,7 +1898,7 @@ parse_and_handle_input :: () {
             continue;
         }
 
-        input_handle_event(event);
+        handle_input_event(event);
     }
 }
 
@@ -1834,13 +1916,13 @@ try_parse_sgr_mouse_control_sequence :: (_sequence: string, event: *Input_Event)
     if sequence[0] != #char ";" return false;
     advance(*sequence, 1);
 
-    column:, ok, sequence = string_to_int(sequence);
+    column:, ok, sequence = string_to_int(sequence, T=s32);
     if !ok return false;
 
     if sequence[0] != #char ";" return false;
     advance(*sequence, 1);
 
-    row:, ok, sequence = string_to_int(sequence);
+    row:, ok, sequence = string_to_int(sequence, T=s32);
     if !ok return false;
 
     if sequence[0] == {
@@ -1853,6 +1935,11 @@ try_parse_sgr_mouse_control_sequence :: (_sequence: string, event: *Input_Event)
             return false;
     }
 
+    // XXX: kind is actually a bit fields where
+    // bit 3 is SHIFT, bit 4 is ALT, bit 5 is CONTROL, but
+    // bit 6 means dragging,
+    // bits 1 & 2 change meaning if bit 7 is set, and i'm not sure if bit 8 has
+    // a meaning, so
     if kind == {
         case 0;  event.kind = .MOUSE_LEFT_DOWN;
         case 1;  event.kind = .MOUSE_MIDDLE_DOWN;
@@ -1944,7 +2031,7 @@ try_parse_directional_key_sequence :: (sequence: string, event: *Input_Event) ->
     return true;
 }
 
-input_handle_event :: (_event: Input_Event) {
+handle_input_event :: (_event: Input_Event) {
     using context.state;
 
     event := _event;
@@ -1959,6 +2046,10 @@ input_handle_event :: (_event: Input_Event) {
                 row_offset -= 4;
                 stick_to_the_bottom = false;
             }
+            event.kind = .HANDLED;
+        case .MOUSE_LEFT_DOWN;
+            delayed_action = .MOUSE_SELECTION_CLICK;
+            // log("delaying mouse selection click @ %", mouse_position);
             event.kind = .HANDLED;
     }
 
@@ -2777,4 +2868,6 @@ fmt :: inline (v: s64, minimum_digits := 1, $padding := "0") -> FormatInt #expan
 #import "Print_Vars";
 #import "Reflection";
 #import "Program_Print";
+#if OS == .LINUX #import "X11";
+#import "Clipboard";
 System :: #import "System";

@@ -34,6 +34,18 @@ count_matches :: (text: string, c: u8) -> s64 {
     return 0;
 }
 
+contains_pointer :: inline (s: string, p: *u8) -> bool {
+    return s.data <= p && p < s.data + s.count;
+}
+
+contains_pointer :: inline (a: [] $T, p: *T) -> bool {
+    return a.data <= p && p < a.data + a.count;
+}
+
+is_subslice :: inline (outer: string, inner: string) -> bool {
+    return (outer.data <= inner.data) && (inner.data + inner.count <= outer.data + outer.count);
+}
+
 //
 // unicode utilities
 //
@@ -212,6 +224,19 @@ count_visible_characters :: (text: string) -> visible_count: s64 {
         }
     }
     return visible_count;
+}
+
+only_visible_text :: (text_with_control_codes: string) -> string {
+    builder: String_Builder;
+    builder.allocator = temp;
+
+    tail := text_with_control_codes;
+    while tail {
+        head:, visible_count:, tail = eat_visible_or_escape_sequence(tail);
+        if visible_count append(*builder, head);
+    }
+
+    return builder_to_string(*builder);
 }
 
 //
