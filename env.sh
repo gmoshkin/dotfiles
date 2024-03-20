@@ -13,6 +13,7 @@ export PERL6LIB="$HOME/dotfiles/scripts"
 export LESS=RMWSJ
 export SYSTEMD_LESS=RSMK
 export PS_FORMAT=pid,stat,tty,bsdstart,bsdtime,%mem,%cpu,command
+export PAGER=pageview
 export JQ_COLORS='36:31:32:34:95:33:35'
 export FZF_DEFAULT_OPTS="\
     --color=spinner:#d33682,hl:#268bd2\
