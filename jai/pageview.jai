@@ -2176,14 +2176,7 @@ handle_input_event :: (_event: Input_Event) {
                     }
 
                 case #char "\x17"; /* CTRL+W */
-                    if command_line.count > 0 && input_cursor > 0 {
-                        string_before_cursor := cast(string) command_line;
-                        string_before_cursor.count = input_cursor;
-                        to_delete_from := find_index_from_right(string_before_cursor, #char " ");
-                        if to_delete_from == -1 then to_delete_from = 0;
-                        array_ordered_remove_range(*command_line, to_delete_from, input_cursor);
-                        input_cursor = to_delete_from;
-                    }
+                    delete_word_before_command_line_cursor();
 
                 case #char "\x15"; /* CTRL+U */ {
                     command_line.count = 0;
@@ -2266,6 +2259,30 @@ move_command_line_cursor_right_a_word :: () {
     }
 
     input_cursor = index;
+}
+
+delete_word_before_command_line_cursor :: () {
+    using context.state;
+
+    if !command_line return;
+    if input_cursor == 0 return;
+
+    string_before_cursor := cast(string) command_line;
+    string_before_cursor.count = input_cursor;
+
+    // skip any whitespace before the cursor
+    while string_before_cursor.count && string_before_cursor[string_before_cursor.count - 1] == #char " "
+        string_before_cursor.count -= 1;
+
+    to_delete_from := find_index_from_right(string_before_cursor, #char " ");
+    if to_delete_from == -1 then to_delete_from = 0;
+
+    // leave the space before the deleted word
+    if to_delete_from != 0 && to_delete_from != command_line.count - 1
+        to_delete_from += 1;
+
+    array_ordered_remove_range(*command_line, to_delete_from, input_cursor);
+    input_cursor = to_delete_from;
 }
 
 //
