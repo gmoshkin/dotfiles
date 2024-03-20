@@ -23,7 +23,7 @@
 	s           = -c color.ui=always status
 	ss          = stash save
 	sp          = stash pop
-	sh          = show
+	sh          = show --color
 	stashpull   = !"git stash && git pull && git stash pop"
 	r           = rebase
 	ri          = rebase --interactive
