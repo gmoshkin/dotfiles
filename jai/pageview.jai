@@ -2534,7 +2534,18 @@ complete_command :: () {
         command_line.count = 0;
         array_replace(*command_line, it.name);
         input_cursor = command_line.count;
-        break;
+        return;
+    }
+
+    // If it's a `> command ` insert the current external command for editting
+    if command_line[command_line.count - 1] == #char " " && trim(xx command_line) == "command" {
+        for 0..command.count-2 {
+            array_add(*command_line, ..cast([] u8) command[it]);
+            array_add(*command_line, #char " ");
+        }
+        array_add(*command_line, ..cast([] u8) command[command.count - 1]);
+        input_cursor = command_line.count;
+        return;
     }
 }
 
@@ -2581,6 +2592,7 @@ set_external_command :: (new_command: string) -> (ok: bool, error_message: strin
 
     for command free(it);
     command.count = 0;
+    // FIXME: probably want to split the command and do some special character escaping
     array_add(*command, copy_string(new_command));
     time_next_command_run = frame_time;
     main_window_source = .EXTERNAL_COMMAND;
