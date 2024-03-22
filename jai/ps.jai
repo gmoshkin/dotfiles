@@ -52,6 +52,7 @@ main :: () {
         }
     }
 
+    using _SC_definitions;
     clock_ticks_per_second = xx sysconf(_SC_CLK_TCK);
     system_page_size := cast(s64) sysconf(_SC_PAGESIZE);
 
