@@ -2612,6 +2612,7 @@ init_commands :: () {
         array_add(*commands, make_command("wrap_lines", make_toggle("line_wrapping")));
         array_add(*commands, make_command("line_wrapping", make_toggle("line_wrapping")));
         array_add(*commands, make_command("visualize_control_codes", make_toggle("visualize_control_codes")));
+        array_add(*commands, make_command("current_shown_buffer_number", set_current_shown_buffer_index));
     }
 }
 
@@ -2656,6 +2657,20 @@ set_log_file :: (new_log_file: string) -> (ok: bool, error_message: string) {
         return false, tprint("open('%'): (%) %", new_log_file, code, message);
     }
     log_file = log_file;
+    return true, "";
+}
+
+set_current_shown_buffer_index :: (number: s64) -> (ok: bool, error_message: string) {
+    using context.state;
+
+    index: s64;
+    if number < 0  index = main_window_buffer_history.count + number;
+    else           index = number - 1;
+    index = clamp(index, 0, main_window_buffer_history.count - 1);
+
+    show_latest_buffer = (index == main_window_buffer_history.count - 1);
+    current_shown_buffer_index = index;
+
     return true, "";
 }
 
