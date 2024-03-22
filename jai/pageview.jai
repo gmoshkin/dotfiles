@@ -2346,11 +2346,13 @@ jump_to_next_search_match :: () {
 
     if row_offset == line_offsets.count - 1 return; // no next match possible
 
-    search_start := line_offsets[row_offset + 1];
+    start_offset := ifx row_offset >= 0 then row_offset + 1 else 0;
+    search_start := line_offsets[start_offset];
 
     index := find_index_from_left(only_text, search_string, search_start);
     if index == -1 return; // match not found
 
+    if row_offset < 0 then row_offset = 0;
     while row_offset < line_offsets.count {
         if line_offsets[row_offset] > index { // overshot by 1 line
             if row_offset > 0 row_offset -= 1;
@@ -2367,7 +2369,7 @@ jump_to_previous_search_match :: () {
 
     if row_offset == 0 return; // no previous match possible
 
-    search_end := line_offsets[row_offset];
+    search_end := line_offsets[ifx row_offset >= 0 then row_offset];
 
     search_region := substring(only_text, 0, search_end);
     index := find_index_from_right(search_region, search_string);
