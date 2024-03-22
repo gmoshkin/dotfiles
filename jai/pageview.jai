@@ -131,7 +131,7 @@ State :: struct {
     // rendering
     //
     redraw_once := false;
-    main_window_buffers: [..] Window_Buffer;
+    main_window_buffer_history: [..] Window_Buffer;
     current_shown_buffer_index: s64;
     show_latest_buffer := true;
 
@@ -471,7 +471,7 @@ main :: () {
             parse_and_handle_input();
         }
 
-        main_window_buffer := *main_window_buffers[current_shown_buffer_index];
+        main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
         // FIXME: this doesn't work in line-wrapping mode
         if stick_to_the_bottom {
             row_offset = max(row_offset, main_window_buffer.line_offsets.count - main_window_height);
@@ -1081,13 +1081,13 @@ maybe_get_external_command_output :: () {
         raw_text_and_control_codes = normal_output;
     }
 
-    if main_window_buffers && raw_text_and_control_codes == main_window_buffers[main_window_buffers.count - 1].raw_text_and_control_codes
+    if main_window_buffer_history && raw_text_and_control_codes == main_window_buffer_history[main_window_buffer_history.count - 1].raw_text_and_control_codes
         return;
 
     separate_control_codes(*new_window_buffer, raw_text_and_control_codes);
 
-    new_window_buffer.index_in_history = main_window_buffers.count;
-    array_add(*main_window_buffers, new_window_buffer);
+    new_window_buffer.index_in_history = main_window_buffer_history.count;
+    array_add(*main_window_buffer_history, new_window_buffer);
 
     if show_latest_buffer {
         current_shown_buffer_index = new_window_buffer.index_in_history;
@@ -1122,8 +1122,8 @@ read_some_from_input_stream :: () {
         return;
     }
 
-    if !main_window_buffers array_add(*main_window_buffers, .{});
-    window_buffer := *main_window_buffers[current_shown_buffer_index];
+    if !main_window_buffer_history array_add(*main_window_buffer_history, .{});
+    window_buffer := *main_window_buffer_history[current_shown_buffer_index];
     window_buffer.time_generated = current_time_consensus();
     free(window_buffer.raw_text_and_control_codes);
     window_buffer.raw_text_and_control_codes = builder_to_string(*input_stream_builder, do_reset=false);
@@ -1291,10 +1291,10 @@ render_status_line_1 :: () {
     //
     {
         append(*right_side_builder, "\e[2;37m"); // color gray (dark white)
-        if current_shown_buffer_index == main_window_buffers.count - 1 {
+        if current_shown_buffer_index == main_window_buffer_history.count - 1 {
             print(*right_side_builder, "#%", current_shown_buffer_index + 1);
         } else {
-            print(*right_side_builder, "#%/%", current_shown_buffer_index + 1, main_window_buffers.count);
+            print(*right_side_builder, "#%/%", current_shown_buffer_index + 1, main_window_buffer_history.count);
         }
         append(*right_side_builder, "\e[0m");
         append(*right_side_builder, " ");
@@ -1302,7 +1302,7 @@ render_status_line_1 :: () {
         time: Apollo_Time;
         if main_window_source == {
             case .STANDARD_INPUT;   time = current_time_consensus();
-            case .EXTERNAL_COMMAND; time = main_window_buffers[current_shown_buffer_index].time_generated;
+            case .EXTERNAL_COMMAND; time = main_window_buffer_history[current_shown_buffer_index].time_generated;
         }
         date_time := to_calendar(time, .LOCAL);
 
@@ -2050,7 +2050,7 @@ try_parse_directional_key_sequence :: (sequence: string, event: *Input_Event) ->
 handle_input_event :: (_event: Input_Event) {
     using context.state;
 
-    main_window_buffer := main_window_buffers[current_shown_buffer_index];
+    main_window_buffer := main_window_buffer_history[current_shown_buffer_index];
 
     event := _event;
     if event.kind == {
@@ -2092,11 +2092,11 @@ handle_input_event :: (_event: Input_Event) {
                         show_latest_buffer = false;
 
                     case #char "f";
-                        if current_shown_buffer_index < main_window_buffers.count - 1 {
+                        if current_shown_buffer_index < main_window_buffer_history.count - 1 {
                             current_shown_buffer_index += 1;
                         }
                     case #char "F";
-                        current_shown_buffer_index = main_window_buffers.count - 1;
+                        current_shown_buffer_index = main_window_buffer_history.count - 1;
                         show_latest_buffer = true;
 
                     case #char "t"; stick_to_the_bottom = !stick_to_the_bottom;
@@ -2377,7 +2377,7 @@ history_next :: () {
 
 jump_to_next_search_match :: () {
     using context.state;
-    using main_window_buffers[current_shown_buffer_index];
+    using main_window_buffer_history[current_shown_buffer_index];
 
     if row_offset == line_offsets.count - 1 return; // no next match possible
 
@@ -2400,7 +2400,7 @@ jump_to_next_search_match :: () {
 
 jump_to_previous_search_match :: () {
     using context.state;
-    using main_window_buffers[current_shown_buffer_index];
+    using main_window_buffer_history[current_shown_buffer_index];
 
     if row_offset == 0 return; // no previous match possible
 
