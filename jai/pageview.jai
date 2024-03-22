@@ -882,15 +882,37 @@ main :: () {
 
             // prepare window lines
             append(*builder, "\e[100m"); // background color gray
-            print(*builder, "temp:        % [hvm: %]",
+            print(*builder, "temp:           % [hvm: %]",
                             fmt_mem(context.temporary_storage.total_bytes_occupied),
                             fmt_mem(temporary_storage_high_water_mark));
 
             append(*builder, "\n");
             append(*builder, "\e[100m"); // background color gray
-            print(*builder, "buffer pool: % [hvm: %]",
+            print(*builder, "buffer pool:    % [hvm: %]",
                             fmt_mem(flat_pool_allocated(*memory_pool_for_last_shown_line_buffer)),
                             fmt_mem(memory_pool_for_last_shown_line_buffer_high_water_mark));
+
+            buffer_history_raw_text_bytes := 0;
+            buffer_history_the_rest_bytes := 0;
+            for *main_window_buffer_history {
+                buffer_history_raw_text_bytes += it.raw_text_and_control_codes.count;
+                buffer_history_the_rest_bytes += size_of(Window_Buffer);
+                buffer_history_the_rest_bytes += it.only_text_storage.allocated;
+                buffer_history_the_rest_bytes += it.control_codes.allocated;
+                buffer_history_the_rest_bytes += it.line_offsets.allocated;
+            }
+
+            append(*builder, "\n");
+            append(*builder, "\e[100m"); // background color gray
+            // TODO: pretty human-readable numbers
+            print(*builder, "text history:   %",
+                            fmt_mem(buffer_history_raw_text_bytes));
+
+            append(*builder, "\n");
+            append(*builder, "\e[100m"); // background color gray
+            // TODO: pretty human-readable numbers
+            print(*builder, "buffer history: %",
+                            fmt_mem(buffer_history_raw_text_bytes + buffer_history_the_rest_bytes));
 
             // TODO: the builtin Memory_Debugger is too expensive, it seems that
             // it expects to only be called once per program execution (or maybe
@@ -926,6 +948,7 @@ main :: () {
                 // "\e[H": move cursor to given position (row, col) (1-based)
                 print(*builder, "\e[%;%H", window_row_offset + 1 + it_index, window_col_offset + 1);
                 append(*builder, line);
+                // FIXME: not enough padding is added for some reason...
                 append_padding(*builder, max_width - line.count);
             }
             append(*builder, "\e[0m");
@@ -1092,6 +1115,10 @@ maybe_get_external_command_output :: () {
     separate_control_codes(*new_window_buffer, raw_text_and_control_codes);
 
     new_window_buffer.index_in_history = main_window_buffer_history.count;
+    // TODO: could do some big-brain compression here for old buffers,
+    // currently when doing `ps` 10 times a second on a pytest in picodata I get
+    // 20meg memory usage by the end with about 500 buffers which is liveabel
+    // for a while...
     array_add(*main_window_buffer_history, new_window_buffer);
 
     if show_latest_buffer {
