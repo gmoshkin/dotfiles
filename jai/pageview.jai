@@ -2646,6 +2646,7 @@ init_commands :: () {
         array_add(*commands, make_command("visualize_control_codes", make_toggle("visualize_control_codes")));
         array_add(*commands, make_command("current_shown_buffer_number", set_current_shown_buffer_index));
         array_add(*commands, make_command("clear_buffer_history_up_to", clear_buffer_history_up_to));
+        array_add(*commands, make_command("save_current_buffer", save_current_buffer));
     }
 }
 
@@ -2729,6 +2730,37 @@ clear_buffer_history_up_to :: (leading_count_to_delete: s64) -> (ok: bool, error
     show_latest_buffer = true;
 
     return true, "";
+}
+
+save_current_buffer :: (filename: string) -> (ok := true, error_message := "") {
+    using context.state;
+
+    if current_shown_buffer_index < 0 || !main_window_buffer_history {
+        return false, "current buffer is empty, nothing to save";
+    }
+
+    file, ok := file_open(filename, log_errors=false);
+    if ok {
+        file_close(*file);
+        return false, tprint("file '%' already exists, overwriting isn't supported yet", filename);
+    }
+
+    file, ok = file_open(filename, for_writing=true, log_errors=false);
+    if !ok {
+        code, message := System.get_error_value_and_string();
+        return false, tprint("failed creating file '%': #% %", filename, code, message);
+    }
+    defer file_close(*file);
+
+    using main_window_buffer_history[current_shown_buffer_index];
+    ok = file_write(*file, raw_text_and_control_codes);
+
+    if !ok {
+        code, message := System.get_error_value_and_string();
+        return false, tprint("failed writing to file '%': #% %", filename, code, message);
+    }
+
+    return;
 }
 
 Toggle_Field_Callback :: #type () -> (bool, string);
