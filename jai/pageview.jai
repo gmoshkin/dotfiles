@@ -519,8 +519,6 @@ main :: () {
         search_matches.allocator = temp;
 
         // Preprocess lines to be displayed
-        // TODO: tabs aren't handled correctly yet,
-        // terminal displays them with different widths, but I count them as 1 always
         if main_window_height != 0 while line_buffer.count < main_window_height || (line_wrapping && stick_to_the_bottom) {
             if line_index > line_offsets.count - 1 break;
             line_start := line_offsets[line_index];
@@ -604,7 +602,6 @@ main :: () {
                 line_overflowed := utf8_count(visible_slice) > visible_columns_budget;
                 if line_overflowed {
                     // Leave space for the :line_overflow_character
-                    // FIXME: unicode characters are not accounted properly here
                     visible_slice = utf8_substring(visible_slice, visible_columns_budget - 1);
                 }
 
@@ -1028,13 +1025,7 @@ maybe_get_external_command_output :: () {
     time := seconds_since_init();
     if time < time_next_command_run return;
 
-    // FIXME: only do this if the command output is not the same the previous one
-    // TODO: do the actual buffer history
-    // new_window_buffer: Window_Buffer;
-    if !main_window_buffers array_add(*main_window_buffers, .{});
-    new_window_buffer := *main_window_buffers[main_window_buffers.count - 1];
-    using new_window_buffer;
-    free(raw_text_and_control_codes);
+    using new_window_buffer: Window_Buffer;
 
     // If the command is a single argument which contains a string,
     // assume it's some shell pipeline & run it in a shell
@@ -1090,12 +1081,14 @@ maybe_get_external_command_output :: () {
         raw_text_and_control_codes = normal_output;
     }
 
-    previous_window_buffer := main_window_buffers[main_window_buffers.count - 1];
-    // if raw_text_and_control_codes == previous_window_buffer.raw_text_and_control_codes {
-    //     // TODO
-    // }
+    if main_window_buffers && raw_text_and_control_codes == main_window_buffers[main_window_buffers.count - 1].raw_text_and_control_codes
+        return;
 
-    separate_control_codes(new_window_buffer, raw_text_and_control_codes);
+    separate_control_codes(*new_window_buffer, raw_text_and_control_codes);
+
+    new_window_buffer.index_in_history = main_window_buffers.count;
+    array_add(*main_window_buffers, new_window_buffer);
+
     if show_latest_buffer {
         current_shown_buffer_index = new_window_buffer.index_in_history;
     }
@@ -1131,6 +1124,7 @@ read_some_from_input_stream :: () {
 
     if !main_window_buffers array_add(*main_window_buffers, .{});
     window_buffer := *main_window_buffers[current_shown_buffer_index];
+    window_buffer.time_generated = current_time_consensus();
     free(window_buffer.raw_text_and_control_codes);
     window_buffer.raw_text_and_control_codes = builder_to_string(*input_stream_builder, do_reset=false);
     separate_control_codes(window_buffer, window_buffer.raw_text_and_control_codes);
@@ -1296,6 +1290,15 @@ render_status_line_1 :: () {
     // right side
     //
     {
+        append(*right_side_builder, "\e[2;37m"); // color gray (dark white)
+        if current_shown_buffer_index == main_window_buffers.count - 1 {
+            print(*right_side_builder, "#%", current_shown_buffer_index + 1);
+        } else {
+            print(*right_side_builder, "#%/%", current_shown_buffer_index + 1, main_window_buffers.count);
+        }
+        append(*right_side_builder, "\e[0m");
+        append(*right_side_builder, " ");
+
         time: Apollo_Time;
         if main_window_source == {
             case .STANDARD_INPUT;   time = current_time_consensus();
@@ -2078,6 +2081,23 @@ handle_input_event :: (_event: Input_Event) {
 
                     case #char "d"; row_offset += terminal_size.rows / 2;
                     case #char "u"; row_offset -= terminal_size.rows / 2; stick_to_the_bottom = false;
+
+                    case #char "b";
+                        if current_shown_buffer_index > 0 {
+                            current_shown_buffer_index -= 1;
+                            show_latest_buffer = false;
+                        }
+                    case #char "B";
+                        current_shown_buffer_index = 0;
+                        show_latest_buffer = false;
+
+                    case #char "f";
+                        if current_shown_buffer_index < main_window_buffers.count - 1 {
+                            current_shown_buffer_index += 1;
+                        }
+                    case #char "F";
+                        current_shown_buffer_index = main_window_buffers.count - 1;
+                        show_latest_buffer = true;
 
                     case #char "t"; stick_to_the_bottom = !stick_to_the_bottom;
 
