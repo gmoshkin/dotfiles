@@ -6,7 +6,6 @@
 /* TODO:
   - command to save the current buffer and show diffs (maybe even in split view)
       although I can just use the tmux splits for that....
-   - add line numberring option
    - implement saving buffer history so that it's easy to cycle back and see if
      there was anything interesting
    - I support running command in shell, so that you can do stuff like
@@ -15,8 +14,13 @@
         Like having an array of simple filters of kind
           - replace all ' ' with '\n' and stuff
           But I don't wanna be supporting regular expressions though
-
-   - CAPTURE MOUSE!
+   - smarter word selection when clicking on text:
+      - currently I just use the spaces to determine word boundaries, but it
+      would be nice to also use other delimiters like "()[]|,". And maybe even
+      some context sensitive stuff:
+          - to select just the path in `path/to/file.txt:123:456`
+          - but also select the whole url in `<https://example.com>`
+      (notice how `:` is treated both as a delimiter and part of the word depending on the context)
 */
 State :: struct {
 
@@ -121,14 +125,15 @@ State :: struct {
 
     command_run_period_seconds := 1.0;
     time_next_command_run : float64 = -1.0;
-    last_command_run_date_time: Calendar_Time;
     last_command_result: Process_Result;
 
     //
     // rendering
     //
     redraw_once := false;
-    main_window_buffer: Window_Buffer;
+    main_window_buffers: [..] Window_Buffer;
+    current_shown_buffer_index: s64;
+    show_latest_buffer := true;
 
     selection_cursor := -1;
     last_selected_string: string;
@@ -157,7 +162,6 @@ State :: struct {
     epoll_events: [1] epoll_event;
 }
 #add_context state: State;
-#add_context current_window: *Window_Buffer;
 
 Cell_Position :: struct {
     row: s32;
@@ -165,6 +169,9 @@ Cell_Position :: struct {
 }
 
 Window_Buffer :: struct {
+    index_in_history: s64;
+    time_generated: Apollo_Time;
+
     raw_text_and_control_codes: string;
 
     only_text_storage: [..] u8; // allocated separately
@@ -193,7 +200,6 @@ main :: () {
     args := get_command_line_arguments();
 
     state := *context.state;
-    context.current_window = *state.main_window_buffer;
 
     cursor := 1;
     while cursor < args.count {
@@ -465,6 +471,7 @@ main :: () {
             parse_and_handle_input();
         }
 
+        main_window_buffer := *main_window_buffers[current_shown_buffer_index];
         // FIXME: this doesn't work in line-wrapping mode
         if stick_to_the_bottom {
             row_offset = max(row_offset, main_window_buffer.line_offsets.count - main_window_height);
@@ -578,7 +585,7 @@ main :: () {
 
                     // add all control codes from the hidden part of the line
                     if !strip_control_codes {
-                        codes := find_all_control_codes_in_range(hidden_slice);
+                        codes := find_all_control_codes_in_range(main_window_buffer, hidden_slice);
                         for < codes {
                             // ignore everything before the last mode reset
                             if is_mode_reset_control_sequence(it.data) break;
@@ -603,7 +610,7 @@ main :: () {
 
                 codes.count = 0;
                 if !strip_control_codes {
-                    array_add(*codes, ..find_all_control_codes_in_range(visible_slice));
+                    array_add(*codes, ..find_all_control_codes_in_range(main_window_buffer, visible_slice));
                 }
 
                 // :search_string_highlight
@@ -629,15 +636,16 @@ main :: () {
                         search_matched_in_hidden = match_end > visible_end;
                         if match_start >= visible_end break;
 
-                        insert_control_code_range(*codes, match_start, "\e[7m", // invert color mode
-                                                          match_end, "\e[27m"); // disable invert color mode
+                        insert_control_code_range(*codes, main_window_buffer,
+                                                  match_start, "\e[7m", // invert color mode
+                                                  match_end, "\e[27m"); // disable invert color mode
                     }
                 }
 
-                select_word_delayed(visible_slice, *codes);
+                select_word_delayed(main_window_buffer, visible_slice, *codes);
 
                 // Build the line string
-                build_line_with_control_codes(*builder, visible_slice, codes);
+                build_line_with_control_codes(*builder, main_window_buffer, visible_slice, codes);
 
                 // Reset color codes
                 append(*builder, "\e[0m");
@@ -701,7 +709,7 @@ main :: () {
 
                     codes.count = 0;
                     if !strip_control_codes {
-                        array_add(*codes, ..find_all_control_codes_in_range(current_slice));
+                        array_add(*codes, ..find_all_control_codes_in_range(main_window_buffer, current_slice));
                     }
 
                     // :search_string_highlight
@@ -711,8 +719,9 @@ main :: () {
                         start_in_range := match.start >= current_slice.data && match.start < current_slice_end;
                         end_in_range := match.end > current_slice.data && match.end <= current_slice_end;
                         if start_in_range || end_in_range {
-                            insert_control_code_range(*codes, match.start, "\e[7m", // invert color mode
-                                                              match.end, "\e[27m"); // disable invert color mode
+                            insert_control_code_range(*codes, main_window_buffer,
+                                                      match.start, "\e[7m", // invert color mode
+                                                      match.end, "\e[27m"); // disable invert color mode
                         }
 
                         if !start_in_range || !end_in_range break; // leave that match for the next line piece
@@ -720,10 +729,10 @@ main :: () {
                         advance(*search_matches_tail, 1);
                     }
 
-                    select_word_delayed(current_slice, *codes);
+                    select_word_delayed(main_window_buffer, current_slice, *codes);
 
                     // Build the line string
-                    build_line_with_control_codes(*builder, current_slice, codes);
+                    build_line_with_control_codes(*builder, main_window_buffer, current_slice, codes);
 
                     if stick_to_the_bottom || line_buffer.count != line_buffer.allocated - 1 {
                         append(*builder, "\n");
@@ -950,9 +959,9 @@ main :: () {
     }
 }
 
-select_word_delayed :: (slice_of_only_text: string, codes: *[..] Control_Code_Info) {
+select_word_delayed :: (window_buffer: *Window_Buffer, slice_of_only_text: string, codes: *[..] Control_Code_Info) {
     using context.state;
-    using main_window_buffer;
+    using window_buffer;
 
     assert(is_subslice(outer=only_text, inner=slice_of_only_text));
     slice := slice_of_only_text;
@@ -988,8 +997,9 @@ select_word_delayed :: (slice_of_only_text: string, codes: *[..] Control_Code_In
             selection_cursor = -1;
         }
 
-        insert_control_code_range(codes, start, "\e[7m", // invert color mode
-                                         end,   "\e[27m"); // disable invert color mode
+        insert_control_code_range(codes, window_buffer,
+                                  start, "\e[7m", // invert color mode
+                                  end,   "\e[27m"); // disable invert color mode
     }
 }
 
@@ -1018,9 +1028,13 @@ maybe_get_external_command_output :: () {
     time := seconds_since_init();
     if time < time_next_command_run return;
 
-    using main_window_buffer;
-
-    if raw_text_and_control_codes free(raw_text_and_control_codes);
+    // FIXME: only do this if the command output is not the same the previous one
+    // TODO: do the actual buffer history
+    // new_window_buffer: Window_Buffer;
+    if !main_window_buffers array_add(*main_window_buffers, .{});
+    new_window_buffer := *main_window_buffers[main_window_buffers.count - 1];
+    using new_window_buffer;
+    free(raw_text_and_control_codes);
 
     // If the command is a single argument which contains a string,
     // assume it's some shell pipeline & run it in a shell
@@ -1037,7 +1051,7 @@ maybe_get_external_command_output :: () {
     }
     time_next_command_run = time + command_run_period_seconds;
 
-    last_command_run_date_time = to_calendar(current_time_consensus(), .LOCAL);
+    time_generated = current_time_consensus();
 
     if last_command_result.type == .FAILED_TO_LAUNCH
     {
@@ -1076,7 +1090,15 @@ maybe_get_external_command_output :: () {
         raw_text_and_control_codes = normal_output;
     }
 
-    separate_control_codes(raw_text_and_control_codes);
+    previous_window_buffer := main_window_buffers[main_window_buffers.count - 1];
+    // if raw_text_and_control_codes == previous_window_buffer.raw_text_and_control_codes {
+    //     // TODO
+    // }
+
+    separate_control_codes(new_window_buffer, raw_text_and_control_codes);
+    if show_latest_buffer {
+        current_shown_buffer_index = new_window_buffer.index_in_history;
+    }
 }
 
 //
@@ -1107,9 +1129,11 @@ read_some_from_input_stream :: () {
         return;
     }
 
-    free(main_window_buffer.raw_text_and_control_codes);
-    main_window_buffer.raw_text_and_control_codes = builder_to_string(*input_stream_builder, do_reset=false);
-    separate_control_codes(main_window_buffer.raw_text_and_control_codes);
+    if !main_window_buffers array_add(*main_window_buffers, .{});
+    window_buffer := *main_window_buffers[current_shown_buffer_index];
+    free(window_buffer.raw_text_and_control_codes);
+    window_buffer.raw_text_and_control_codes = builder_to_string(*input_stream_builder, do_reset=false);
+    separate_control_codes(window_buffer, window_buffer.raw_text_and_control_codes);
 }
 
 read_all_available_data_from_input_stream :: () -> has_new_data: bool {
@@ -1272,11 +1296,12 @@ render_status_line_1 :: () {
     // right side
     //
     {
-        date_time: Calendar_Time;
+        time: Apollo_Time;
         if main_window_source == {
-            case .STANDARD_INPUT;   date_time = to_calendar(current_time_consensus(), .LOCAL);
-            case .EXTERNAL_COMMAND; date_time = last_command_run_date_time;
+            case .STANDARD_INPUT;   time = current_time_consensus();
+            case .EXTERNAL_COMMAND; time = main_window_buffers[current_shown_buffer_index].time_generated;
         }
+        date_time := to_calendar(time, .LOCAL);
 
         append(*right_side_builder, "\e[32m"); // color green
         print_date_time_for_humans(*right_side_builder, date_time);
@@ -1303,8 +1328,9 @@ render_status_line_1 :: () {
 // iterating over control codes
 //
 
-build_line_with_control_codes :: (builder: *String_Builder, text_slice: string, codes: [] Control_Code_Info) -> (num_codes_left: s64) {
-    using context.current_window;
+build_line_with_control_codes :: (builder: *String_Builder, window_buffer: *Window_Buffer, text_slice: string, codes: [] Control_Code_Info) -> (num_codes_left: s64) {
+    using context.state;
+    using window_buffer;
 
     if !codes.count {
         append(builder, text_slice);
@@ -1340,27 +1366,8 @@ build_line_with_control_codes :: (builder: *String_Builder, text_slice: string, 
 
 // FIXME: linear search. If I keep track of last inserted position and start
 // searching from it, this should help with performance.
-insert_control_code :: (codes: *[..] Control_Code_Info, pointer_into_only_text: *u8, data: string) {
-    using context.current_window;
-    assert(pointer_into_only_text > only_text.data);
-    assert(pointer_into_only_text <= only_text.data + only_text.count);
-
-    position_in_text := pointer_into_only_text - only_text.data;
-    code := Control_Code_Info.{ position_in_text, xx data };
-
-    index := 0;
-    for codes.* {
-        if it.position_in_text >= code.position_in_text break;
-
-        index += 1;
-    }
-
-    array_insert_at(codes, code, index);
-}
-
-// FIXME: linear search. If I keep track of last inserted position and start
-// searching from it, this should help with performance.
 insert_control_code_range :: (codes: *[..] Control_Code_Info,
+                              window_buffer: *Window_Buffer,
                               start_pointer: *u8, // points into only_text
                               start_code: string,
                               end_pointer: *u8, // points into only_text
@@ -1369,7 +1376,9 @@ insert_control_code_range :: (codes: *[..] Control_Code_Info,
     // Empty range will always be invisible
     if start_pointer == end_pointer return;
 
-    using context.current_window;
+    using context.state;
+    using window_buffer;
+
     assert(start_pointer > only_text.data);
     assert(start_pointer < end_pointer);
     assert(end_pointer <= only_text.data + only_text.count);
@@ -1414,8 +1423,9 @@ insert_control_code_range :: (codes: *[..] Control_Code_Info,
     array_insert_at(codes, end, index);
 }
 
-find_first_control_code_in_range :: (start: s64, end: s64) -> string {
-    using context.current_window;
+find_first_control_code_in_range :: (window_buffer: *Window_Buffer, start: s64, end: s64) -> string {
+    using context.state;
+    using window_buffer;
 
     if !control_codes return "";
 
@@ -1435,19 +1445,20 @@ find_first_control_code_in_range :: (start: s64, end: s64) -> string {
     return control_codes[control_codes_cursor].data;
 }
 
-find_all_control_codes_in_range :: (start: s64, end: s64) -> ([] Control_Code_Info, total_string_length: s64) {
-    using context.current_window;
+find_all_control_codes_in_range :: (window_buffer: *Window_Buffer, start: s64, end: s64) -> ([] Control_Code_Info, total_string_length: s64) {
+    using context.state;
+    using window_buffer;
 
     assert(start <= end);
     assert(0 <= start && start <= only_text.count);
     assert(0 <= end && end <= only_text.count);
 
-    find_first_control_code_in_range(start, end);
+    find_first_control_code_in_range(window_buffer, start, end);
 
     first := control_codes_cursor;
     total_string_length := 0;
     while true {
-        code := current_control_code();
+        code := current_control_code(window_buffer);
         if !control_code_is_in_range(code, start, end) break;
         total_string_length += code.data.count;
         control_codes_cursor += 1;
@@ -1456,12 +1467,13 @@ find_all_control_codes_in_range :: (start: s64, end: s64) -> ([] Control_Code_In
     return array_view(control_codes, first, control_codes_cursor - first), total_string_length;
 }
 
-find_all_control_codes_in_range :: (range: string) -> ([] Control_Code_Info, total_string_length: s64) {
-    using context.current_window;
+find_all_control_codes_in_range :: (window_buffer: *Window_Buffer, range: string) -> ([] Control_Code_Info, total_string_length: s64) {
+    using context.state;
+    using window_buffer;
 
     start := range.data - only_text.data;
     end := start + range.count;
-    codes, total_string_length := inline find_all_control_codes_in_range(start, end);
+    codes, total_string_length := inline find_all_control_codes_in_range(window_buffer, start, end);
     return codes, total_string_length;
 }
 
@@ -1473,8 +1485,9 @@ control_code_is_in_range :: inline (code: Control_Code_Info, start: int, end: in
     return true;
 }
 
-current_control_code :: inline () -> Control_Code_Info {
-    using context.current_window;
+current_control_code :: inline (window_buffer: *Window_Buffer) -> Control_Code_Info {
+    using context.state;
+    using window_buffer;
 
     if control_codes_cursor > control_codes.count - 1 return .{};
     return control_codes[control_codes_cursor];
@@ -1484,8 +1497,7 @@ test_get_next_control_code_in_range :: () {
     text := "foo\e[31mbar\e[32mbaz\e[33mboobies\e[0m";
 
     using window_buffer: Window_Buffer;
-    context.current_window = *window_buffer;
-    separate_control_codes(text);
+    separate_control_codes(*window_buffer, text);
 
     print_vars(raw_text_and_control_codes, only_text, control_codes);
 
@@ -1494,14 +1506,14 @@ test_get_next_control_code_in_range :: () {
     end: int;
 
     do_test :: (start: int, end: int) #expand {
-        using context.current_window;
+        using context.state;
 
         builder: String_Builder;
 
         print("[%..%]:\n", start, end);
         print(*builder, "<", start, end);
         cursor := start;
-        for code: find_all_control_codes_in_range(start, end) {
+        for code: find_all_control_codes_in_range(*window_buffer, start, end) {
             print("%: %\n", code.position_in_text, cast(Ascii_Or_Hex) code.data);
             print(*builder, "%", substring(only_text, cursor, code.position_in_text));
             print(*builder, "%", code.data);
@@ -1522,8 +1534,9 @@ test_get_next_control_code_in_range :: () {
     do_test(4, 7);
 }
 
-separate_control_codes :: (raw_text: string) {
-    using context.current_window;
+separate_control_codes :: (window_buffer: *Window_Buffer, raw_text: string) {
+    using context.state;
+    using window_buffer;
 
     // `only_text.count <= raw_text_and_control_codes.count` is always true
     raw_text_and_control_codes = raw_text;
@@ -2034,6 +2047,8 @@ try_parse_directional_key_sequence :: (sequence: string, event: *Input_Event) ->
 handle_input_event :: (_event: Input_Event) {
     using context.state;
 
+    main_window_buffer := main_window_buffers[current_shown_buffer_index];
+
     event := _event;
     if event.kind == {
         case .MOUSE_WHEEL_UP;
@@ -2342,7 +2357,7 @@ history_next :: () {
 
 jump_to_next_search_match :: () {
     using context.state;
-    using context.state.main_window_buffer;
+    using main_window_buffers[current_shown_buffer_index];
 
     if row_offset == line_offsets.count - 1 return; // no next match possible
 
@@ -2365,7 +2380,7 @@ jump_to_next_search_match :: () {
 
 jump_to_previous_search_match :: () {
     using context.state;
-    using context.state.main_window_buffer;
+    using main_window_buffers[current_shown_buffer_index];
 
     if row_offset == 0 return; // no previous match possible
 
