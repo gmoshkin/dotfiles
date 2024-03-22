@@ -74,8 +74,9 @@ State :: struct {
     search_string_history: [..] string;
 
     input_buffer: [..] u8;
-    input_buffer_count: s64;
     input_received_this_tick: bool;
+
+    f_repeat_count: s64;
 
     //
     // status
@@ -2124,9 +2125,13 @@ handle_input_event :: (_event: Input_Event) {
                         show_latest_buffer = false;
 
                     case #char "f";
+                        f_repeat_count += 1;
                         if current_shown_buffer_index < main_window_buffer_history.count - 1 {
                             current_shown_buffer_index += 1;
                         }
+                        if current_shown_buffer_index == main_window_buffer_history.count - 1
+                            && f_repeat_count >= 3
+                            then show_latest_buffer = true;
                     case #char "F";
                         current_shown_buffer_index = main_window_buffer_history.count - 1;
                         show_latest_buffer = true;
@@ -2171,6 +2176,10 @@ handle_input_event :: (_event: Input_Event) {
                     case #char "c"; strip_control_codes = !strip_control_codes;
 
                     case #char "q"; should_exit = true;
+                }
+
+                if event.char != #char "f" {
+                    f_repeat_count = 0;
                 }
             }
 
