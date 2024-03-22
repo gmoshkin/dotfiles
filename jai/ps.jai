@@ -207,7 +207,7 @@ main :: () {
         column_widths[it_index] = it.count + 2; // `+ 2` for separation
     }
     // Hard-code %CPU column to have enough space for "100.0", so that it doesn't jiggle
-    column_widths[CPU] = 6;
+    column_widths[CPU] = 7;
 
     table: [..] [column_headers.count] string;
     array_reserve(*table, flattened_tree.count);
