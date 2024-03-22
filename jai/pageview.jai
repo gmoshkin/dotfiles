@@ -2645,6 +2645,7 @@ init_commands :: () {
         array_add(*commands, make_command("line_wrapping", make_toggle("line_wrapping")));
         array_add(*commands, make_command("visualize_control_codes", make_toggle("visualize_control_codes")));
         array_add(*commands, make_command("current_shown_buffer_number", set_current_shown_buffer_index));
+        array_add(*commands, make_command("clear_buffer_history_up_to", clear_buffer_history_up_to));
     }
 }
 
@@ -2702,6 +2703,30 @@ set_current_shown_buffer_index :: (number: s64) -> (ok: bool, error_message: str
 
     show_latest_buffer = (index == main_window_buffer_history.count - 1);
     current_shown_buffer_index = index;
+
+    return true, "";
+}
+
+clear_buffer_history_up_to :: (leading_count_to_delete: s64) -> (ok: bool, error_message: string) {
+    using context.state;
+
+    if leading_count_to_delete < 0 {
+        return false, "number must be positive";
+    }
+
+    // Never remove the latest buffer
+    count := min(leading_count_to_delete, main_window_buffer_history.count - 1);
+    for 0..count-1 {
+        using main_window_buffer_history[it];
+        free(raw_text_and_control_codes);
+        array_free(only_text_storage);
+        array_free(control_codes);
+        array_free(line_offsets);
+    }
+    array_ordered_remove_range(*main_window_buffer_history, 0, count);
+
+    current_shown_buffer_index = main_window_buffer_history.count - 1;
+    show_latest_buffer = true;
 
     return true, "";
 }
