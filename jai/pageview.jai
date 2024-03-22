@@ -57,10 +57,7 @@ State :: struct {
     } = .NAVIGATE;
     input_cursor: s64;
     mouse_position := Cell_Position.{ -1, -1 };
-    delayed_action : enum {
-        NONE;
-        MOUSE_SELECTION_CLICK;
-    };
+    delayed_actions: [..] Delayed_Action;
 
     // I need to render the cursor at the very end, but it's position is
     // determined a bit earlier, so I store it in the state.
@@ -162,6 +159,12 @@ State :: struct {
     epoll_events: [1] epoll_event;
 }
 #add_context state: State;
+
+Delayed_Action :: enum {
+    MOUSE_SELECTION_CLICK;
+    MOVE_DOWN_IN_LINE_WRAPPING_MODE;
+    MOVE_UP_IN_LINE_WRAPPING_MODE;
+}
 
 Cell_Position :: struct {
     row: s32;
@@ -466,7 +469,7 @@ main :: () {
         }
 
         // Handle input
-        state.delayed_action = .NONE;
+        state.delayed_actions.count = 0;
         if input_received_this_tick {
             parse_and_handle_input();
         }
@@ -963,7 +966,9 @@ select_word_delayed :: (window_buffer: *Window_Buffer, slice_of_only_text: strin
     assert(is_subslice(outer=only_text, inner=slice_of_only_text));
     slice := slice_of_only_text;
 
-    if delayed_action == .MOUSE_SELECTION_CLICK {
+    mouse_selection_click := array_find(delayed_actions, .MOUSE_SELECTION_CLICK);
+
+    if mouse_selection_click {
         if current_screen_row == mouse_position.row {
             log("click at line #%", current_line_number);
             column_in_window := mouse_position.column - 1 - current_row_left_offset;
@@ -983,7 +988,7 @@ select_word_delayed :: (window_buffer: *Window_Buffer, slice_of_only_text: strin
         end := slice.data + slice.count;
         if index != -1 then end = slice.data + index;
 
-        if delayed_action == .MOUSE_SELECTION_CLICK {
+        if mouse_selection_click {
             last_selected_string = only_visible_text(.{ end - start, start });
             log("selected string: %", last_selected_string);
             // FIXME: this don't work:
@@ -2066,7 +2071,7 @@ handle_input_event :: (_event: Input_Event) {
             }
             event.kind = .HANDLED;
         case .MOUSE_LEFT_DOWN;
-            delayed_action = .MOUSE_SELECTION_CLICK;
+            array_add(*delayed_actions, .MOUSE_SELECTION_CLICK);
             // log("delaying mouse selection click @ %", mouse_position);
             event.kind = .HANDLED;
     }
