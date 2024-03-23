@@ -488,271 +488,7 @@ main :: () {
         // Main window
         //
 
-        using main_window_buffer;
-
-        // `line_buffer` stores pointers into `main_window_buffer` or temporary storage
-        line_buffer: [..] string;
-        line_buffer.allocator = temp;
-        array_reserve(*line_buffer, main_window_height);
-
-        // starts from 1, `+2` for :2_status_lines
-        current_screen_row = 1 + 2;
-
-        line_index := 0;
-        if row_offset > 0 {
-            line_index = row_offset;
-        } else if row_offset < 0 {
-            // Extra blank lines for negative row_offset (for some reason)
-            for 1..-row_offset {
-                array_add(*line_buffer, "\n");
-            }
-            current_screen_row += -row_offset;
-        }
-
-        line_number_max_digits := tprint("%", main_window_buffer.line_offsets.count).count;
-        main_window_left_offset := 0;
-        if line_numberring then main_window_left_offset = line_number_max_digits + 1;
-        if col_offset < 0 {
-            main_window_left_offset += -col_offset;
-        }
-
-        // these are used and reused for each line
-        codes: [..] Control_Code_Info;
-        codes.allocator = temp;
-        search_matches: [..] Pointer_Range;
-        search_matches.allocator = temp;
-
-        // Preprocess lines to be displayed
-        if main_window_height != 0 while line_buffer.count < main_window_height || (line_wrapping && stick_to_the_bottom) {
-            if line_index > line_offsets.count - 1 break;
-            line_start := line_offsets[line_index];
-            line_end := ifx line_index < line_offsets.count - 1 then line_offsets[line_index + 1] else only_text.count;
-            current_line_number = line_index + 1;
-            defer line_index += 1;
-            line := substring(xx only_text, line_start, line_end);
-
-            current_row_left_offset = main_window_left_offset;
-
-            // :search_string_highlight
-            search_matches.count = 0;
-            // TODO: is the line is super fucking long this will be slow, so I
-            // could test for that and do something else in that case
-            if search_string {
-                // find all matches in current line
-                tail := line;
-                while tail {
-                    found:, head:, tail = split_from_left(tail, search_string);
-                    if !found break;
-
-                    start := head.data + head.count;
-                    end := start + search_string.count;
-                    array_add(*search_matches, .{ start, end });
-                }
-            }
-            search_matches_tail: [] Pointer_Range = search_matches;
-
-            builder := String_Builder.{ allocator = temp };
-            ensure_contiguous_space(*builder, line.count);
-
-            if !line_wrapping {
-                visible_columns_budget : int = terminal_size.cols;
-                visible_slice := line;
-
-                if line_numberring {
-                    append(*builder, "\e[2;37m"); // color gray (dark white)
-                    print(*builder, "% ", fmt(current_line_number, line_number_max_digits, padding=" "));
-                    append(*builder, "\e[0m"); // color gray (dark white)
-                    visible_columns_budget -= line_number_max_digits + 1; // `+ 1` for extra space
-                }
-
-                if col_offset > 0 {
-                    // Skip `col_offset` visible characters `+ 1` for the :line_overflow_character
-                    first_visible_column_offset := min(col_offset + 1, line.count);
-                    hidden_slice := substring(line, 0, first_visible_column_offset);
-                    visible_slice = substring(line, first_visible_column_offset);
-
-                    // :line_overflow_character
-                    visible_columns_budget -= 1;
-                    // :search_string_highlight
-                    search_matched_in_hidden := false;
-                    if search_string {
-                        index := find_index_from_left(line, search_string);
-                        search_matched_in_hidden = index >= 0 && index < first_visible_column_offset;
-                    }
-                    if search_matched_in_hidden then append(*builder, "\e[7m"); // invert color mode
-                                                else append(*builder, "\e[2;37m"); // color gray
-                    append(*builder, "<");
-                    append(*builder, "\e[0m");
-                    current_row_left_offset += 1;
-
-                    // add all control codes from the hidden part of the line
-                    if !strip_control_codes {
-                        codes := find_all_control_codes_in_range(main_window_buffer, hidden_slice);
-                        for < codes {
-                            // ignore everything before the last mode reset
-                            if is_mode_reset_control_sequence(it.data) break;
-                            append(*builder, it.data);
-                        }
-                    }
-                } else if col_offset < 0 {
-                    // Extra spaces if offset is negative
-                    assert(visible_columns_budget > -col_offset);
-                    for 1..-col_offset {
-                        append(*builder, " ");
-                        visible_columns_budget -= 1;
-                    }
-                }
-
-                line_overflowed := utf8_count(visible_slice) > visible_columns_budget;
-                if line_overflowed {
-                    // Leave space for the :line_overflow_character
-                    visible_slice = utf8_substring(visible_slice, visible_columns_budget - 1);
-                }
-
-                codes.count = 0;
-                if !strip_control_codes {
-                    array_add(*codes, ..find_all_control_codes_in_range(main_window_buffer, visible_slice));
-                }
-
-                // :search_string_highlight
-                search_matched_in_hidden := false;
-                if search_string {
-                    tail := line;
-                    while tail && !should_exit {
-                        // FIXME: I'm a dumbass, optimizing for searching over
-                        // large text segments, while vim just finds all matches
-                        // in the file instantly and shows me their count. Just
-                        // fucking find all matches when the text or search
-                        // string changes, you retard.
-                        index := find_index_from_left(tail, search_string);
-                        if index < 0 break;
-                        match_start := tail.data + index;
-                        match_end := match_start + search_string.count;
-
-                        tail = substring(tail, index + search_string.count);
-
-                        if match_end <= visible_slice.data continue;
-
-                        visible_end := visible_slice.data + visible_slice.count;
-                        search_matched_in_hidden = match_end > visible_end;
-                        if match_start >= visible_end break;
-
-                        insert_control_code_range(*codes, main_window_buffer,
-                                                  match_start, "\e[7m", // invert color mode
-                                                  match_end, "\e[27m"); // disable invert color mode
-                    }
-                }
-
-                select_word_delayed(main_window_buffer, visible_slice, *codes);
-
-                // Build the line string
-                build_line_with_control_codes(*builder, main_window_buffer, visible_slice, codes);
-
-                // Reset color codes
-                append(*builder, "\e[0m");
-
-                // :line_overflow_character
-                if line_overflowed {
-                    // :search_string_highlight
-                    if search_matched_in_hidden {
-                        append(*builder, "\e[7m"); // invert color mode
-                    } else {
-                        append(*builder, "\e[2;37m"); // color gray
-                    }
-                    append(*builder, ">");
-                    append(*builder, "\e[0m");
-                }
-
-                if line_buffer.count != line_buffer.allocated - 1 {
-                    append(*builder, "\n");
-                }
-                array_add(*line_buffer, builder_to_string(*builder,, temp));
-                current_screen_row += 1;
-            } else /* line_wrapping == true */ {
-                // col_offset is ignored
-
-                line_tail := line;
-                first := true;
-
-                // Iterate over line pieces
-                while first || line_tail && (stick_to_the_bottom || line_buffer.count < main_window_height) {
-                    defer first = false;
-                    visible_columns_budget : int = terminal_size.cols;
-
-                    if first {
-                        first = false;
-                        if line_numberring {
-                            append(*builder, "\e[2;37m"); // color gray (dark white)
-                            print(*builder, "% ", fmt(current_line_number, line_number_max_digits, padding=" "));
-                            append(*builder, "\e[0m"); // color gray (dark white)
-                            visible_columns_budget -= line_number_max_digits + 1; // `+ 1` for extra space
-                        }
-                    } else {
-                        if line_numberring {
-                            append_padding(*builder, line_number_max_digits + 1); // `+ 1` for extra space
-                            visible_columns_budget -= line_number_max_digits + 1; // `+ 1` for extra space
-                        }
-                        prefix :: "";
-                        append(*builder, prefix);
-                        visible_columns_budget -= prefix.count;
-                    }
-
-                    current_slice := utf8_substring(line_tail, visible_columns_budget);
-                    // TODO: maybe not just space but also other punctuation
-                    if current_slice.count < line_tail.count && current_slice.data[current_slice.count] != #char " " {
-                        last_space := find_index_from_right(current_slice, #char " ");
-                        if last_space != -1 {
-                            current_slice.count = last_space + 1; // `+1` so that space is left on this line
-                        }
-                    }
-                    current_slice_end := current_slice.data + current_slice.count;
-                    line_tail = substring(line_tail, current_slice.count);
-
-                    codes.count = 0;
-                    if !strip_control_codes {
-                        array_add(*codes, ..find_all_control_codes_in_range(main_window_buffer, current_slice));
-                    }
-
-                    // :search_string_highlight
-                    while search_matches_tail {
-                        match := *search_matches_tail[0];
-
-                        start_in_range := match.start >= current_slice.data && match.start < current_slice_end;
-                        end_in_range := match.end > current_slice.data && match.end <= current_slice_end;
-                        if start_in_range || end_in_range {
-                            insert_control_code_range(*codes, main_window_buffer,
-                                                      match.start, "\e[7m", // invert color mode
-                                                      match.end, "\e[27m"); // disable invert color mode
-                        }
-
-                        if !start_in_range || !end_in_range break; // leave that match for the next line piece
-
-                        advance(*search_matches_tail, 1);
-                    }
-
-                    select_word_delayed(main_window_buffer, current_slice, *codes);
-
-                    // Build the line string
-                    build_line_with_control_codes(*builder, main_window_buffer, current_slice, codes);
-
-                    if stick_to_the_bottom || line_buffer.count != line_buffer.allocated - 1 {
-                        append(*builder, "\n");
-                    } else {
-                        // Reset color codes
-                        append(*builder, "\e[0m");
-                    }
-                    array_add(*line_buffer, builder_to_string(*builder,, temp));
-                    current_screen_row += 1;
-                }
-            }
-        }
-
-        overflow := line_buffer.count - main_window_height;
-        if overflow > 0 {
-            assert(stick_to_the_bottom, "shouldn't happen otherwise");
-            line_buffer.data += overflow;
-            line_buffer.count -= overflow;
-        }
+        line_buffer := build_line_buffer_for_main_window(main_window_buffer);
 
         changed := false;
         if line_buffer.count != last_shown_line_buffer.count {
@@ -799,78 +535,7 @@ main :: () {
         //
         // second status line
         //
-        {
-            builder: String_Builder;
-            builder.allocator = temp;
-            buffer := get_base_buffer(*builder);
-
-            cursor_line = -1;
-            cursor_column = -1;
-
-            // "\e[H": move cursor to position (row 2, column 1)
-            append(*builder, "\e[2;1H");
-            append(*builder, "\e[K"); // "\e[K": erase in line
-            append(*builder, "\e[2;37m"); // color gray
-
-            if frame_time < error_message_deadline {
-                append(*builder, "\e[0;31m"); // color red;
-                append(*builder, to_string(*error_message_builder));
-                append(*builder, "\e[0m");
-            } else if input_mode == .NAVIGATE {
-                text_start := buffer.count;
-                {
-                    print_to_builder(*builder, "offset: %, %   ", row_offset, col_offset);
-                    print_to_builder(*builder, "lines: %   ", main_window_buffer.line_offsets.count);
-                    if stick_to_the_bottom then append(*builder, "sinking   ");
-
-                    // Print current input buffer
-                    append(*builder, "input: ");
-
-                    print_to_builder(*builder, "%", cast(Ascii_Or_Hex) input_buffer);
-
-                    print(*builder, " mouse %, %", mouse_position.column, mouse_position.row);
-                    // print(*builder, "  control codes count %", main_window_buffer.control_codes.count);
-                }
-                text_length := buffer.count - text_start;
-                overflow := text_length - terminal_size.cols;
-                if overflow > 0 {
-                    buffer.count -= overflow;
-                }
-            } else if input_mode == .INPUT_SEARCH_STRING || input_mode == .INPUT_COMMAND {
-                prefix := "??";
-                text := "<unknown mode>";
-                if input_mode == .INPUT_SEARCH_STRING { prefix = "/";  text = search_string; }
-                if input_mode == .INPUT_COMMAND       { prefix = "> "; text = xx command_line; }
-                append(*builder, prefix);
-
-                visible_columns_budget := terminal_size.cols - prefix.count;
-
-                overflow := text.count - visible_columns_budget;
-                // FIXME: I just want the last column to be left for the cursor
-                // if the cursor is at the last column, but than be filled with
-                // the search string otherwise... but I'm a sleepy head right
-                // now :(
-                if overflow > 0 {
-                    // Add extra space at the end for the cursor
-                    overflow += 1;
-                    slice_start := clamp(input_cursor - 2, 0, overflow);
-                    append(*builder, substring(text, slice_start, count=visible_columns_budget - 1));
-                    // `+ 1` because rows start at 1
-                    cursor_line = 2;
-                    cursor_column = input_cursor - slice_start + prefix.count + 1;
-                } else {
-                    append(*builder, text);
-                    // `+ 1` because rows start at 1
-                    cursor_line = 2;
-                    cursor_column = input_cursor + prefix.count + 1;
-                }
-            }
-
-            append(*builder, "\e[0m");
-
-            assert(get_current_buffer(*builder) == buffer);
-            write_builder(*builder);
-        }
+        render_status_line_2();
 
         // memory usage window
         if show_memory_usage
@@ -982,6 +647,287 @@ main :: () {
         print("got signal %\n", signalled_with_signal);
     }
 }
+
+//
+// build main window line buffer from text
+//
+
+build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] string {
+    using context.state;
+    using window_buffer;
+
+    if main_window_height == 0 return .[];
+
+    // `line_buffer` stores pointers into `window_buffer` or temporary storage
+    line_buffer: [..] string;
+    line_buffer.allocator = temp;
+    array_reserve(*line_buffer, main_window_height);
+
+    // starts from 1, `+2` for :2_status_lines
+    current_screen_row = 1 + 2;
+
+    line_index := 0;
+    if row_offset > 0 {
+        line_index = row_offset;
+    } else if row_offset < 0 {
+        // Extra blank lines for negative row_offset (for some reason)
+        for 1..-row_offset {
+            array_add(*line_buffer, "\n");
+        }
+        current_screen_row += -row_offset;
+    }
+
+    line_number_max_digits := tprint("%", line_offsets.count).count;
+    main_window_left_offset := 0;
+    if line_numberring then main_window_left_offset = line_number_max_digits + 1;
+    if col_offset < 0 {
+        main_window_left_offset += -col_offset;
+    }
+
+    // these are used and reused for each line
+    codes: [..] Control_Code_Info;
+    codes.allocator = temp;
+    search_matches: [..] Pointer_Range;
+    search_matches.allocator = temp;
+
+    // Preprocess lines to be displayed
+    while line_buffer.count < main_window_height || (line_wrapping && stick_to_the_bottom) {
+        if line_index > line_offsets.count - 1 break;
+        line_start := line_offsets[line_index];
+        line_end := ifx line_index < line_offsets.count - 1 then line_offsets[line_index + 1] else only_text.count;
+        current_line_number = line_index + 1;
+        defer line_index += 1;
+        line := substring(xx only_text, line_start, line_end);
+
+        current_row_left_offset = main_window_left_offset;
+
+        // :search_string_highlight
+        search_matches.count = 0;
+        // TODO: is the line is super fucking long this will be slow, so I
+        // could test for that and do something else in that case
+        if search_string {
+            // find all matches in current line
+            tail := line;
+            while tail {
+                found:, head:, tail = split_from_left(tail, search_string);
+                if !found break;
+
+                start := head.data + head.count;
+                end := start + search_string.count;
+                array_add(*search_matches, .{ start, end });
+            }
+        }
+        search_matches_tail: [] Pointer_Range = search_matches;
+
+        builder := String_Builder.{ allocator = temp };
+        ensure_contiguous_space(*builder, line.count);
+
+        if !line_wrapping {
+            visible_columns_budget : int = terminal_size.cols;
+            visible_slice := line;
+
+            if line_numberring {
+                append(*builder, "\e[2;37m"); // color gray (dark white)
+                print(*builder, "% ", fmt(current_line_number, line_number_max_digits, padding=" "));
+                append(*builder, "\e[0m"); // color gray (dark white)
+                visible_columns_budget -= line_number_max_digits + 1; // `+ 1` for extra space
+            }
+
+            if col_offset > 0 {
+                // Skip `col_offset` visible characters `+ 1` for the :line_overflow_character
+                first_visible_column_offset := min(col_offset + 1, line.count);
+                hidden_slice := substring(line, 0, first_visible_column_offset);
+                visible_slice = substring(line, first_visible_column_offset);
+
+                // :line_overflow_character
+                visible_columns_budget -= 1;
+                // :search_string_highlight
+                search_matched_in_hidden := false;
+                if search_string {
+                    index := find_index_from_left(line, search_string);
+                    search_matched_in_hidden = index >= 0 && index < first_visible_column_offset;
+                }
+                if search_matched_in_hidden then append(*builder, "\e[7m"); // invert color mode
+                                            else append(*builder, "\e[2;37m"); // color gray
+                append(*builder, "<");
+                append(*builder, "\e[0m");
+                current_row_left_offset += 1;
+
+                // add all control codes from the hidden part of the line
+                if !strip_control_codes {
+                    codes := find_all_control_codes_in_range(window_buffer, hidden_slice);
+                    for < codes {
+                        // ignore everything before the last mode reset
+                        if is_mode_reset_control_sequence(it.data) break;
+                        append(*builder, it.data);
+                    }
+                }
+            } else if col_offset < 0 {
+                // Extra spaces if offset is negative
+                assert(visible_columns_budget > -col_offset);
+                for 1..-col_offset {
+                    append(*builder, " ");
+                    visible_columns_budget -= 1;
+                }
+            }
+
+            line_overflowed := utf8_count(visible_slice) > visible_columns_budget;
+            if line_overflowed {
+                // Leave space for the :line_overflow_character
+                visible_slice = utf8_substring(visible_slice, visible_columns_budget - 1);
+            }
+
+            codes.count = 0;
+            if !strip_control_codes {
+                array_add(*codes, ..find_all_control_codes_in_range(window_buffer, visible_slice));
+            }
+
+            // :search_string_highlight
+            search_matched_in_hidden := false;
+            if search_string {
+                tail := line;
+                while tail && !should_exit {
+                    // FIXME: I'm a dumbass, optimizing for searching over
+                    // large text segments, while vim just finds all matches
+                    // in the file instantly and shows me their count. Just
+                    // fucking find all matches when the text or search
+                    // string changes, you retard.
+                    index := find_index_from_left(tail, search_string);
+                    if index < 0 break;
+                    match_start := tail.data + index;
+                    match_end := match_start + search_string.count;
+
+                    tail = substring(tail, index + search_string.count);
+
+                    if match_end <= visible_slice.data continue;
+
+                    visible_end := visible_slice.data + visible_slice.count;
+                    search_matched_in_hidden = match_end > visible_end;
+                    if match_start >= visible_end break;
+
+                    insert_control_code_range(*codes, window_buffer,
+                                              match_start, "\e[7m", // invert color mode
+                                              match_end, "\e[27m"); // disable invert color mode
+                }
+            }
+
+            select_word_delayed(window_buffer, visible_slice, *codes);
+
+            // Build the line string
+            build_line_with_control_codes(*builder, window_buffer, visible_slice, codes);
+
+            // Reset color codes
+            append(*builder, "\e[0m");
+
+            // :line_overflow_character
+            if line_overflowed {
+                // :search_string_highlight
+                if search_matched_in_hidden {
+                    append(*builder, "\e[7m"); // invert color mode
+                } else {
+                    append(*builder, "\e[2;37m"); // color gray
+                }
+                append(*builder, ">");
+                append(*builder, "\e[0m");
+            }
+
+            if line_buffer.count != line_buffer.allocated - 1 {
+                append(*builder, "\n");
+            }
+            array_add(*line_buffer, builder_to_string(*builder,, temp));
+            current_screen_row += 1;
+        } else /* line_wrapping == true */ {
+            // col_offset is ignored
+
+            line_tail := line;
+            first := true;
+
+            // Iterate over line pieces
+            while first || line_tail && (stick_to_the_bottom || line_buffer.count < main_window_height) {
+                defer first = false;
+                visible_columns_budget : int = terminal_size.cols;
+
+                if first {
+                    first = false;
+                    if line_numberring {
+                        append(*builder, "\e[2;37m"); // color gray (dark white)
+                        print(*builder, "% ", fmt(current_line_number, line_number_max_digits, padding=" "));
+                        append(*builder, "\e[0m"); // color gray (dark white)
+                        visible_columns_budget -= line_number_max_digits + 1; // `+ 1` for extra space
+                    }
+                } else {
+                    if line_numberring {
+                        append_padding(*builder, line_number_max_digits + 1); // `+ 1` for extra space
+                        visible_columns_budget -= line_number_max_digits + 1; // `+ 1` for extra space
+                    }
+                    prefix :: "";
+                    append(*builder, prefix);
+                    visible_columns_budget -= prefix.count;
+                }
+
+                current_slice := utf8_substring(line_tail, visible_columns_budget);
+                // TODO: maybe not just space but also other punctuation
+                if current_slice.count < line_tail.count && current_slice.data[current_slice.count] != #char " " {
+                    last_space := find_index_from_right(current_slice, #char " ");
+                    if last_space != -1 {
+                        current_slice.count = last_space + 1; // `+1` so that space is left on this line
+                    }
+                }
+                current_slice_end := current_slice.data + current_slice.count;
+                line_tail = substring(line_tail, current_slice.count);
+
+                codes.count = 0;
+                if !strip_control_codes {
+                    array_add(*codes, ..find_all_control_codes_in_range(window_buffer, current_slice));
+                }
+
+                // :search_string_highlight
+                while search_matches_tail {
+                    match := *search_matches_tail[0];
+
+                    start_in_range := match.start >= current_slice.data && match.start < current_slice_end;
+                    end_in_range := match.end > current_slice.data && match.end <= current_slice_end;
+                    if start_in_range || end_in_range {
+                        insert_control_code_range(*codes, window_buffer,
+                                                  match.start, "\e[7m", // invert color mode
+                                                  match.end, "\e[27m"); // disable invert color mode
+                    }
+
+                    if !start_in_range || !end_in_range break; // leave that match for the next line piece
+
+                    advance(*search_matches_tail, 1);
+                }
+
+                select_word_delayed(window_buffer, current_slice, *codes);
+
+                // Build the line string
+                build_line_with_control_codes(*builder, window_buffer, current_slice, codes);
+
+                if stick_to_the_bottom || line_buffer.count != line_buffer.allocated - 1 {
+                    append(*builder, "\n");
+                } else {
+                    // Reset color codes
+                    append(*builder, "\e[0m");
+                }
+                array_add(*line_buffer, builder_to_string(*builder,, temp));
+                current_screen_row += 1;
+            }
+        }
+    }
+
+    overflow := line_buffer.count - main_window_height;
+    if overflow > 0 {
+        assert(stick_to_the_bottom, "shouldn't happen otherwise");
+        line_buffer.data += overflow;
+        line_buffer.count -= overflow;
+    }
+
+    return line_buffer;
+}
+
+//
+// delayed word selection
+//
 
 select_word_delayed :: (window_buffer: *Window_Buffer, slice_of_only_text: string, codes: *[..] Control_Code_Info) {
     using context.state;
@@ -1357,6 +1303,86 @@ render_status_line_1 :: () {
     // second line is drawn at the end
     append(*builder, "\n");
 
+    write_builder(*builder);
+}
+
+render_status_line_2 :: () {
+    using context.state;
+
+    builder: String_Builder;
+    builder.allocator = temp;
+    buffer := get_base_buffer(*builder);
+
+    cursor_line = -1;
+    cursor_column = -1;
+
+    // "\e[H": move cursor to position (row 2, column 1)
+    append(*builder, "\e[2;1H");
+    append(*builder, "\e[K"); // "\e[K": erase in line
+    append(*builder, "\e[2;37m"); // color gray
+
+    if frame_time < error_message_deadline {
+        append(*builder, "\e[0;31m"); // color red;
+        append(*builder, to_string(*error_message_builder));
+        append(*builder, "\e[0m");
+    } else {
+        if input_mode ==  {
+            case .NAVIGATE;
+                main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
+                text_start := buffer.count;
+                {
+                    print_to_builder(*builder, "offset: %, %   ", row_offset, col_offset);
+                    print_to_builder(*builder, "lines: %   ", main_window_buffer.line_offsets.count);
+                    if stick_to_the_bottom then append(*builder, "sinking   ");
+
+                    // Print current input buffer
+                    append(*builder, "input: ");
+
+                    print_to_builder(*builder, "%", cast(Ascii_Or_Hex) input_buffer);
+
+                    print(*builder, " mouse %, %", mouse_position.column, mouse_position.row);
+                    // print(*builder, "  control codes count %", main_window_buffer.control_codes.count);
+                }
+                text_length := buffer.count - text_start;
+                overflow := text_length - terminal_size.cols;
+                if overflow > 0 {
+                    buffer.count -= overflow;
+                }
+            case .INPUT_SEARCH_STRING; #through;
+            case .INPUT_COMMAND;
+                prefix := "??";
+                text := "<unknown mode>";
+                if input_mode == .INPUT_SEARCH_STRING { prefix = "/";  text = search_string; }
+                if input_mode == .INPUT_COMMAND       { prefix = "> "; text = xx command_line; }
+                append(*builder, prefix);
+
+                visible_columns_budget := terminal_size.cols - prefix.count;
+
+                overflow := text.count - visible_columns_budget;
+                // FIXME: I just want the last column to be left for the cursor
+                // if the cursor is at the last column, but than be filled with
+                // the search string otherwise... but I'm a sleepy head right
+                // now :(
+                if overflow > 0 {
+                    // Add extra space at the end for the cursor
+                    overflow += 1;
+                    slice_start := clamp(input_cursor - 2, 0, overflow);
+                    append(*builder, substring(text, slice_start, count=visible_columns_budget - 1));
+                    // `+ 1` because rows start at 1
+                    cursor_line = 2;
+                    cursor_column = input_cursor - slice_start + prefix.count + 1;
+                } else {
+                    append(*builder, text);
+                    // `+ 1` because rows start at 1
+                    cursor_line = 2;
+                    cursor_column = input_cursor + prefix.count + 1;
+                }
+        }
+    }
+
+    append(*builder, "\e[0m");
+
+    assert(get_current_buffer(*builder) == buffer);
     write_builder(*builder);
 }
 
