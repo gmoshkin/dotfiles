@@ -1055,30 +1055,91 @@ select_word_delayed :: (window_buffer: *Window_Buffer, slice_of_only_text: strin
 
     selection_pointer := only_text.data + selection_cursor;
     if selection_pointer >= slice.data && selection_pointer <= slice.data + slice.count {
-        cursor_in_visible_slice := selection_pointer - slice.data;
-        before_cursor := slice; before_cursor.count = cursor_in_visible_slice;
-        index := find_index_from_right(before_cursor, #char " ");
-        start := slice.data; if index != -1 then start += index + 1;
-
-        index = find_index_from_left(slice, #char " ", cursor_in_visible_slice);
-        end := slice.data + slice.count;
-        if index != -1 then end = slice.data + index;
+        selected_string := select_word_under_cursor(only_text, selection_cursor);
+        selected_string_only_visible := only_visible_text(selected_string);
 
         if mouse_selection_click {
-            last_selected_string = only_visible_text(.{ end - start, start });
+            last_selected_string = selected_string_only_visible;
             log("selected string: %", last_selected_string);
             // FIXME: this don't work:
             os_clipboard_set_text(last_selected_string);
 
             tmux_copy_to_clipboard(last_selected_string);
-        } else if last_selected_string != only_visible_text(.{ end - start, start }) {
+        } else if last_selected_string != selected_string_only_visible {
             selection_cursor = -1;
         }
 
+        start := selected_string.data;
+        end := start + selected_string.count;
         insert_control_code_range(codes, window_buffer,
                                   start, "\e[7m", // invert color mode
                                   end,   "\e[27m"); // disable invert color mode
     }
+}
+
+select_word_under_cursor :: (text: string, cursor: int) -> string {
+    if cursor < 0 return "";
+    if cursor >= text.count return "";
+
+    if text[cursor] == {
+        case #char " "; return .{ data = text.data + cursor, count = 1 };
+        case #char ")";
+            start := cursor;
+            depth := 0;
+            while start >= 0 {
+                if start == 0 break;
+                prev_char := text[start - 1];
+                if prev_char == {
+                    case #char ")";
+                        depth += 1;
+                    case #char "(";
+                        if depth > 0 then depth -= 1;
+                        else { start -= 1; break; }
+                }
+                start -= 1;
+            }
+            return substring(text, start, end=cursor+1);
+        case #char "(";
+            end := cursor + 1;
+            depth := 0;
+            while end <= text.count {
+                if end == text.count break;
+                next_char := text[end];
+                if next_char == {
+                    case #char "("; depth += 1;
+                    case #char ")";
+                        if depth > 0 then depth -= 1;
+                        else { end += 1; break; }
+                }
+                end += 1;
+            }
+            return substring(text, cursor, end=end);
+    }
+
+    start := cursor;
+    while start >= 0 {
+        if start == 0 break;
+        prev_char := text[start - 1];
+        if !is_file_path_char(prev_char) break;
+        start -= 1;
+    }
+
+    end := cursor + 1;
+    while end <= text.count {
+        if end == text.count break;
+        next_char := text[end];
+        if !is_file_path_char(next_char) break;
+        // TODO: if next_char == #char ":" break;
+        end += 1;
+    }
+
+    return substring(text, start, end=end);
+}
+
+is_file_path_char :: inline (char: u8) -> bool {
+    return is_alpha(char) || is_digit(char)
+        || char == #char "-" || char == #char "_" || char == #char "~"
+        || char == #char "." || char == #char "/" || char == #char ":";
 }
 
 tmux_copy_to_clipboard :: (text: string) {
@@ -1684,7 +1745,7 @@ insert_control_code_range :: (codes: *[..] Control_Code_Info,
     using context.state;
     using window_buffer;
 
-    assert(start_pointer > only_text.data);
+    assert(start_pointer >= only_text.data);
     assert(start_pointer < end_pointer);
     assert(end_pointer <= only_text.data + only_text.count);
 
