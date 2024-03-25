@@ -106,6 +106,7 @@ State :: struct {
         NONE;
         EXTERNAL_COMMAND;
         STANDARD_INPUT;
+        DRAWING_MODE;
         // TODO: FILE;
     }
 
@@ -126,6 +127,15 @@ State :: struct {
     last_command_result: Process_Result;
 
     //
+    // source: DRAWING_MODE
+    //
+    pixel_buffer: [..] Vector4;
+    pixel_window_size: Vector2;
+    pixel_size: enum {
+        TWO_CHARACTERS;
+    };
+
+    //
     // rendering
     //
     redraw_once := false;
@@ -142,6 +152,7 @@ State :: struct {
 
     // Stores pointers into `last_shown_line_buffer_flat_pool`.
     last_shown_line_buffer: [..] string;
+    last_shown_line_buffer_version: s64;
     memory_pool_for_last_shown_line_buffer: Flat_Pool;
     memory_pool_for_last_shown_line_buffer_high_water_mark: s64;
 
@@ -205,6 +216,12 @@ main :: () {
 
     state := *context.state;
 
+    {
+        log_file_name := getenv("PAGEVIEW_LOG_FILENAME");
+        if log_file_name
+            state.log_file_name = copy_string(to_string(log_file_name));
+    }
+
     cursor := 1;
     while cursor < args.count {
         arg := args[cursor];
@@ -222,6 +239,10 @@ main :: () {
             case "--line-number"; #through;
             case "--line-numbers";
                 state.line_numberring = true;
+
+            case "-d"; #through;
+            case "--draw";
+                state.main_window_source = .DRAWING_MODE;
 
             case "-t"; #through;
             case "--time"; #through;
@@ -254,6 +275,9 @@ main :: () {
 
             // TODO: a flag to just watch a file's contents, so I don't have to
             // do `cat filename`
+
+            case "--debug";
+                getchar();
 
             case; break;
         }
@@ -293,12 +317,14 @@ main :: () {
     if !isatty(STDIN_FILENO) {
         state.main_window_source = .STANDARD_INPUT;
         log("main window source is stdin");
-    } else if state.command {
-        state.main_window_source = .EXTERNAL_COMMAND;
-        log("main window source is external command: %", state.command);
-    } else {
-        print("Specify a command to run or pipe in some text on the stdin\n");
-        exit(1);
+    } else if state.main_window_source == .NONE {
+        if state.command {
+            state.main_window_source = .EXTERNAL_COMMAND;
+            log("main window source is external command: %", state.command);
+        } else {
+            print("Specify a command to run or pipe in some text on the stdin\n");
+            exit(1);
+        }
     }
 
     // Initialize X11 for the clipboard, which doesn't fucking work, of course it doesn't, why would anything ever work?
@@ -444,6 +470,9 @@ main :: () {
             case .EXTERNAL_COMMAND; maybe_get_external_command_output();
             // TODO: jam the dupped stdin fd into the epoll wait group
             case .STANDARD_INPUT; read_some_from_input_stream();
+
+            case .DRAWING_MODE;
+                if !pixel_buffer resize_pixel_buffer();
         }
 
         input_received_this_tick = false;
@@ -467,6 +496,8 @@ main :: () {
 
             // `- 2` for 2 status lines
             state.main_window_height = state.terminal_size.rows - 2;
+
+            if main_window_source == .DRAWING_MODE resize_pixel_buffer();
         }
 
         // Handle input
@@ -475,10 +506,13 @@ main :: () {
             parse_and_handle_input();
         }
 
-        main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
-        // FIXME: this doesn't work in line-wrapping mode
-        if stick_to_the_bottom {
-            row_offset = max(row_offset, main_window_buffer.line_offsets.count - main_window_height);
+        main_window_buffer: *Window_Buffer;
+        if main_window_buffer_history {
+            main_window_buffer = *main_window_buffer_history[current_shown_buffer_index];
+            // FIXME: this doesn't work in line-wrapping mode
+            if stick_to_the_bottom {
+                row_offset = max(row_offset, main_window_buffer.line_offsets.count - main_window_height);
+            }
         }
 
 
@@ -488,7 +522,18 @@ main :: () {
         // Main window
         //
 
-        line_buffer := build_line_buffer_for_main_window(main_window_buffer);
+        line_buffer: [] string; // temporary storage
+        if #complete main_window_source == {
+            case .EXTERNAL_COMMAND; #through;
+            case .STANDARD_INPUT;
+                assert(main_window_buffer != null);
+                line_buffer = build_line_buffer_for_main_window(main_window_buffer);
+
+            case .DRAWING_MODE;
+                line_buffer = build_line_buffer_for_pixel_buffer();
+
+            case .NONE;
+        }
 
         changed := false;
         if line_buffer.count != last_shown_line_buffer.count {
@@ -529,6 +574,7 @@ main :: () {
                 line := copy_string(it,, memory_pool_allocator);
                 array_add(*last_shown_line_buffer, line);
             }
+            last_shown_line_buffer_version += 1;
             memory_pool_for_last_shown_line_buffer_high_water_mark = max(memory_pool_for_last_shown_line_buffer_high_water_mark, flat_pool_allocated(*memory_pool_for_last_shown_line_buffer));
         }
 
@@ -926,6 +972,66 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
 }
 
 //
+// pixel drawing mode
+//
+
+resize_pixel_buffer :: () {
+    using context.state;
+
+    height, width: s64;
+    if #complete pixel_size == {
+        case .TWO_CHARACTERS;
+            pixel_window_size.x = xx (terminal_size.cols / 2);
+            pixel_window_size.y = xx (terminal_size.rows - 2); // :2_status_lines
+    }
+    // TODO: need to move the pixel rows based on old pixel_window_size
+    array_resize(*pixel_buffer, xx (pixel_window_size.x * pixel_window_size.y));
+
+    pixel_buffer.count = xx (pixel_window_size.x * pixel_window_size.y);
+    for *pixel_buffer it.* = .{ .2, .2, .2, 1 };
+
+    width = xx pixel_window_size.x;
+    for 1..22 pixel_buffer[5 * width + (it - 1) * 2] = .{ .9, .9, .9, 1 };
+    for 1..5 pixel_buffer[6 * width + (it - 1) * 10] = .{ .9, .9, .9, 1 };
+    for 1..3 pixel_buffer[(it - 1) * 2 * width + 43] = .{ .9, .9, .9, 1 };
+    pixel_buffer[44] = .{ .9, .9, .9, 1 };
+
+}
+
+build_line_buffer_for_pixel_buffer :: () -> [] string {
+    using context.state;
+
+    line_buffer: [..] string;
+    line_buffer.allocator = temp;
+    array_reserve(*line_buffer, main_window_height);
+
+    width: int = xx pixel_window_size.x;
+    height: int = xx pixel_window_size.y;
+    assert(pixel_buffer.count == width * height);
+    assert(pixel_size == .TWO_CHARACTERS);
+    // for y : 0..9 {
+    for y : 0..height - 1 {
+        builder: String_Builder;
+        builder.allocator = temp;
+
+        for x : 0..width - 1 {
+        // for x : 0..9 {
+            pixel := pixel_buffer[y * width + x];
+            r := cast(u8) (pixel.x * 255);
+            g := cast(u8) (pixel.y * 255);
+            b := cast(u8) (pixel.z * 255);
+            print(*builder, "\e[48;2;%;%;%m  ", r, g, b);
+        }
+        append(*builder, "\e[0m");
+        append(*builder, "\n");
+
+        array_add(*line_buffer, builder_to_string(*builder,, temp));
+    }
+
+    return line_buffer;
+}
+
+//
 // delayed word selection
 //
 
@@ -1079,6 +1185,7 @@ maybe_get_external_command_output :: () {
 
 read_some_from_input_stream :: () {
     using context.state;
+    if !main_window_buffer_history array_add(*main_window_buffer_history, .{});
 
     if input_stream_fd == -1 return;
 
@@ -1101,7 +1208,6 @@ read_some_from_input_stream :: () {
         return;
     }
 
-    if !main_window_buffer_history array_add(*main_window_buffer_history, .{});
     window_buffer := *main_window_buffer_history[current_shown_buffer_index];
     window_buffer.time_generated = current_time_consensus();
     free(window_buffer.raw_text_and_control_codes);
@@ -1174,9 +1280,19 @@ render_status_line_1 :: () {
     // left side
     //
     if main_window_source == {
+        // ⢎⠱ ⢎⡑ ⢎⡡ ⢎⡰ ⢆⡱ ⢌⡱ ⢊⡱ ⠎⡱
+        //
+        // ⢎⡁ ⢎⡠ ⢆⡰ ⢄⡱ ⢈⡱ ⠊⡱ ⠎⠱ ⢎⠑
+        //
+        // ⢎⡀ ⢆⡠ ⢄⡰ ⢀⡱ ⠈⡱ ⠊⠱ ⠎⠑ ⢎⠁
+        //
+        // ⢆⡀ ⢄⡠ ⢀⡰  ⡱ ⠈⠱ ⠊⠑ ⠎⠁ ⢎
+        //
+        // ⢾⠳ ⢾⡓ ⢾⡥ ⢾⡴ ⢦⡷ ⢬⡷ ⢚⡷ ⠞⡷
         case .EXTERNAL_COMMAND; {
             max_command_string_length : s64 = terminal_size.cols / 2;
 
+            // FIXME: show the command of the current shown buffer
             append(*builder, "\e[35m"); // color magenta
             append(*builder, "$(");
             append(*builder, "\e[0m");
@@ -1259,6 +1375,98 @@ render_status_line_1 :: () {
                 append(*builder, "\e[0m");
             }
         }
+        case .DRAWING_MODE; {
+            append(*builder, "\e[36m"); // color cyan
+            append(*builder, "drawing mode");
+            append(*builder, "\e[0m");
+
+            print(*builder, " %", last_shown_line_buffer_version);
+
+            append(*builder, " ");
+            pixels_to_braille(*builder, 0, 0, 21);
+            append(*builder, " ");
+
+            t := cast(int) (frame_time * 10);
+            // ⢎⠱ ⢎⡑ ⢎⡡ ⢎⡰ ⢆⡱ ⢌⡱ ⢊⡱ ⠎⡱
+            {
+                widget :: string.["⢎⠱", "⢎⡑", "⢎⡡", "⢎⡰", "⢆⡱", "⢌⡱", "⢊⡱", "⠎⡱"];
+                append(*builder, " ");
+                append(*builder, widget[t % widget.count]);
+            }
+
+            // ⢎⡁ ⢎⡠ ⢆⡰ ⢄⡱ ⢈⡱ ⠊⡱ ⠎⠱ ⢎⠑
+            {
+                widget :: string.["⢎⡁", "⢎⡠", "⢆⡰", "⢄⡱", "⢈⡱", "⠊⡱", "⠎⠱", "⢎⠑"];
+                append(*builder, " ");
+                append(*builder, widget[t % widget.count]);
+            }
+
+            // ⢎⡀ ⢆⡠ ⢄⡰ ⢀⡱ ⠈⡱ ⠊⠱ ⠎⠑ ⢎⠁
+            {
+                widget :: string.["⢎⡀", "⢆⡠", "⢄⡰", "⢀⡱", "⠈⡱", "⠊⠱", "⠎⠑", "⢎⠁"];
+                append(*builder, " ");
+                append(*builder, widget[t % widget.count]);
+            }
+
+            // ⢆⡀ ⢄⡠ ⢀⡰  ⡱ ⠈⠱ ⠊⠑ ⠎⠁ ⢎
+            {
+                widget :: string.["⢆⡀", "⢄⡠", "⢀⡰", "⠀⡱", "⠈⠱", "⠊⠑", "⠎⠁", "⢎⠀"];
+                append(*builder, " ");
+                append(*builder, widget[t % widget.count]);
+            }
+
+            // ⢄⡀ ⢀⡠  ⡰  ⠱ ⠈⠑ ⠊⠁ ⠎  ⢆
+            {
+                widget :: string.["⢄⡀", "⢀⡠",  "⠀⡰", "⠀⠱", "⠈⠑", "⠊⠁", "⠎⠀", "⢆⠀"];
+                append(*builder, " ");
+                append(*builder, widget[t % widget.count]);
+            }
+
+            // ⢾⠳ ⢾⡓ ⢾⡥ ⢾⡴ ⢦⡷ ⢬⡷ ⢚⡷ ⠞⡷
+            {
+                widget :: string.["⢾⠳", "⢾⡓", "⢾⡥", "⢾⡴", "⢦⡷", "⢬⡷", "⢚⡷", "⠞⡷"];
+                append(*builder, " ");
+                append(*builder, widget[t % widget.count]);
+            }
+
+            // ⢎⠑⢄⡱ ⠎⠑⢌⡱ ⠊⠑⢎⡱ ⠈⠱⢎⡱ ⡱⢎⡱ ⢀⡰⢎⡱ ⢄⡠⢎⡱ ⢆⡠⢊⡱ ⢎⡠⠊⡱ ⢎⡡⠊⠱ ⢎⡱⠊⠑ ⢎⡱⠎⠁ ⢎⡱⢎ ⢎⡱⢆⡀ ⢎⡱⢄⡠ ⢎⡑⢄⡰
+            {
+                widget :: string.[
+                    "⢎⠑⢄⡱", "⠎⠑⢌⡱", "⠊⠑⢎⡱", "⠈⠱⢎⡱", "⠀⡱⢎⡱", "⢀⡰⢎⡱", "⢄⡠⢎⡱", "⢆⡠⢊⡱",
+
+                    "⢎⡠⠊⡱", "⢎⡡⠊⠱", "⢎⡱⠊⠑", "⢎⡱⠎⠁", "⢎⡱⢎⠀", "⢎⡱⢆⡀", "⢎⡱⢄⡠", "⢎⡑⢄⡰",
+                ];
+                append(*builder, " ");
+                append(*builder, widget[t % widget.count]);
+            }
+
+            // ⠊⠑⢄⡀  ⠉⠢⣀⠄ ⠈⠢⣀⠆  ⠢⣈⠆    ⢌⡱   ⠐⣉⠆  ⠔⢉⠆ ⢀⠔⠉⠆  ⢀⡠⠊⠑ ⠠⣀⠔⠉ ⠰⣀⠔⠁ ⠰⣁⠔  ⢎⡡   ⠰⣉⠂  ⠰⡉⠢  ⠰⠉⠢⡀
+            {
+                widget :: string.[
+                    "⠊⠑⢄⡀", "⠈⠑⢄⡠", "⠀⠑⢄⡰", "⠀⠐⢄⡱", "⠀⠀⢌⡱", "⠀⠀⢊⡱", "⠀⠠⠊⡱", "⠀⡠⠊⠱",
+                    "⢀⡠⠊⠑", "⢄⡠⠊⠁", "⢆⡠⠊⠀", "⢎⡠⠂⠀", "⢎⡡⠀⠀", "⢎⡑⠀⠀", "⢎⠑⠄⠀", "⠎⠑⢄⠀",
+                ];
+                append(*builder, " ");
+                append(*builder, widget[t % widget.count]);
+            }
+
+            {
+                widget :: string.[
+                    "⠊⠑⠀⠀", "⠈⠑⠄⠀", "⠀⠑⢄⠀", "⠀⠐⢄⡀", "⠀⠀⢄⡠", "⠀⠀⢀⡰", "⠀⠀⠀⡱", "⠀⠀⠈⠱",
+                    "⠀⠀⠊⠑", "⠀⠠⠊⠁", "⠀⡠⠊⠀", "⢀⡠⠂⠀", "⢄⡠⠀⠀", "⢆⡀⠀⠀", "⢎⠀⠀⠀", "⠎⠁⠀⠀",
+                ];
+                append(*builder, " ");
+                append(*builder, widget[t % widget.count]);
+            }
+
+            {
+                widget :: string.[
+                    "⠊⣵", "⢨⡵", "⣤⡱", "⢶⡰", "⢟⡠", "⢞⡃", "⢎⠛", "⠎⠷",
+                ];
+                append(*builder, " ");
+                append(*builder, widget[t % widget.count]);
+            }
+        }
     }
 
     left_side := to_string(*builder);
@@ -1306,6 +1514,37 @@ render_status_line_1 :: () {
     write_builder(*builder);
 }
 
+pixels_to_braille :: (builder: *String_Builder, x_0_: int, y_0_: int, count: int) {
+    using context.state;
+    assert(count > 0);
+
+    x_0 := x_0_;
+    y_0 := y_0_;
+    stride := 2;
+
+    for 0..count-1 {
+        braille: u32 = 0x2800;
+        is_on :: (x: int, y: int) -> bool #expand {
+            return pixel_buffer[y * (cast(int) pixel_window_size.x) + x].x > .6;
+        }
+
+        if is_on(x_0 + stride * it + 0, y_0 + 0) braille += 1 << 0;
+        if is_on(x_0 + stride * it + 0, y_0 + 1) braille += 1 << 1;
+        if is_on(x_0 + stride * it + 0, y_0 + 2) braille += 1 << 2;
+        if is_on(x_0 + stride * it + 1, y_0 + 0) braille += 1 << 3;
+        if is_on(x_0 + stride * it + 1, y_0 + 1) braille += 1 << 4;
+        if is_on(x_0 + stride * it + 1, y_0 + 2) braille += 1 << 5;
+        if is_on(x_0 + stride * it + 0, y_0 + 3) braille += 1 << 6;
+        if is_on(x_0 + stride * it + 1, y_0 + 3) braille += 1 << 7;
+
+        buf: [4] u8;
+        s := cast(string) buf;
+
+        character_utf32_to_utf8(braille, *s);
+        append(builder, s);
+    }
+}
+
 render_status_line_2 :: () {
     using context.state;
 
@@ -1325,6 +1564,10 @@ render_status_line_2 :: () {
         append(*builder, "\e[0;31m"); // color red;
         append(*builder, to_string(*error_message_builder));
         append(*builder, "\e[0m");
+    } else if main_window_source == .DRAWING_MODE {
+        append(*builder, "drawing mode");
+
+        print(*builder, " mouse %, %", mouse_position.column, mouse_position.row);
     } else {
         if input_mode ==  {
             case .NAVIGATE;
@@ -2109,16 +2352,64 @@ try_parse_directional_key_sequence :: (sequence: string, event: *Input_Event) ->
 handle_input_event :: (_event: Input_Event) {
     using context.state;
 
-    main_window_buffer := main_window_buffer_history[current_shown_buffer_index];
-
     event := _event;
+    if main_window_source == .DRAWING_MODE {
+        assert(pixel_size == .TWO_CHARACTERS);
+        width := cast(int) pixel_window_size.x;
+        height := cast(int) pixel_window_size.y;
+        mouse_x := (mouse_position.column - 1) / 2;
+        mouse_y := (mouse_position.row - 1) - 2; // `- 2` for :2_status_lines
+        pixel_index := mouse_y * width + mouse_x;
+
+        if input_mode == {
+            case .INPUT_COMMAND;
+        }
+        if event.kind == {
+            case .MOUSE_LEFT_DRAG; #through;
+            case .MOUSE_LEFT_DOWN;
+                if pixel_index >= 0 && pixel_index < pixel_buffer.count {
+                    pixel_buffer[pixel_index] = .{ .9, .9, .9, 1 };
+                }
+            case .MOUSE_RIGHT_DRAG; #through;
+            case .MOUSE_RIGHT_DOWN;
+                if pixel_index >= 0 && pixel_index < pixel_buffer.count {
+                    pixel_buffer[pixel_index] = .{ .2, .2, .2, 1 };
+                }
+            case .MOUSE_MIDDLE_DOWN;
+                builder: String_Builder;
+                pixels_to_braille(*builder, 0, 0, count=2);
+                tmux_copy_to_clipboard(builder_to_string(*builder,, temp));
+        }
+
+        if input_mode == {
+            case .INPUT_COMMAND;
+                handle_input_event_in_input_command_mode(event);
+
+            case .NAVIGATE;
+                if event.kind == .CHARACTER {
+                    if event.char == {
+                        case #char ";"; switch_to_command_line_mode();
+                    }
+                }
+        }
+
+        // FIXME: ugly hack, also it doesn't work
+        if input_mode == .NAVIGATE return;
+    }
+
+    main_window_buffer: *Window_Buffer;
+    if main_window_buffer_history
+        main_window_buffer = *main_window_buffer_history[current_shown_buffer_index];
+
     if event.kind == {
         case .MOUSE_WHEEL_UP;
-            if event.modifiers & .SHIFT then col_offset += 8;
-                                        else row_offset += 4;
+            if      event.modifiers & .SHIFT then col_offset += 8;
+            else if event.modifiers & .ALT   then col_offset += 8;
+                                             else row_offset += 4;
                 event.kind = .HANDLED;
         case .MOUSE_WHEEL_DOWN;
-            if event.modifiers & .SHIFT then col_offset -= 8;
+            if      event.modifiers & .SHIFT then col_offset -= 8;
+            else if event.modifiers & .ALT   then col_offset -= 8;
             else {
                 row_offset -= 4;
                 stick_to_the_bottom = false;
@@ -2130,7 +2421,6 @@ handle_input_event :: (_event: Input_Event) {
             event.kind = .HANDLED;
     }
 
-    next_input_mode := input_mode;
     if input_mode == {
         case .NAVIGATE;
             if event.kind == {
@@ -2201,7 +2491,7 @@ handle_input_event :: (_event: Input_Event) {
                     case #char "L"; if !line_wrapping col_offset += terminal_size.cols / 2;
 
                     case #char "/"; {
-                        next_input_mode = .INPUT_SEARCH_STRING;
+                        input_mode = .INPUT_SEARCH_STRING;
                         array_replace(*command_line, search_string_buffer);
                         input_cursor = command_line.count;
                         history_cursor = -1;
@@ -2210,11 +2500,7 @@ handle_input_event :: (_event: Input_Event) {
                     }
 
                     case #char ";";
-                        next_input_mode = .INPUT_COMMAND;
-                        input_cursor = command_line.count;
-                        history_cursor = -1;
-                        // turn off error message instantly
-                        error_message_deadline = frame_time - 1;
+                        switch_to_command_line_mode();
 
                     case #char "n"; jump_to_next_search_match();
                     case #char "N"; jump_to_previous_search_match();
@@ -2237,101 +2523,113 @@ handle_input_event :: (_event: Input_Event) {
 
         case .INPUT_SEARCH_STRING; #through;
         case .INPUT_COMMAND;
+            handle_input_event_in_input_command_mode(event);
 
-            if !(event.modifiers & .ALT) && event.char >= #char " " && event.char <= #char "~" {
-                array_insert_at(*command_line, event.char, input_cursor);
-                input_cursor += 1;
-            } else if event.char == {
-                case #char "\e"; /* ESCAPE */
-                    history_cursor = -1;
-                    next_input_mode = .NAVIGATE;
+    }
+}
 
-                case #char "\n"; /* ENTER */
-                    history := get_history_for_input_mode();
-                    if command_line && (!history.count || cast(string) command_line != history.*[history.count - 1]) {
-                        array_add(history, copy_string(xx command_line));
-                    }
-                    if input_mode == .INPUT_COMMAND {
-                        execute_command(xx command_line);
-                        command_line.count = 0;
-                    }
-                    history_cursor = -1;
-                    next_input_mode = .NAVIGATE;
+handle_input_event_in_input_command_mode :: (event: Input_Event) {
+    using context.state;
 
-                case #char "\x10"; /* CTRL+P */ history_previous();
-                case #char "\x0e"; /* CTRL+N */ history_next();
+    if !(event.modifiers & .ALT) && event.char >= #char " " && event.char <= #char "~" {
+        array_insert_at(*command_line, event.char, input_cursor);
+        input_cursor += 1;
+    } else if event.char == {
+        case #char "\e"; /* ESCAPE */
+            history_cursor = -1;
+            input_mode = .NAVIGATE;
+            command_line.count = 0;
 
-                case #char "\x02"; /* CTRL+B */ move_command_line_cursor_left();
-                case #char "\x06"; /* CTRL+F */ move_command_line_cursor_right();
-                case #char "\x01"; /* CTRL+A */ input_cursor = 0;
-                case #char "\x05"; /* CTRL+E */ input_cursor = command_line.count;
-
-                case #char "b"; if event.modifiers & .ALT /* ALT+B */ move_command_line_cursor_left_a_word();
-                case #char "f"; if event.modifiers & .ALT /* ALT+F */ move_command_line_cursor_right_a_word();
-
-                case #char "\x09"; /* CTRL+I or TAB */
-                    if input_mode == .INPUT_COMMAND {
-                        complete_command();
-                    } else if input_mode == .INPUT_SEARCH_STRING {
-                        // TODO: complete identifiers in the fucking text yo,
-                        // give priority to the ones on the fucking screen.
-                        // This would be a fucking geanious feature
-                    }
-
-                case #char "\x08"; /* CTRL+H */ #through;
-                case #char "\x7f"; /* BACKSPACE */
-                    if command_line.count > 0 && input_cursor > 0 {
-                        array_ordered_remove_range(*command_line, input_cursor - 1, input_cursor);
-                        input_cursor -= 1;
-                    } else {
-                        next_input_mode = .NAVIGATE;
-                    }
-
-                case #char "\x04"; /* CTRL+D */
-                    if command_line.count > 0 && input_cursor < command_line.count {
-                        array_ordered_remove_range(*command_line, input_cursor, input_cursor + 1);
-                    }
-
-                case #char "\x0b"; /* CTRL+K */
-                    if command_line.count > 0 && input_cursor < command_line.count {
-                        array_ordered_remove_range(*command_line, input_cursor, command_line.count);
-                    }
-
-                case #char "\x17"; /* CTRL+W */
-                    delete_word_before_command_line_cursor();
-
-                case #char "\x15"; /* CTRL+U */ {
-                    command_line.count = 0;
-                    input_cursor = 0;
-                }
+        case #char "\n"; /* ENTER */
+            history := get_history_for_input_mode();
+            if command_line && (!history.count || cast(string) command_line != history.*[history.count - 1]) {
+                array_add(history, copy_string(xx command_line));
             }
-            if event.modifiers & .CONTROL {
-                if event.kind == {
-                    case .KEY_LEFT;  move_command_line_cursor_left_a_word();
-                    case .KEY_RIGHT; move_command_line_cursor_right_a_word();
-                }
-            } else {
-                if event.kind == {
-                    case .KEY_LEFT;  move_command_line_cursor_left();
-                    case .KEY_RIGHT; move_command_line_cursor_right();
-                    case .KEY_UP;    history_previous();
-                    case .KEY_DOWN;  history_next();
-                }
-            }
-
-            if input_mode == .INPUT_SEARCH_STRING {
-                search_string_buffer.count = 0;
-                array_add(*search_string_buffer, ..command_line);
-                search_string = xx search_string_buffer;
-            }
-
-            if next_input_mode == .NAVIGATE {
+            if input_mode == .INPUT_COMMAND {
+                execute_command(xx command_line);
                 command_line.count = 0;
             }
+            history_cursor = -1;
+            input_mode = .NAVIGATE;
+            command_line.count = 0;
+
+        case #char "\x10"; /* CTRL+P */ history_previous();
+        case #char "\x0e"; /* CTRL+N */ history_next();
+
+        case #char "\x02"; /* CTRL+B */ move_command_line_cursor_left();
+        case #char "\x06"; /* CTRL+F */ move_command_line_cursor_right();
+        case #char "\x01"; /* CTRL+A */ input_cursor = 0;
+        case #char "\x05"; /* CTRL+E */ input_cursor = command_line.count;
+
+        case #char "b"; if event.modifiers & .ALT /* ALT+B */ move_command_line_cursor_left_a_word();
+        case #char "f"; if event.modifiers & .ALT /* ALT+F */ move_command_line_cursor_right_a_word();
+
+        case #char "\x09"; /* CTRL+I or TAB */
+            if input_mode == .INPUT_COMMAND {
+                complete_command();
+            } else if input_mode == .INPUT_SEARCH_STRING {
+                // TODO: complete identifiers in the fucking text yo,
+                // give priority to the ones on the fucking screen.
+                // This would be a fucking geanious feature
+            }
+
+        case #char "\x08"; /* CTRL+H */ #through;
+        case #char "\x7f"; /* BACKSPACE */
+            if command_line.count > 0 && input_cursor > 0 {
+                array_ordered_remove_range(*command_line, input_cursor - 1, input_cursor);
+                input_cursor -= 1;
+            } else {
+                input_mode = .NAVIGATE;
+                command_line.count = 0;
+            }
+
+        case #char "\x04"; /* CTRL+D */
+            if command_line.count > 0 && input_cursor < command_line.count {
+                array_ordered_remove_range(*command_line, input_cursor, input_cursor + 1);
+            }
+
+        case #char "\x0b"; /* CTRL+K */
+            if command_line.count > 0 && input_cursor < command_line.count {
+                array_ordered_remove_range(*command_line, input_cursor, command_line.count);
+            }
+
+        case #char "\x17"; /* CTRL+W */
+            delete_word_before_command_line_cursor();
+
+        case #char "\x15"; /* CTRL+U */ {
+            command_line.count = 0;
+            input_cursor = 0;
+        }
+    }
+    if event.modifiers & .CONTROL {
+        if event.kind == {
+            case .KEY_LEFT;  move_command_line_cursor_left_a_word();
+            case .KEY_RIGHT; move_command_line_cursor_right_a_word();
+        }
+    } else {
+        if event.kind == {
+            case .KEY_LEFT;  move_command_line_cursor_left();
+            case .KEY_RIGHT; move_command_line_cursor_right();
+            case .KEY_UP;    history_previous();
+            case .KEY_DOWN;  history_next();
+        }
     }
 
-    // Set the actual input mode at the end so that it doesn't interfere with other stuff
-    input_mode = next_input_mode;
+    if input_mode == .INPUT_SEARCH_STRING {
+        search_string_buffer.count = 0;
+        array_add(*search_string_buffer, ..command_line);
+        search_string = xx search_string_buffer;
+    }
+}
+
+switch_to_command_line_mode :: () {
+    using context.state;
+
+    input_mode = .INPUT_COMMAND;
+    input_cursor = command_line.count;
+    history_cursor = -1;
+    // turn off error message instantly
+    error_message_deadline = frame_time - 1;
 }
 
 move_command_line_cursor_left :: () {
@@ -3093,6 +3391,8 @@ fmt :: inline (v: s64, minimum_digits := 1, $padding := "0") -> FormatInt #expan
 #import "Print_Vars";
 #import "Reflection";
 #import "Program_Print";
+#import "Math";
+#import "Unicode";
 #if OS == .LINUX #import "X11";
 #import "Clipboard";
 System :: #import "System";
