@@ -2134,6 +2134,26 @@ handle_input_event :: (_event: Input_Event) {
     if input_mode == {
         case .NAVIGATE;
             if event.kind == {
+                case .KEY_UP;
+                    stick_to_the_bottom = false;
+                    if event.modifiers & .SHIFT then row_offset -= terminal_size.rows / 2;
+                                                else row_offset -= 1;
+
+                case .KEY_DOWN;
+                    if event.modifiers & .SHIFT then row_offset += terminal_size.rows / 2;
+                                                else row_offset += 1;
+
+                case .KEY_LEFT;
+                    if !line_wrapping {
+                        if event.modifiers & .SHIFT then col_offset -= terminal_size.cols / 2;
+                                                    else col_offset -= 4;
+                    }
+                case .KEY_RIGHT;
+                    if !line_wrapping {
+                        if event.modifiers & .SHIFT then col_offset += terminal_size.cols / 2;
+                                                    else col_offset += 4;
+                    }
+
                 case .CHARACTER; if event.char == {
                     case #char "j"; row_offset += 1;
                     case #char "k"; row_offset -= 1; stick_to_the_bottom = false;
