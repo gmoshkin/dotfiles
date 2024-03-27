@@ -3190,6 +3190,8 @@ proc :: () -> (bool, string) {
     using context.state;
 
     %1 = !%1;
+    redraw_once = true;
+
     return true, "";
 }
 
