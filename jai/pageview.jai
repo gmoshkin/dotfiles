@@ -172,10 +172,10 @@ State :: struct {
 }
 #add_context state: State;
 
-Delayed_Action :: enum {
-    MOUSE_SELECTION_CLICK;
-    MOVE_DOWN_IN_LINE_WRAPPING_MODE;
-    MOVE_UP_IN_LINE_WRAPPING_MODE;
+Delayed_Action :: struct {
+    type: enum {
+        MOUSE_SELECTION_CLICK;
+    };
 }
 
 Cell_Position :: struct {
@@ -884,30 +884,13 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
             // col_offset is ignored
 
             line_tail := line;
-            first := true;
+            piece_index := 0;
 
             // Iterate over line pieces
-            while first || line_tail && (stick_to_the_bottom || line_buffer.count < main_window_height) {
-                defer first = false;
+            while (piece_index == 0) || line_tail && (stick_to_the_bottom || line_buffer.count < main_window_height) {
+                defer piece_index += 1;
                 visible_columns_budget : int = terminal_size.cols;
-
-                if first {
-                    first = false;
-                    if line_numberring {
-                        append(*builder, "\e[2;37m"); // color gray (dark white)
-                        print(*builder, "% ", fmt(current_line_number, line_number_max_digits, padding=" "));
-                        append(*builder, "\e[0m"); // color gray (dark white)
-                        visible_columns_budget -= line_number_max_digits + 1; // `+ 1` for extra space
-                    }
-                } else {
-                    if line_numberring {
-                        append_padding(*builder, line_number_max_digits + 1); // `+ 1` for extra space
-                        visible_columns_budget -= line_number_max_digits + 1; // `+ 1` for extra space
-                    }
-                    prefix :: "";
-                    append(*builder, prefix);
-                    visible_columns_budget -= prefix.count;
-                }
+                if line_numberring then visible_columns_budget -= line_number_max_digits + 1;
 
                 current_slice := utf8_substring(line_tail, visible_columns_budget);
                 // TODO: maybe not just space but also other punctuation
@@ -919,6 +902,10 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
                 }
                 current_slice_end := current_slice.data + current_slice.count;
                 line_tail = substring(line_tail, current_slice.count);
+
+                if line_index == row_offset && piece_index < wrapped_line_offset {
+                    continue;
+                }
 
                 codes.count = 0;
                 if !strip_control_codes {
@@ -944,6 +931,16 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
 
                 select_word_delayed(window_buffer, current_slice, *codes);
 
+                if line_numberring {
+                    if piece_index == 0 {
+                        append(*builder, "\e[2;37m"); // color gray (dark white)
+                        print(*builder, "% ", fmt(current_line_number, line_number_max_digits, padding=" "));
+                        append(*builder, "\e[0m"); // color gray (dark white)
+                    } else {
+                        append_padding(*builder, line_number_max_digits + 1); // `+ 1` for extra space
+                    }
+                }
+
                 // Build the line string
                 build_line_with_control_codes(*builder, window_buffer, current_slice, codes);
 
@@ -953,8 +950,33 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
                     // Reset color codes
                     append(*builder, "\e[0m");
                 }
-                array_add(*line_buffer, builder_to_string(*builder,, temp));
-                current_screen_row += 1;
+
+                new_line_piece := builder_to_string(*builder,, temp);
+                if wrapped_line_offset == -1 {
+                    // `wrapped_line_offset == -1` means we're moving up from
+                    // the first piece of one line to the last piece of the previous line
+                    if !line_tail { // last line piece
+                        array_add(*line_buffer, new_line_piece);
+                        current_screen_row += 1;
+                        wrapped_line_offset = piece_index;
+                    }
+                } else {
+                    array_add(*line_buffer, new_line_piece);
+                    current_screen_row += 1;
+                }
+            }
+            pieces_count := piece_index;
+
+            // didn't skip enough pieces, which means we're trying to move down
+            // but the current line doesn't have any more pieces. So we move to
+            // the next line
+            if wrapped_line_offset > 0 && pieces_count <= wrapped_line_offset {
+                if row_offset == line_offsets.count - 1 {
+                    wrapped_line_offset = pieces_count - 1;
+                } else {
+                    wrapped_line_offset = 0;
+                    row_offset += 1;
+                }
             }
         }
     }
@@ -1040,7 +1062,11 @@ select_word_delayed :: (window_buffer: *Window_Buffer, slice_of_only_text: strin
     assert(is_subslice(outer=only_text, inner=slice_of_only_text));
     slice := slice_of_only_text;
 
-    mouse_selection_click := array_find(delayed_actions, .MOUSE_SELECTION_CLICK);
+    mouse_selection_click := false;
+    for delayed_actions if it.type == .MOUSE_SELECTION_CLICK {
+        mouse_selection_click = true;
+        break;
+    }
 
     if mouse_selection_click {
         if current_screen_row == mouse_position.row {
@@ -1633,8 +1659,9 @@ render_status_line_2 :: () {
                 main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
                 text_start := buffer.count;
                 {
-                    print_to_builder(*builder, "offset: %, %   ", row_offset, col_offset);
-                    print_to_builder(*builder, "lines: %   ", main_window_buffer.line_offsets.count);
+                    print(*builder, "offset: %, %", col_offset, row_offset);
+                    if line_wrapping then print(*builder, "(+%)", wrapped_line_offset);
+                    print(*builder, "/%  ", main_window_buffer.line_offsets.count);
                     if stick_to_the_bottom then append(*builder, "sinking   ");
 
                     // Print current input buffer
@@ -2475,7 +2502,7 @@ handle_input_event :: (_event: Input_Event) {
             }
             event.kind = .HANDLED;
         case .MOUSE_LEFT_DOWN;
-            array_add(*delayed_actions, .MOUSE_SELECTION_CLICK);
+            array_add(*delayed_actions, .{ .MOUSE_SELECTION_CLICK });
             // log("delaying mouse selection click @ %", mouse_position);
             event.kind = .HANDLED;
     }
@@ -2483,14 +2510,8 @@ handle_input_event :: (_event: Input_Event) {
     if input_mode == {
         case .NAVIGATE;
             if event.kind == {
-                case .KEY_UP;
-                    stick_to_the_bottom = false;
-                    if event.modifiers & .SHIFT then row_offset -= terminal_size.rows / 2;
-                                                else row_offset -= 1;
-
-                case .KEY_DOWN;
-                    if event.modifiers & .SHIFT then row_offset += terminal_size.rows / 2;
-                                                else row_offset += 1;
+                case .KEY_UP;   navigate_window_up(ifx event.modifiers & .SHIFT then .HALF_SCREEN else .ONE_ROW);
+                case .KEY_DOWN; navigate_window_down(ifx event.modifiers & .SHIFT then .HALF_SCREEN else .ONE_ROW);
 
                 case .KEY_LEFT;
                     if !line_wrapping {
@@ -2504,11 +2525,11 @@ handle_input_event :: (_event: Input_Event) {
                     }
 
                 case .CHARACTER; if event.char == {
-                    case #char "j"; row_offset += 1;
-                    case #char "k"; row_offset -= 1; stick_to_the_bottom = false;
+                    case #char "j"; navigate_window_down(.ONE_ROW);
+                    case #char "k"; navigate_window_up(.ONE_ROW);
 
-                    case #char "d"; row_offset += terminal_size.rows / 2;
-                    case #char "u"; row_offset -= terminal_size.rows / 2; stick_to_the_bottom = false;
+                    case #char "d"; navigate_window_down(.HALF_SCREEN);
+                    case #char "u"; navigate_window_up(.HALF_SCREEN);
 
                     case #char "b";
                         if current_shown_buffer_index > 0 {
@@ -2535,7 +2556,7 @@ handle_input_event :: (_event: Input_Event) {
 
                     case #char "w"; line_wrapping = !line_wrapping;
 
-                    case #char "g"; row_offset = 0; stick_to_the_bottom = false;
+                    case #char "g"; row_offset = 0; wrapped_line_offset = 0; stick_to_the_bottom = false;
                     case #char "G"; {
                         row_offset = main_window_buffer.line_offsets.count - main_window_height;
                         stick_to_the_bottom = true;
@@ -2584,6 +2605,46 @@ handle_input_event :: (_event: Input_Event) {
         case .INPUT_COMMAND;
             handle_input_event_in_input_command_mode(event);
 
+    }
+}
+
+Window_Shift_Kind :: enum { ONE_ROW; HALF_SCREEN; };
+navigate_window_down :: (kind: Window_Shift_Kind) {
+    using context.state;
+
+    offset := 0;
+    if #complete kind == {
+        case .ONE_ROW;     offset = 1;
+        case .HALF_SCREEN; offset = terminal_size.rows / 2;
+    }
+
+    if line_wrapping && row_offset >= 0 {
+        wrapped_line_offset += offset;
+    } else {
+        wrapped_line_offset = 0;
+        row_offset += offset;
+    }
+}
+
+navigate_window_up :: (kind: Window_Shift_Kind) {
+    using context.state;
+
+    offset := 0;
+    if #complete kind == {
+        case .ONE_ROW;     offset = 1;
+        case .HALF_SCREEN; offset = terminal_size.rows / 2;
+    }
+    stick_to_the_bottom = false;
+
+    if line_wrapping && (row_offset > 0 || row_offset == 0 && wrapped_line_offset > 0) {
+        wrapped_line_offset -= offset;
+        if wrapped_line_offset < 0 {
+            wrapped_line_offset = -1;
+            row_offset -= 1;
+        }
+    } else {
+        wrapped_line_offset = 0;
+        row_offset -= offset;
     }
 }
 
