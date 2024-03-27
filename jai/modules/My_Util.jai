@@ -1,4 +1,8 @@
 #module_parameters() (TEST := false);
+
+f32 :: float32;
+f64 :: float64;
+
 //
 // string utilities
 //
