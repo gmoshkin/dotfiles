@@ -207,7 +207,12 @@ Control_Code_Info :: struct {
 
 main :: () {
     // Setup struct_printer
-    context.print_style.struct_printer = ascii_or_hex_printer;
+    my_struct_printer_data := New(My_Struct_Printer_Data);
+    array_add(*my_struct_printer_data.variant_printers, .{ type_info(Ascii_Or_Hex), ascii_or_hex_printer });
+    array_add(*my_struct_printer_data.variant_printers, .{ type_info(Human_Readable_Memory), human_readable_memory_printer });
+
+    context.print_style.struct_printer = my_struct_printer;
+    context.print_style.struct_printer_data = my_struct_printer_data;
 
     // test_get_next_control_code_in_range();
     // return;
@@ -586,23 +591,14 @@ main :: () {
         // memory usage window
         if show_memory_usage
         {
-            builder := String_Builder.{ allocator = temp };
-
-            fmt_mem :: inline (value: int) -> FormatInt {
-                return FormatInt.{ value=value, minimum_digits=7, padding=#char " " };
-            }
-
-            // prepare window lines
-            append(*builder, "\e[100m"); // background color gray
-            print(*builder, "temp:           % [hvm: %]",
-                            fmt_mem(context.temporary_storage.total_bytes_occupied),
-                            fmt_mem(temporary_storage_high_water_mark));
-
-            append(*builder, "\n");
-            append(*builder, "\e[100m"); // background color gray
-            print(*builder, "buffer pool:    % [hvm: %]",
-                            fmt_mem(flat_pool_allocated(*memory_pool_for_last_shown_line_buffer)),
-                            fmt_mem(memory_pool_for_last_shown_line_buffer_high_water_mark));
+            // prepare table rows
+            rows: [..] [2] string;
+            array_add(*rows, .["temp:", tprint("% [hvm: %]",
+                                               cast(Human_Readable_Memory) context.temporary_storage.total_bytes_occupied,
+                                               cast(Human_Readable_Memory) temporary_storage_high_water_mark)]);
+            array_add(*rows, .["buffer pool:", tprint("% [hvm: %]",
+                                                      cast(Human_Readable_Memory) flat_pool_allocated(*memory_pool_for_last_shown_line_buffer),
+                                                      cast(Human_Readable_Memory) memory_pool_for_last_shown_line_buffer_high_water_mark)]);
 
             buffer_history_raw_text_bytes := 0;
             buffer_history_the_rest_bytes := 0;
@@ -614,17 +610,8 @@ main :: () {
                 buffer_history_the_rest_bytes += it.line_offsets.allocated;
             }
 
-            append(*builder, "\n");
-            append(*builder, "\e[100m"); // background color gray
-            // TODO: pretty human-readable numbers
-            print(*builder, "text history:   %",
-                            fmt_mem(buffer_history_raw_text_bytes));
-
-            append(*builder, "\n");
-            append(*builder, "\e[100m"); // background color gray
-            // TODO: pretty human-readable numbers
-            print(*builder, "buffer history: %",
-                            fmt_mem(buffer_history_raw_text_bytes + buffer_history_the_rest_bytes));
+            array_add(*rows, .["text history:", tprint("%", cast(Human_Readable_Memory) buffer_history_raw_text_bytes)]);
+            array_add(*rows, .["total history:", tprint("%", cast(Human_Readable_Memory) (buffer_history_raw_text_bytes + buffer_history_the_rest_bytes))]);
 
             // TODO: the builtin Memory_Debugger is too expensive, it seems that
             // it expects to only be called once per program execution (or maybe
@@ -636,11 +623,22 @@ main :: () {
             // for address_table if it.is_live default_allocated += it.size;
             // default_allocated_high_water_mark = max(default_allocated_high_water_mark, default_allocated);
 
-            // append(*builder, "\n");
-            // append(*builder, "\e[100m"); // background color gray
-            // print(*builder, "default:     % [hvm: %]",
+            // array_add(*rows, "default:     % [hvm: %]",
             //                 fmt_mem(default_allocated),
             //                 fmt_mem(default_allocated_high_water_mark));
+
+            // prepare window lines
+            builder := String_Builder.{ allocator = temp };
+
+            max_sum_width := 0;
+            for rows  max_sum_width = max(max_sum_width, it[0].count + it[1].count);
+            for rows {
+                append(*builder, "\e[100m"); // background color gray
+                append(*builder, it[0]);
+                append_padding(*builder, 1 + max_sum_width - (it[0].count + it[1].count));
+                append(*builder, it[1]);
+                append(*builder, "\n");
+            }
 
             lines: [..] string; lines.allocator = temp;
             max_width := 0;
@@ -3224,6 +3222,30 @@ my_logger :: (message: string, data: *void, info: Log_Info) {
 }
 
 //
+// print utilities
+//
+
+
+My_Struct_Printer_Data :: struct {
+    variant_printers: [..] struct {
+        type: *Type_Info;
+        printer: (builder: *String_Builder, any: Any, struct_printer_data: *void) -> bool;
+    };
+}
+
+my_struct_printer :: (builder: *String_Builder, any: Any, struct_printer_data: *void) -> bool {
+    using my_struct_printer_data := cast(*My_Struct_Printer_Data) struct_printer_data;
+
+    for variant_printers {
+        if it.type == any.type {
+            if it.printer(builder, any, struct_printer_data) return true;
+        }
+    }
+
+    return false;
+}
+
+//
 // string utilities
 //
 
@@ -3255,6 +3277,51 @@ is_mode_reset_control_sequence :: inline (s: string) -> bool {
 
     return true;
 }
+
+//
+// human readable memory sizes
+//
+
+Human_Readable_Memory :: #type,isa s64;
+
+human_readable_memory_printer :: (builder: *String_Builder, any: Any, struct_printer_data: *void) -> bool {
+    if any.type != type_info(Human_Readable_Memory) return false;
+
+    s := << cast(*s64) any.value_pointer;
+    print_human_readable_memory_size(builder, s);
+
+    return true;
+}
+
+print_human_readable_memory_size :: (builder: *String_Builder, size_in_bytes: s64) {
+    if size_in_bytes < 1024 {
+        print(builder, "%", size_in_bytes);
+        return;
+    }
+
+    if size_in_bytes < 1024 * 1024 {
+        kilos := (cast(f64) size_in_bytes) / 1024;
+        print(builder, "%K", FormatFloat.{ value = kilos, trailing_width = 3 });
+        return;
+    }
+
+    if size_in_bytes < 1024 * 1024 * 1024 {
+        megs := (cast(f64) size_in_bytes) / 1024 / 1024;
+        print(builder, "%M", FormatFloat.{ value = megs, trailing_width = 3 });
+        return;
+    }
+
+    if size_in_bytes < 1024 * 1024 * 1024 * 1024 {
+        gigs := (cast(f64) size_in_bytes) / 1024 / 1024 / 1024;
+        print(builder, "%G", FormatFloat.{ value = gigs, trailing_width = 3 });
+        return;
+    }
+
+    teras := (cast(f64) size_in_bytes) / 1024 / 1024 / 1024 / 1024;
+    print(builder, "%T", FormatFloat.{ value = teras, trailing_width = 3 });
+    return;
+}
+
 
 //
 // array utilities
