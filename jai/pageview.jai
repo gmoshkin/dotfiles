@@ -855,7 +855,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
                 }
             }
 
-            select_word_delayed(window_buffer, visible_slice, *codes);
+            select_word_delayed(window_buffer, line, *codes);
 
             // Build the line string
             build_line_with_control_codes(*builder, window_buffer, visible_slice, codes);
@@ -929,7 +929,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
                     advance(*search_matches_tail, 1);
                 }
 
-                select_word_delayed(window_buffer, current_slice, *codes);
+                select_word_delayed(window_buffer, line, *codes);
 
                 if line_numberring {
                     if piece_index == 0 {
