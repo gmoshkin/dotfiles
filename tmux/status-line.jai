@@ -113,7 +113,7 @@ git_branch :: () -> string, Attr {
 git_compare_to_upstream :: () -> string, Attr {
     Check_Ok(pane_current_path);
 
-    ok, out := command("git", "status", "-sb", cwd = pane_current_path);
+    ok, out := command("git", "--no-optional-locks", "status", "-sb", cwd = pane_current_path);
     if !ok return "", .{}; // Probably not a git directory
 
     my_line: string;
