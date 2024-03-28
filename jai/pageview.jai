@@ -1661,7 +1661,9 @@ render_status_line_2 :: () {
                 main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
                 text_start := buffer.count;
                 {
-                    print(*builder, "offset: %, %", col_offset, row_offset);
+                    append(*builder, "offset: ");
+                    if !line_wrapping then print(*builder, "%, ", col_offset);
+                    print(*builder, "%", row_offset);
                     if line_wrapping then print(*builder, "(+%)", wrapped_line_offset);
                     print(*builder, "/%  ", main_window_buffer.line_offsets.count);
                     if stick_to_the_bottom then append(*builder, "sinking   ");
@@ -1671,7 +1673,7 @@ render_status_line_2 :: () {
 
                     print_to_builder(*builder, "%", cast(Ascii_Or_Hex) input_buffer);
 
-                    print(*builder, " mouse %, %", mouse_position.column, mouse_position.row);
+                    // print(*builder, " mouse %, %", mouse_position.column, mouse_position.row);
                     // print(*builder, "  control codes count %", main_window_buffer.control_codes.count);
                 }
                 text_length := buffer.count - text_start;
