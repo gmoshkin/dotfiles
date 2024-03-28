@@ -78,6 +78,8 @@ State :: struct {
 
     f_repeat_count: s64;
 
+    completion_menu: List_Menu;
+
     //
     // status
     //
@@ -203,6 +205,18 @@ Window_Buffer :: struct {
 Control_Code_Info :: struct {
     position_in_text: s64;
     data: Ascii_Or_Hex; // points into `raw_text_and_control_codes`
+}
+
+List_Menu :: struct {
+    items: [..] string;
+    selected_item: s64;
+
+    is_active: bool;
+
+    start_row: s64;
+    start_column: s64;
+    width: s64;
+    height: f32;
 }
 
 main :: () {
@@ -582,6 +596,8 @@ main :: () {
             last_shown_line_buffer_version += 1;
             memory_pool_for_last_shown_line_buffer_high_water_mark = max(memory_pool_for_last_shown_line_buffer_high_water_mark, flat_pool_allocated(*memory_pool_for_last_shown_line_buffer));
         }
+
+        maybe_render_completion_menu();
 
         //
         // second status line
@@ -1719,6 +1735,32 @@ render_status_line_2 :: () {
     write_builder(*builder);
 }
 
+maybe_render_completion_menu :: () {
+    using context.state;
+
+    if !completion_menu.is_active return;
+
+    builder: String_Builder;
+    builder.allocator = temp;
+
+    max_width := 0;
+    for completion_menu.items  max_width = max(max_width, it.count);
+
+    for completion_menu.items {
+        row := 3 + it_index;
+        if row > terminal_size.rows break;
+
+        print(*builder, "\e[%;%H", row, 1);
+        if completion_menu.selected_item == it_index append(*builder, "\e[7m"); // invert color mode
+        append(*builder, "\e[100m"); // background color gray
+        print(*builder, " % ", it);
+        append_padding(*builder, max_width - it.count);
+        append(*builder, "\e[0m");
+    }
+
+    write_builder(*builder);
+}
+
 //
 // iterating over control codes
 //
@@ -2301,6 +2343,10 @@ parse_and_handle_input :: () {
         } else if try_parse_directional_key_sequence(sequence, *event) {
             // log("parsed a direction key event: `\\x1b[%` -> %", cast(Ascii_Or_Hex) sequence, event);
             // handled
+        } else if sequence == "Z" {
+            event.kind = .CHARACTER;
+            event.char = #char "\x09"; // CTRL+I or TAB
+            event.modifiers = .SHIFT;
         } else {
             // log("unparsed sequence: `\\x1b[%` -> %", cast(Ascii_Or_Hex) sequence, event);
             continue;
@@ -2658,27 +2704,31 @@ handle_input_event_in_input_command_mode :: (event: Input_Event) {
     if !(event.modifiers & .ALT) && event.char >= #char " " && event.char <= #char "~" {
         array_insert_at(*command_line, event.char, input_cursor);
         input_cursor += 1;
+        deactivate_completion_menu();
     } else if event.char == {
         case #char "\e"; /* ESCAPE */
-            history_cursor = -1;
-            input_mode = .NAVIGATE;
-            command_line.count = 0;
+            if completion_menu.is_active {
+                deactivate_completion_menu();
+            } else {
+                switch_to_navigate_mode();
+            }
 
         case #char "\n"; /* ENTER */
-            history := get_history_for_input_mode();
-            if command_line && (!history.count || cast(string) command_line != history.*[history.count - 1]) {
-                array_add(history, copy_string(xx command_line));
+            if completion_menu.is_active {
+                array_replace(*command_line, completion_menu.items[completion_menu.selected_item]);
+                input_cursor = command_line.count;
+                deactivate_completion_menu();
+            } else {
+                history := get_history_for_input_mode();
+                if command_line && (!history.count || cast(string) command_line != history.*[history.count - 1]) {
+                    array_add(history, copy_string(xx command_line));
+                }
+                if input_mode == .INPUT_COMMAND {
+                    execute_command(xx command_line);
+                    command_line.count = 0;
+                }
+                switch_to_navigate_mode();
             }
-            if input_mode == .INPUT_COMMAND {
-                execute_command(xx command_line);
-                command_line.count = 0;
-            }
-            history_cursor = -1;
-            input_mode = .NAVIGATE;
-            command_line.count = 0;
-
-        case #char "\x10"; /* CTRL+P */ history_previous();
-        case #char "\x0e"; /* CTRL+N */ history_next();
 
         case #char "\x02"; /* CTRL+B */ move_command_line_cursor_left();
         case #char "\x06"; /* CTRL+F */ move_command_line_cursor_right();
@@ -2690,7 +2740,14 @@ handle_input_event_in_input_command_mode :: (event: Input_Event) {
 
         case #char "\x09"; /* CTRL+I or TAB */
             if input_mode == .INPUT_COMMAND {
-                complete_command();
+                if completion_menu.is_active {
+                    if event.modifiers & .SHIFT
+                        completion_menu.selected_item = max(completion_menu.selected_item - 1, 0);
+                    else
+                        completion_menu.selected_item = min(completion_menu.selected_item + 1, completion_menu.items.count - 1);
+                } else {
+                    complete_command();
+                }
             } else if input_mode == .INPUT_SEARCH_STRING {
                 // TODO: complete identifiers in the fucking text yo,
                 // give priority to the ones on the fucking screen.
@@ -2703,8 +2760,7 @@ handle_input_event_in_input_command_mode :: (event: Input_Event) {
                 array_ordered_remove_range(*command_line, input_cursor - 1, input_cursor);
                 input_cursor -= 1;
             } else {
-                input_mode = .NAVIGATE;
-                command_line.count = 0;
+                switch_to_navigate_mode();
             }
 
         case #char "\x04"; /* CTRL+D */
@@ -2730,12 +2786,22 @@ handle_input_event_in_input_command_mode :: (event: Input_Event) {
             case .KEY_LEFT;  move_command_line_cursor_left_a_word();
             case .KEY_RIGHT; move_command_line_cursor_right_a_word();
         }
+    } else if event.kind == .KEY_UP || event.char == #char "\x10" /* CTRL+P */ {
+        if completion_menu.is_active {
+            completion_menu.selected_item = max(completion_menu.selected_item - 1, 0);
+        } else {
+            history_previous();
+        }
+    } else if event.kind == .KEY_DOWN || event.char == #char "\x0e" /* CTRL+N */ {
+        if completion_menu.is_active {
+            completion_menu.selected_item = min(completion_menu.selected_item + 1, completion_menu.items.count - 1);
+        } else {
+            history_next();
+        }
     } else {
         if event.kind == {
             case .KEY_LEFT;  move_command_line_cursor_left();
             case .KEY_RIGHT; move_command_line_cursor_right();
-            case .KEY_UP;    history_previous();
-            case .KEY_DOWN;  history_next();
         }
     }
 
@@ -2743,6 +2809,24 @@ handle_input_event_in_input_command_mode :: (event: Input_Event) {
         search_string_buffer.count = 0;
         array_add(*search_string_buffer, ..command_line);
         search_string = xx search_string_buffer;
+    }
+}
+
+switch_to_navigate_mode :: () {
+    using context.state;
+
+    history_cursor = -1;
+    input_mode = .NAVIGATE;
+    command_line.count = 0;
+    deactivate_completion_menu();
+}
+
+deactivate_completion_menu :: () {
+    using context.state;
+
+    if completion_menu.is_active {
+        completion_menu.is_active = false;
+        redraw_once = true;
     }
 }
 
@@ -3066,7 +3150,9 @@ complete_command :: () {
         return;
     }
 
-    if command_line.count == 0 return;
+    if completion_menu.is_active return;
+
+    // if command_line.count == 0 return;
 
     // TODO: pressing TAB once starts COMMAND_COMPLETION input mode in which
     // the completion list is diplayed on the screen and pressing ctrl+p/ctrl+n
@@ -3074,12 +3160,19 @@ complete_command :: () {
     // Pressing any character key exits completion mode into INPUT_COMMAND mode
     // Moving the cursor also exits completion mode
     // Pressing enter runs the command
+    completion_menu.items.count = 0;
     for commands {
         if !starts_with(it.name, xx command_line) continue;
 
-        command_line.count = 0;
-        array_replace(*command_line, it.name);
+        array_add(*completion_menu.items, it.name);
+    }
+
+    if completion_menu.items.count == 1 {
+        array_replace(*command_line, completion_menu.items[0]);
         input_cursor = command_line.count;
+    } else if completion_menu.items.count > 1 {
+        completion_menu.is_active = true;
+        completion_menu.selected_item = 0;
         return;
     }
 
