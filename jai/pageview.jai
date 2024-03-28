@@ -1080,10 +1080,11 @@ select_word_delayed :: (window_buffer: *Window_Buffer, slice_of_only_text: strin
     selection_pointer := only_text.data + selection_cursor;
     if selection_pointer >= slice.data && selection_pointer <= slice.data + slice.count {
         selected_string := select_word_under_cursor(only_text, selection_cursor);
-        selected_string_only_visible := only_visible_text(selected_string);
+        selected_string_only_visible := only_visible_text(selected_string,, temp);
 
         if mouse_selection_click {
-            last_selected_string = selected_string_only_visible;
+            free(last_selected_string);
+            last_selected_string = copy_string(selected_string_only_visible);
             log("selected string: %", last_selected_string);
             // FIXME: this don't work:
             os_clipboard_set_text(last_selected_string);
