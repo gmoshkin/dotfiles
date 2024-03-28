@@ -952,6 +952,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
                 }
 
                 new_line_piece := builder_to_string(*builder,, temp);
+                // TODO: probably want to check that line_index == row_offset - 1
                 if wrapped_line_offset == -1 {
                     // `wrapped_line_offset == -1` means we're moving up from
                     // the first piece of one line to the last piece of the previous line
@@ -970,7 +971,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
             // didn't skip enough pieces, which means we're trying to move down
             // but the current line doesn't have any more pieces. So we move to
             // the next line
-            if wrapped_line_offset > 0 && pieces_count <= wrapped_line_offset {
+            if line_index == row_offset && wrapped_line_offset > 0 && pieces_count <= wrapped_line_offset {
                 if row_offset == line_offsets.count - 1 {
                     wrapped_line_offset = pieces_count - 1;
                 } else {
