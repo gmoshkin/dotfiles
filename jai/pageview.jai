@@ -796,8 +796,8 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
             if col_offset > 0 {
                 // Skip `col_offset` visible characters `+ 1` for the :line_overflow_character
                 first_visible_column_offset := min(col_offset + 1, line.count);
-                hidden_slice := substring(line, 0, first_visible_column_offset);
-                visible_slice = substring(line, first_visible_column_offset);
+                hidden_slice := utf8_substring(line, 0, first_visible_column_offset);
+                visible_slice = utf8_substring(line, first_visible_column_offset);
 
                 // :line_overflow_character
                 visible_columns_budget -= 1;
@@ -834,7 +834,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
             line_overflowed := utf8_count(visible_slice) > visible_columns_budget;
             if line_overflowed {
                 // Leave space for the :line_overflow_character
-                visible_slice = utf8_substring(visible_slice, visible_columns_budget - 1);
+                visible_slice = utf8_substring(visible_slice, 0, visible_columns_budget - 1);
             }
 
             codes.count = 0;
@@ -908,7 +908,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
                 visible_columns_budget : int = terminal_size.cols;
                 if line_numberring then visible_columns_budget -= line_number_max_digits + 1;
 
-                current_slice := utf8_substring(line_tail, visible_columns_budget);
+                current_slice := utf8_substring(line_tail, 0, visible_columns_budget);
                 // TODO: maybe not just space but also other punctuation
                 if current_slice.count < line_tail.count && current_slice.data[current_slice.count] != #char " " {
                     last_space := find_index_from_right(current_slice, #char " ");
@@ -1089,7 +1089,7 @@ select_word_delayed :: (window_buffer: *Window_Buffer, slice_of_only_text: strin
         if current_screen_row == mouse_position.row {
             log("click at line #%", current_line_number);
             column_in_window := mouse_position.column - 1 - current_row_left_offset;
-            s := utf8_substring(slice, column_in_window);
+            s := utf8_substring(slice, 0, column_in_window);
             selection_cursor = slice.data + s.count - only_text.data;
         }
     }

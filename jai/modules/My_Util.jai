@@ -4,6 +4,15 @@ f32 :: float32;
 f64 :: float64;
 
 //
+// array utilities
+//
+
+array_find :: inline (array: [] $T, $predicate: (*T) -> bool) -> s64 {
+    for *array if predicate(it) return it_index;
+    return -1;
+}
+
+//
 // string utilities
 //
 
@@ -67,20 +76,33 @@ utf8_count :: (utf8: string) -> s64 {
     return count;
 }
 
-utf8_substring :: (utf8: string, count: s64) -> string, actual_count: s64 {
-    assert(count >= 0);
+utf8_substring :: (utf8: string, start: s64, count: s64 = -1) -> (string, utf8_count: s64) {
+    assert(start >= 0);
+    assert(count >= 0 || count == -1, "%", count);
 
-    result := utf8;
-    result.count = 0;
-    actual_count := 0;
-    while result.count < utf8.count && actual_count < count {
-        ofs := trailing_bytes_for_utf8[utf8[result.count]];
-        result.count += ofs + 1;
-        actual_count += 1;
+    cursor := 0;
+    for 1..start {
+        if cursor >= utf8.count break;
+        ofs := trailing_bytes_for_utf8[utf8[cursor]];
+        cursor += ofs + 1;
     }
-    assert(result.count <= utf8.count);
 
-    return result, actual_count;
+    start_cursor := cursor;
+    utf8_count := 0;
+    if count == -1 {
+        cursor = utf8.count;
+    } else while cursor < utf8.count && utf8_count < count {
+        ofs := trailing_bytes_for_utf8[utf8[cursor]];
+        cursor += ofs + 1;
+        utf8_count += 1;
+    }
+    assert(cursor <= utf8.count, "cursor: %, utf8: '%'", cursor, utf8);
+
+    result: string = ---;
+    result.data = utf8.data + start_cursor;
+    result.count = cursor - start_cursor;
+
+    return result, utf8_count;
 }
 
 // Yoinked from modules/Unicode.jai
@@ -202,6 +224,7 @@ eat_visible_or_escape_sequence :: (text: string) -> head: string, visible_count:
     return head, 0, tail;
 }
 
+// FIXME: support utf8 code points
 count_visible_characters :: (text: string) -> visible_count: s64 {
     if !text return 0;
 
