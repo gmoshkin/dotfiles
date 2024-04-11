@@ -162,6 +162,11 @@ State :: struct {
     temporary_storage_high_water_mark: s64;
 
     //
+    // copy to clipboard (tmux currently)
+    //
+    children_for_copying_to_clipboard: [..] struct { process: Process; name: string; };
+
+    //
     // miscellaneous internals
     //
     default_allocated_high_water_mark : s64;
@@ -696,6 +701,18 @@ main :: () {
 
         if should_exit break;
 
+        // cleanup child processes
+        for *children_for_copying_to_clipboard {
+            ok, result := get_process_result(*it.process, timeout_ms = 0);
+            if result.type == .STILL_RUNNING continue;
+
+            if result.exit_code != 0 {
+                log_error("sub process `%` failed with code: %", it.name, result.exit_code);
+            }
+
+            remove it;
+        }
+
         temporary_storage_high_water_mark = max(temporary_storage_high_water_mark, context.temporary_storage.high_water_mark);
         reset_temporary_storage();
     }
@@ -1185,14 +1202,21 @@ is_file_path_char :: inline (char: u8) -> bool {
 }
 
 tmux_copy_to_clipboard :: (text: string) {
+    using,except.["command"] context.state;
+
     if !getenv("TMUX") return;
 
     command := string.["tmux", "set-buffer", text];
     log("running %", command);
-    res := my_run_command(..command, capture_and_return_output=false);
-    if res.type != .EXITED || res.exit_code != 0 {
-        log("command % failed: %", command, res);
+    process: Process;
+    ok := create_process(*process, ..command, capture_and_return_output = false);
+    if !ok {
+        code, message := System.get_error_value_and_string();
+        log_error("starting command % failed: #% %", command, code, message);
+        return;
     }
+
+    array_add(*children_for_copying_to_clipboard, .{ process, "tmux set-buffer" });
 }
 
 //
