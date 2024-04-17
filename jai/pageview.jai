@@ -331,10 +331,8 @@ main :: () {
     context.logger_data = *context.state;
 
     if !isatty(STDOUT_FILENO) {
-        // TODO: I could just pipe the command in to the out fd.
-        // What would be the point though?
-        print("Stdout needs to be connected to a terminal.\n");
-        exit(1);
+        result := my_run_command(..state.command, capture_and_return_output = false);
+        exit(result.exit_code);
     }
 
     // Choose input source
