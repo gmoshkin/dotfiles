@@ -2000,7 +2000,20 @@ separate_control_codes :: (window_buffer: *Window_Buffer, raw_text: string) {
     // `only_text.count <= raw_text_and_control_codes.count` is always true
     raw_text_and_control_codes = raw_text;
 
-    array_reserve(*only_text_storage, raw_text_and_control_codes.count);
+    tab_count := 0;
+    {
+        tail := raw_text_and_control_codes;
+        while tail {
+            found:, head:, tail = split_from_left(tail, #char "\t");
+            if found then tab_count += 1;
+        }
+    }
+
+    // When doing :automatic_tab_expansion: every tab character is replaced with
+    // 8 spaces, so we need to allocate additional memory for that.
+    // Mutliply by 7, because each tab character is already counted once and need 7 more bytes.
+    extra_space_for_tab_replacements := tab_count * 7;
+    array_reserve(*only_text_storage, raw_text_and_control_codes.count + extra_space_for_tab_replacements);
     only_text_storage.count = 0;
     line_offsets.count = 0;
     control_codes.count = 0;
@@ -2049,6 +2062,7 @@ separate_control_codes :: (window_buffer: *Window_Buffer, raw_text: string) {
                     Flush_Regular_Piece :: () #expand {
                         if `regular_count == 0 return;
                         start := `piece.data + `cursor - `regular_count;
+                        assert(`only_text_storage.count + `regular_count <= `only_text_storage.allocated);
                         memcpy(`only_text_storage.data + `only_text_storage.count, start, `regular_count);
                         `only_text_storage.count += `regular_count;
                         `regular_count = 0;
@@ -2085,7 +2099,8 @@ separate_control_codes :: (window_buffer: *Window_Buffer, raw_text: string) {
                     Flush_Highlighted_Piece(*underline_count, "\e[4m", "\e[24m"); // underline mode
 
                     if found {
-                        expanded_tab :: "        ";
+                        expanded_tab :: "        "; // :automatic_tab_expansion:
+                        assert(only_text_storage.count + expanded_tab.count <= only_text_storage.allocated);
                         memcpy(only_text_storage.data + only_text_storage.count, expanded_tab.data, expanded_tab.count);
                         only_text_storage.count += expanded_tab.count;
                     }
