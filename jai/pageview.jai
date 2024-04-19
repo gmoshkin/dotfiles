@@ -167,6 +167,19 @@ State :: struct {
     children_for_copying_to_clipboard: [..] struct { process: Process; name: string; };
 
     //
+    // stupid sexy particles
+    //
+    party_time: bool;
+    Particle_Info :: struct {
+        using position: Vector2;
+        ansi_color: string;
+        animation_offset: u64;
+    }
+    particles: [..] Particle_Info;
+    tick : u64 = 0;
+    color_range: [..] string;
+
+    //
     // miscellaneous internals
     //
     default_allocated_high_water_mark : s64;
@@ -686,6 +699,9 @@ main :: () {
             write_string(substring(total_string, start));
         }
 
+        // draw particles
+        if party_time do_party_mode();
+
         // show the cursor at the very end
         if cursor_column != -1 {
             builder := String_Builder.{ allocator = temp };
@@ -1101,6 +1117,7 @@ select_word_delayed :: (window_buffer: *Window_Buffer, slice_of_only_text: strin
     }
 
     if mouse_selection_click {
+        // FIXME: column offset is not taken into account
         if current_screen_row == mouse_position.row {
             log("click at line #%", current_line_number);
             column_in_window := mouse_position.column - 1 - current_row_left_offset;
@@ -1128,6 +1145,7 @@ select_word_delayed :: (window_buffer: *Window_Buffer, slice_of_only_text: strin
 
         start := selected_string.data;
         end := start + selected_string.count;
+        // FIXME: this conflicts search string highlight
         insert_control_code_range(codes, window_buffer,
                                   start, "\e[7m", // invert color mode
                                   end,   "\e[27m"); // disable invert color mode
@@ -3251,6 +3269,7 @@ init_commands :: () {
         array_add(*commands, make_command("wrap_lines", make_toggle("line_wrapping")));
         array_add(*commands, make_command("line_wrapping", make_toggle("line_wrapping")));
         array_add(*commands, make_command("visualize_control_codes", make_toggle("visualize_control_codes")));
+        array_add(*commands, make_command("party_time", make_toggle("party_time")));
         array_add(*commands, make_command("current_shown_buffer_number", set_current_shown_buffer_index));
         array_add(*commands, make_command("clear_buffer_history_up_to", clear_buffer_history_up_to));
         array_add(*commands, make_command("save_current_buffer", save_current_buffer));
@@ -3393,6 +3412,146 @@ proc :: () -> (bool, string) {
     };
 
     return proc;
+}
+
+//
+// party mode
+//
+
+do_party_mode :: () {
+    using context.state;
+
+    width  := cast(float) terminal_size.cols;
+    height := cast(float) terminal_size.rows;
+
+    tick += 1;
+    if particles.count == 0 || tick % 4 == 0 {
+        colors :: string.[
+            "\e[38;2;255;0;255m",
+            "\e[38;2;247;74;5m",
+            "\e[38;2;55;52;235m",
+            "\e[38;2;11;227;15m",
+        ];
+        // spawn up to 3 particles
+        n_to_spawn := 1 + random_get() % 3;
+        for 1..n_to_spawn {
+            x := (width - 1) * random_get_zero_to_one();
+            r := random_get();
+            color := colors[r % colors.count];
+            array_add(*particles, .{
+                position = .{ x, 0 },
+                ansi_color = color,
+                animation_offset = r,
+            });
+        }
+    }
+
+    // Patch up the previous locations of particles with actual text
+    for particles {
+        x := cast(int) it.position.x;
+        y := cast(int) it.position.y;
+        if x < 0 || x >= terminal_size.cols continue;
+        if y < 0 || y >= terminal_size.rows continue;
+
+        col := x;
+        row := y - 2; // :2_status_lines
+        if row < 0 continue;
+
+        get_text_patch :: (col: int, row: int, count: int) -> string {
+            using context.state;
+
+            if row >= last_shown_line_buffer.count {
+                way_too_many_spaces :: "                                ";
+                assert(count <= way_too_many_spaces.count);
+                result := cast(string) way_too_many_spaces;
+                result.count = count;
+                return result;
+            }
+
+            line := last_shown_line_buffer[row];
+            while line && line[line.count - 1] == #char "\n"
+            line.count -= 1;
+
+            count_to_skip := col;
+            expected_length := count;
+            tail := line;
+            builder: String_Builder;
+            while tail {
+                head:, visible_count:, tail = eat_visible_or_escape_sequence(tail);
+                if visible_count == 0 {
+                    didnt_add_any_visible_text_yet := expected_length == count;
+                    if didnt_add_any_visible_text_yet && is_mode_reset_control_sequence(head) {
+                        reset(*builder);
+                    } else {
+                        append(*builder, head);
+                    }
+                    continue;
+                }
+
+                if utf8_count(head) <= count_to_skip {
+                    count_to_skip -= utf8_count(head);
+                    continue;
+                }
+
+                char, utf8_chars := utf8_substring(head, count_to_skip, expected_length);
+                append(*builder, char);
+                assert(utf8_chars <= expected_length);
+                count_to_skip = 0;
+                expected_length -= utf8_chars;
+                if expected_length == 0 {
+                    break;
+                }
+            }
+            append_padding(*builder, expected_length);
+            append(*builder, "\e[0m");
+            return builder_to_string(*builder,, temp);
+        }
+
+        count := 2;
+        if x == terminal_size.cols - 1 then count = 1;
+        patch := get_text_patch(col, row, count);
+
+        print("\e[%;%H%", y + 1, x + 1, patch); // `+ 1` because cursor positions start at 1
+    }
+
+    for *particles {
+        it.x += (random_get_zero_to_one() - 0.5) * 2;
+        if it.x > width - 1 then it.x -= width;
+        if it.x < 0         then it.x += width;
+
+        it.y += random_get_zero_to_one();
+        if it.y < 0      then remove it;
+        if it.y > height then remove it;
+    }
+
+    for particles {
+        x := cast(int) it.x;
+        y := cast(int) it.y;
+        if x < 0 || x >= terminal_size.cols continue;
+        if y < 0 || y >= terminal_size.rows continue;
+
+        chars :: string.[
+            "⠊⣵", "⢨⡵", "⣤⡱", "⢶⡰", "⢟⡠", "⢞⡃", "⢎⠛", "⠎⠷",
+        ];
+        s := chars[(tick + it.animation_offset) % chars.count];
+
+        // TODO: color interpolation
+        // color1 :: u8.[ 255, 0, 255 ];
+        // color2 :: u8.[ 227, 71, 43 ];
+        // N :: 32;
+        // if !color_range {
+        //     c1 := rgb_to_hsv()
+        //     array_reserve(*color_range, N);
+        //     for 1..N {
+
+        //         array_add(*color_range, sprint(""))
+        //     }
+        // }
+
+        color := it.ansi_color;
+        if x == terminal_size.cols - 1 then s.count /= 2;
+        print("\e[%1;%2H%3%4", y + 1, x + 1, color, s); // `+ 1` because cursor positions start at 1
+    }
 }
 
 //
@@ -3718,6 +3877,7 @@ fmt :: inline (v: s64, minimum_digits := 1, $padding := "0") -> FormatInt #expan
 #import "Program_Print";
 #import "Math";
 #import "Unicode";
+#import "Random";
 #if OS == .LINUX #import "X11";
 #import "Clipboard";
 System :: #import "System";
