@@ -533,6 +533,8 @@ main :: () {
             state.main_window_height = state.terminal_size.rows - 2;
 
             if main_window_source == .DRAWING_MODE resize_pixel_buffer();
+
+            row_offset = max(row_offset, -(main_window_height - 1));
         }
 
         // Handle input
