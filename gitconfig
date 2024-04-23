@@ -11,7 +11,7 @@
 	curbranch   = rev-parse --abbrev-ref HEAD
 	cb          = rev-parse --abbrev-ref HEAD
 	curhash     = rev-parse --verify HEAD
-	cp          = cherry-pick
+	cp          = cherry-pick -x
 	cpc         = cherry-pick --continue
 	cpa         = cherry-pick --abort
 	d           = -c color.ui=always diff
