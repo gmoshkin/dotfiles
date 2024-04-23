@@ -21,6 +21,8 @@ Cargo.lock
 
 node_modules/
 untracked-logs/
+untracked/
+/config.yaml
 ed/diff/tools/data/
 lde/diff2/
 lde/v2/
