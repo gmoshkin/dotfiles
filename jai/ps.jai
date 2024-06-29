@@ -90,7 +90,7 @@ main :: () {
         saved_logger := context.logger;
         defer context.logger = saved_logger;
         context.logger = (_: string, _: *void, _: Log_Info) {};
-        ok := visit_files("/proc", recursive=false, user_data=*pids, proc=visitor, visit_files=false, visit_directories=true, follow_symlinks=false);
+        ok := visit_files("/proc", recursive=false, user_data=*pids, proc=visitor, visit_files=false, visit_directories=true, visit_symlinks=false);
         assert(ok);
     }
 
