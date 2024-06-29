@@ -1,10 +1,18 @@
 const std = @import("std");
 
+const S = struct {
+    x: i32 = 420,
+    y: f32 = 13.37,
+};
+
 pub fn main() !void {
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
     // std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
 
-    std.debug.print("{any}\n", .{@typeInfo(struct {})});
+    const T = @typeInfo(S);
+    @compileLog(T);
+    @compileLog(T.Struct.fields);
+    // std.debug.print("{any}\n", .{T}); -- this doesn't compile LOL, can't use typeinfo in runtime...
 
     // stdout is for the actual output of your application, for example if you
     // are implementing gzip, then only the compressed bytes should be sent to
