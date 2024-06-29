@@ -14,9 +14,16 @@ RELEASE :: #run -> bool {
 
 // TODO:
 // - redraw while resizing, see: https://github.com/cmuratori/dtc
-// - transparent background
 // - render to an upscaled texture and downscale for subpixel rendering
 // - customizable DPI
+
+TRANSPARENCY_IS_SUPPORTED :: #run -> bool {
+    if OS == {
+        case .WINDOWS; return true;
+        case .LINUX; return true;
+        case; return false;
+    }
+}
 
 main :: () {
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -47,7 +54,7 @@ main :: () {
         }
     }
 
-    window := create_window(xx window_size.x, xx window_size.y, EXE_NAME, xx window_position.x, xx window_position.y,
+    window = create_window(xx window_size.x, xx window_size.y, EXE_NAME, xx window_position.x, xx window_position.y,
                             background_color_rgb = .[.1, .1, .1]);
     quit := false;
 
@@ -99,6 +106,28 @@ main :: () {
             system_screen_size.x = xx (info.rcMonitor.right  - info.rcMonitor.left);
             system_screen_size.y = xx (info.rcMonitor.bottom - info.rcMonitor.top);
         }
+    } else #if OS == .LINUX {
+        // This shit is inaccurate!!!
+        // TODO: just add an ability to specify custom dpi and save it in a file.
+        X11 :: #import "X11";
+        x11_display := X11.x_global_display;
+
+        resource_string := to_string(X11.XResourceManagerString(x11_display));
+        print_vars(resource_string);
+
+        screen_number := X11.DefaultScreen(x11_display);
+        width_mm := X11.XDisplayWidthMM(x11_display, screen_number);
+        height_mm := X11.XDisplayHeightMM(x11_display, screen_number);
+        width_pixels := X11.XDisplayWidth(x11_display, screen_number);
+        height_pixels := X11.XDisplayHeight(x11_display, screen_number);
+        #import "Print_Vars";
+        print_vars(screen_number, width_mm, height_mm, width_pixels, height_pixels);
+
+        system_screen_size.x = xx width_pixels;
+        system_screen_size.y = xx height_pixels;
+
+        system_dpi.x = xx 96;
+        system_dpi.y = xx 96;
     }
 
     mouse_absolute_at_click: Vector2;
@@ -111,22 +140,15 @@ main :: () {
     time_frame_start : f64;
 
     fg_color := Vector4.{ .8, .8, .8, 1 };
-    bg_color := Vector4.{ .1, .1, .1, 1 };
+    bg_color = Vector4.{ .1, .1, .1, 1 };
     off_color := Vector4.{ .5, .5, .5, 1 };
 
     grid_mode : enum { OFF; CENTIMETERS; INCHES; } = .OFF;
 
-    transparent := true;
-    {
-        #if OS == .WINDOWS {
-            alpha : u8 = xx ifx transparent then 0x80 else 0xff;
-            ok := SetLayeredWindowAttributes(window, 0, alpha, LWA_ALPHA);
-            if !ok {
-                code, msg := get_error_value_and_string();
-                log_error("[%] %", code, msg);
-            }
-            assert(xx ok);
-        }
+    transparent = false;
+    #if TRANSPARENCY_IS_SUPPORTED {
+        transparent = true;
+        toggle_transparent_background();
     }
 
     something_changed := true; // Must be true on first iteration
@@ -169,13 +191,33 @@ main :: () {
                 mouse.y = xx y;
             }
         }
+        window_position: Vector2;
+        mouse_absolute: Vector2;
         #if OS == .WINDOWS {
             rect: Windows.RECT;
             Windows.GetWindowRect(window, *rect);
-            window_position := Vector2.{ xx rect.left, xx rect.top };
+            window_position = Vector2.{ xx rect.left, xx rect.top };
             window_outer_size := Vector2.{ xx (rect.right - rect.left), xx (rect.bottom - rect.top) };
-            mouse_absolute := window_position + .{ mouse.x, -mouse.y };
+            mouse_absolute = window_position + .{ mouse.x, -mouse.y };
+        } else #if OS == .LINUX {
+            {
+                root_window: X11.Window;
+                x, y: s32;
+                width, height: u32;
+                border: u32;
+                depth: u32;
+                X11.XGetGeometry(X11.x_global_display, window, *root_window, *x, *y, *width, *height, *border, *depth);
+                translated_x, translated_y: s32;
+
+                child_window: X11.Window;
+                X11.XTranslateCoordinates(X11.x_global_display, window, root_window, x, y, *translated_x, *translated_y, *child_window);
+                window_position = .{ xx translated_x, xx translated_y };
+                mouse_absolute = window_position + .{ mouse.x, -mouse.y };
+            }
         }
+        // print("\r\e[Kwindow: (%, %) -> (%, %), mouse: (%, %) -> (%, %)",
+        //     window_position_at_click.x, window_position_at_click.y, window_position.x, window_position.y,
+        //     mouse_absolute_at_click.x, mouse_absolute_at_click.y, mouse_absolute.x, mouse_absolute.y);
 
         click := false;
         mouse_button_left_state := Input.input_button_states[Input.Key_Code.MOUSE_BUTTON_LEFT];
@@ -186,10 +228,8 @@ main :: () {
             click_handled = false;
         }
         if mouse_button_left_state & .START {
-            #if OS == .WINDOWS {
-                window_position_at_click = window_position;
-                mouse_absolute_at_click = mouse_absolute;
-            }
+            window_position_at_click = window_position;
+            mouse_absolute_at_click = mouse_absolute;
             click = true;
         }
 
@@ -237,8 +277,9 @@ main :: () {
         /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
         // Update/Draw
         Simp.update_window(window);
-        Simp.clear_render_target(bg_color.x, bg_color.y, bg_color.z, bg_color.w);
-
+        color := bg_color;
+        #if OS == .LINUX { if transparent color.w = .5; }
+        Simp.clear_render_target(color.x, color.y, color.z, color.w);
 
         width_pixels  := ifx system_screen_size.x then system_screen_size.x else 1960.0;
         height_pixels := ifx system_screen_size.y then system_screen_size.y else 1080.0;
@@ -439,7 +480,7 @@ main :: () {
         }
 
         // Transparency button
-        #if OS == .WINDOWS {
+        #if TRANSPARENCY_IS_SUPPORTED {
             width := 300.0;
             height := 40.0;
             button_inner_margin := 6.0;
@@ -460,13 +501,7 @@ main :: () {
             if click && mouse.x >= x0 && mouse.x <= x0 + width && mouse.y >= y0 && mouse.y <= y0 + height {
                 click_handled = true;
                 transparent = !transparent;
-                alpha : u8 = xx ifx transparent then 0x80 else 0xff;
-                ok := SetLayeredWindowAttributes(window, 0, alpha, LWA_ALPHA);
-                if !ok {
-                    code, msg := get_error_value_and_string();
-                    log_error("[%] %", code, msg);
-                }
-                assert(xx ok);
+                toggle_transparent_background();
             }
 
             y_pos = y0 - y_ofs;
@@ -586,14 +621,16 @@ main :: () {
         }
 
         // Move window
-        #if OS == .WINDOWS {
-            if !fullscreen && !click_handled && mouse_button_left_state == .DOWN {
-                position_offset := mouse_absolute - mouse_absolute_at_click;
-                new_position := window_position_at_click + position_offset;
-                x0 := new_position.x;
-                y0 := new_position.y;
+        if !fullscreen && !click_handled && mouse_button_left_state == .DOWN {
+            position_offset := mouse_absolute - mouse_absolute_at_click;
+            new_position := window_position_at_click + position_offset;
+            x0 := new_position.x;
+            y0 := new_position.y;
+            #if OS == .WINDOWS {
                 Windows.SetWindowPos(window, Windows.HWND_TOPMOST, xx x0, xx y0, xx window_outer_size.x, xx window_outer_size.y,
                                      Windows.SWP_NOZORDER | Windows.SWP_NOACTIVATE | Windows.SWP_FRAMECHANGED);
+            } else #if OS == .LINUX {
+                X11.XMoveWindow(X11.x_global_display, window, xx x0, xx y0);
             }
         }
 
@@ -615,6 +652,31 @@ main :: () {
         } else {
             // log("we're running late, not gonna sleep tonight", flags = .VERY_VERBOSE_ONLY);
         }
+    }
+}
+
+bg_color: Vector4;
+window: Window_Type;
+transparent: bool;
+
+#if OS == .WINDOWS {
+    toggle_transparent_background :: () {
+        alpha : u8 = xx ifx transparent then 0x80 else 0xff;
+        ok := SetLayeredWindowAttributes(window, 0, alpha, LWA_ALPHA);
+        if !ok {
+            code, msg := get_error_value_and_string();
+            log_error("[%] %", code, msg);
+        }
+        assert(xx ok);
+    }
+} else #if OS == .LINUX {
+    // FIXME: this shit doesn't work!!!
+    toggle_transparent_background :: () {
+        color := bg_color;
+        if transparent color /= 2;
+        background_pixel := rgb_to_x11_pixel(color);
+        print("background_pixel: %\n", FormatInt.{ value = background_pixel, base = 16, minimum_digits = 8 });
+        X11.XSetWindowBackground(X11.x_global_display, window, background_pixel);
     }
 }
 
@@ -690,6 +752,42 @@ WSTYLE_EX :: enum_flags u32 {
 
 LWA_ALPHA :: 0x2;
 
+rgb_to_x11_pixel :: (rgb: Vector4) -> u32 {
+    to_byte :: inline (c: float) -> u32 {
+        return xx (c * 0xff);
+    }
+    res: u32 = (to_byte(rgb.w) << 24) | (to_byte(rgb.z) << 16) | (to_byte(rgb.y) << 8) | to_byte(rgb.x);
+    return res;
+}
+
+test_rgb_to_x11_pixel :: () {
+    rgb: Vector4;
+
+    rgb = .{ .2, 0, 0, 0 };
+    print("%: %\n", rgb, FormatInt.{ value = rgb_to_x11_pixel(rgb), base = 16 });
+
+    rgb = .{ 0, .3, 0, 0 };
+    print("%: %\n", rgb, FormatInt.{ value = rgb_to_x11_pixel(rgb), base = 16 });
+
+    rgb = .{ 0, 0, .1, 0 };
+    print("%: %\n", rgb, FormatInt.{ value = rgb_to_x11_pixel(rgb), base = 16 });
+
+    rgb = .{ 0, 0, 0, 1 };
+    print("%: %\n", rgb, FormatInt.{ value = rgb_to_x11_pixel(rgb), base = 16 });
+
+    rgb = .{ 1, 1, 1, 1 };
+    print("%: %\n", rgb, FormatInt.{ value = rgb_to_x11_pixel(rgb), base = 16 });
+
+    rgb = .{ .1, .1, .1, 1 };
+    print("%: %\n", rgb, FormatInt.{ value = rgb_to_x11_pixel(rgb), base = 16 });
+
+    rgb = .{ 1, .2, .2, 1 };
+    print("%: %\n", rgb, FormatInt.{ value = rgb_to_x11_pixel(rgb), base = 16 });
+
+    rgb = .{ 0, .9, .1, 1 };
+    print("%: %\n", rgb, FormatInt.{ value = rgb_to_x11_pixel(rgb), base = 16 });
+}
+
 #import "Math";
 #import "Basic";
 #import "Compiler";
@@ -699,3 +797,4 @@ LWA_ALPHA :: 0x2;
 Input :: #import "Input";
 Simp :: #import "Simp";
 GetRect :: #import "GetRect";
+#if OS == .LINUX X11 :: #import "X11";
