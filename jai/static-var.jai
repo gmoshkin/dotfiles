@@ -28,6 +28,17 @@ main :: () {
     use_another_static_variable();
     use_another_static_variable();
     use_another_static_variable();
+
+    for 1..3 {
+        print("%: ", it);
+        first := Static_Variable(true);
+        if first.* {
+            print("first!\n");
+            first.* = false;
+        } else {
+            print("\n");
+        }
+    }
 }
 
 use_another_static_variable :: () {

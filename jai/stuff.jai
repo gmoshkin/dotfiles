@@ -180,6 +180,142 @@ null_any_test :: () {
     assert(default_any.type == any_set_to_default_any.type);
 }
 
+div_mod_precedence :: () {
+    expr :: "123 / 10 % 10;";
+    print("% = %\n", expr, #insert expr);
+}
+
+#no_reset procs: [..] #type ();
+no_reset_global_array :: () {
+    // This doesn't actually work, the pointers in procs are left invalid
+    print("doesn't work :(\n");
+    // for procs it();
+
+    #run { array_add(*procs, f1); }
+    #run { array_add(*procs, f2); }
+    #run { array_add(*procs, f3); }
+}
+
+f1 :: () { print("f1\n"); }
+f2 :: () { print("bar\n"); }
+f3 :: () { print("f3\n"); }
+
+Stack_Or_Temporary_Storage :: struct (total_size_on_stack := 4096) {
+    Metadata :: struct {
+        stack_allocated: s64;
+    }
+    #as using metadata: Metadata;
+
+    stack_buffer_size :: total_size_on_stack - size_of(Metadata);
+    stack_buffer: [stack_buffer_size] u8;
+}
+
+stack_or_temporary_allocator_proc :: (mode: Allocator_Mode, requested_size: s64, old_size: s64, old_memory: *void, allocator_data: *void) -> *void {
+    if !allocator_data {
+        return temporary_allocator_proc(mode, requested_size, old_size, old_memory, allocator_data);
+    }
+
+    allocator := cast(*Stack_Or_Temporary_Storage) allocator_data;
+    using allocator;
+
+    if #complete mode == {
+      case .FREE;
+        return null;
+      case .RESIZE;
+        if (old_memory >= stack_buffer.data) && (old_memory < stack_buffer.data + stack_buffer.count) {
+            if old_memory == stack_buffer.data + stack_allocated - old_size {
+                // This is the latest stack allocation, just resize it
+                if old_memory + requested_size <= stack_buffer.data + stack_buffer.count {
+                    stack_allocated += requested_size - old_size;
+                    return old_memory;
+                }
+            }
+        }
+        #through;
+      case .ALLOCATE;
+        if requested_size > stack_buffer.count - stack_allocated {
+            return temporary_allocator_proc(mode, requested_size, old_size, old_memory, allocator_data);
+        }
+
+        result := stack_buffer.data + stack_allocated;
+        if mode == .RESIZE then memcpy(result, old_memory, min(old_size, requested_size));
+        stack_allocated += requested_size;
+        return result;
+
+      case .STARTUP;      #through;
+      case .SHUTDOWN;
+        return null;
+
+      case .THREAD_START; #through;
+      case .THREAD_STOP;
+        assert(false, "Multithreaded access is not supported by stack_or_temporary_allocator_proc.\n");
+        return null;
+
+      case .CREATE_HEAP; #through;
+      case .DESTROY_HEAP;
+        assert(false, "Create/Destroy heap are not supported by stack_or_temporary_allocator_proc.\n");
+        return null;
+
+      case .IS_THIS_YOURS;
+        if (old_memory >= stack_buffer.data) && (old_memory < stack_buffer.data + stack_buffer.count) return cast(*void) true;
+        return temporary_allocator_proc(mode, requested_size, old_size, old_memory, allocator_data);
+
+      case .CAPS;
+        if old_memory { <<cast(*string)old_memory = "stack_or_temporary_allocator_proc"; }
+        return cast(*void)(Allocator_Caps.HINT_I_AM_PER_FRAME_TEMPORARY_STORAGE);
+    }
+}
+
+Stack_Or_Temporary_Allocator :: (total_size_on_stack := 4096) -> Allocator #expand {
+    `allocator: Stack_Or_Temporary_Storage(total_size_on_stack = total_size_on_stack);
+    return Allocator.{ stack_or_temporary_allocator_proc, *allocator };
+}
+
+stack_or_temporary_allocator :: () {
+    print("size_of(Stack_Or_Temporary_Storage): %\n", size_of(Stack_Or_Temporary_Storage));
+    print("Stack_Or_Temporary_Storage.stack_buffer.count: %\n", Stack_Or_Temporary_Storage(4096).stack_buffer.count);
+
+    stack_or_temporary_allocator_data: Stack_Or_Temporary_Storage;
+    using stack_or_temporary_allocator_data;
+    stack_or_temp := Allocator.{ stack_or_temporary_allocator_proc, *stack_or_temporary_allocator_data };
+
+    p1_size := 10;
+    p1 := alloc(p1_size,, stack_or_temp);
+    assert(p1 == stack_buffer.data);
+    assert(stack_allocated == p1_size);
+
+    p2_size := 20;
+    p2 := realloc(p1, p2_size, p1_size,, stack_or_temp);
+    assert(p2 == p1, "% == % failed!", p2, p1);
+    assert(stack_allocated == p2_size);
+
+    p3_size := 30;
+    p3 := alloc(p3_size,, stack_or_temp);
+    assert(p3 == p2 + p2_size);
+    assert(stack_allocated == p2_size + p3_size);
+
+    p4_size := 30;
+    p4 := realloc(p2, p4_size, p2_size,, stack_or_temp);
+    assert(p4 == p3 + p3_size);
+    assert(stack_allocated == p2_size + p3_size + p4_size);
+
+    array: [..] u8;
+    array.allocator = stack_or_temp;
+    array_add(*array, ..cast([]u8) "abcdef");
+    array_data_1 := array.data;
+    array_add(*array, ..cast([]u8) "ghi");
+    array_add(*array, ..cast([]u8) "jklmnop");
+    array_add(*array, ..cast([]u8) "qr");
+    array_add(*array, ..cast([]u8) "s");
+    array_add(*array, ..cast([]u8) "t");
+    array_add(*array, ..cast([]u8) "uvwxyz");
+    assert(array_data_1 == array.data, "% == % failed!", array_data_1, array.data);
+
+    s1 := sprint("hello %", "world",, Stack_Or_Temporary_Allocator());
+    // this won't compile and it's a good thing, cause you shouldn't be using this macro often anyways
+    // s2 := sprint("here's an array: %", u8.[1,2,3],, Stack_Or_Temporary_Allocator());
+}
+
 main :: () {
     print("\n### type_of_null:\n\n");                   type_of_null();
     print("\n### bake_polymorph:\n\n");                 bake_polymorph();
@@ -190,6 +326,12 @@ main :: () {
     print("\n### defer_is_not_like_in_go(true):\n\n");  defer_is_not_like_in_go(true);
     print("\n### baked_proc:\n\n");                     baked_proc();
     print("\n### null_any_test:\n\n");                  null_any_test();
+    print("\n### div_mod_precedence:\n\n");             div_mod_precedence();
+    print("\n### no_reset_global_array:\n\n");          no_reset_global_array();
+    print("\n### test_append_padding:\n\n");            test_append_padding();
+    print("\n### stack_or_temporary_allocator:\n\n");   stack_or_temporary_allocator();
 }
 
 #import "Basic";
+#import "Print_Vars";
+#import "My_Util";
