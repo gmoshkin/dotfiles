@@ -242,6 +242,7 @@ main :: () {
     my_struct_printer_data := New(My_Struct_Printer_Data);
     array_add(*my_struct_printer_data.variant_printers, .{ type_info(Ascii_Or_Hex), ascii_or_hex_printer });
     array_add(*my_struct_printer_data.variant_printers, .{ type_info(Human_Readable_Memory), human_readable_memory_printer });
+    array_add(*my_struct_printer_data.variant_printers, .{ type_info(Mem_Dump), mem_dump_printer });
 
     context.print_style.struct_printer = my_struct_printer;
     context.print_style.struct_printer_data = my_struct_printer_data;
@@ -2092,6 +2093,7 @@ separate_control_codes :: (window_buffer: *Window_Buffer, raw_text: string) {
                     underline_count := 0;
                     regular_count := 0;
                     cursor := 0;
+                    // FIXME: should take into account utf8, because some of man pages use utf8 characters...
                     while cursor < piece.count {
                         if cursor <= piece.count - 3 && piece[cursor + 1] == #char "\x08" // '\b'
                             && piece[cursor] == piece[cursor + 2]
@@ -3431,10 +3433,12 @@ do_party_mode :: () {
     tick += 1;
     if particles.count == 0 || tick % 4 == 0 {
         colors :: string.[
+            "\e[38;2;255;0;0m",
+            "\e[38;2;0;255;0m",
+            "\e[38;2;255;255;0m",
+            "\e[38;2;0;0;255m",
             "\e[38;2;255;0;255m",
-            "\e[38;2;247;74;5m",
-            "\e[38;2;55;52;235m",
-            "\e[38;2;11;227;15m",
+            "\e[38;2;0;255;255m",
         ];
         // spawn up to 3 particles
         n_to_spawn := 1 + random_get() % 3;
@@ -3474,7 +3478,7 @@ do_party_mode :: () {
 
             line := last_shown_line_buffer[row];
             while line && line[line.count - 1] == #char "\n"
-            line.count -= 1;
+                line.count -= 1;
 
             count_to_skip := col;
             expected_length := count;
@@ -3492,12 +3496,14 @@ do_party_mode :: () {
                     continue;
                 }
 
-                if utf8_count(head) <= count_to_skip {
-                    count_to_skip -= utf8_count(head);
+                c, ok := utf8_count(head, false);
+                // assert(ok, "col: %, row: %, count_to_skip: %, line:\n`%`\nhead:\n`%`\n", col, row, count_to_skip, cast(Ascii_Or_Hex)line, cast(Ascii_Or_Hex)head);
+                if c <= count_to_skip {
+                    count_to_skip -= c;
                     continue;
                 }
 
-                char, utf8_chars := utf8_substring(head, count_to_skip, expected_length);
+                char, utf8_chars := utf8_substring(head, count_to_skip, expected_length, false);
                 append(*builder, char);
                 assert(utf8_chars <= expected_length);
                 count_to_skip = 0;

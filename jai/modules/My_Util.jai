@@ -63,7 +63,7 @@ is_subslice :: inline (outer: string, inner: string) -> bool {
 // unicode utilities
 //
 
-utf8_count :: (utf8: string) -> s64 {
+utf8_count :: (utf8: string, $do_assert := true) -> s64, bool {
     count := 0;
     cursor := 0;
     while cursor < utf8.count {
@@ -71,12 +71,12 @@ utf8_count :: (utf8: string) -> s64 {
         cursor += ofs + 1;
         count += 1;
     }
-    assert(cursor == utf8.count);
+    #if do_assert assert(cursor == utf8.count, "cursor: %, utf8:\n%", cursor, cast(Mem_Dump) utf8);
 
-    return count;
+    return count, cursor == utf8.count;
 }
 
-utf8_substring :: (utf8: string, start: s64, count: s64 = -1) -> (string, utf8_count: s64) {
+utf8_substring :: (utf8: string, start: s64, count: s64 = -1, $do_assert := true) -> (string, utf8_count: s64) {
     assert(start >= 0);
     assert(count >= 0 || count == -1, "%", count);
 
@@ -96,7 +96,7 @@ utf8_substring :: (utf8: string, start: s64, count: s64 = -1) -> (string, utf8_c
         cursor += ofs + 1;
         utf8_count += 1;
     }
-    assert(cursor <= utf8.count, "cursor: %, utf8: '%'", cursor, utf8);
+    #if do_assert assert(cursor <= utf8.count, "cursor: %, utf8: '%'", cursor, utf8);
 
     result: string = ---;
     result.data = utf8.data + start_cursor;
