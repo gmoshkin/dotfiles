@@ -21,8 +21,12 @@ function columns {
 }
 
 function separator {
-    width=$(( $1 - ${#2} - ${#3} - ${#4} - ${#5} - 7 ))
-    echo 'print("\xe2\x94\x80" * '$width')' | python
+    local width=$(( $1 - ${#2} - ${#3} - ${#4} - ${#5} - 7 ))
+    local result=""
+    for _ in {1..$width}; do
+        result="${result}\xe2\x94\x80"
+    done
+    echo $result
 }
 
 function get_pwd {
