@@ -619,6 +619,38 @@ my_read_entire_file :: (f: File, log_errors := true) -> string, bool {
 }
 
 //
+// color
+//
+
+// stolen from modules/GetRect/module.jai
+rgb_to_hsv :: (r: float, g: float, b: float) -> (h: float, s: float, v: float) {
+    rgb_min := min(r, g, b);
+    rgb_max := max(r, g, b);
+
+    if rgb_max == 0  return 0, 0, 0;
+
+    v := rgb_max;
+
+    delta := rgb_max - rgb_min;
+
+    s := delta / rgb_max;
+    if s == 0 {  // This covers the case when rgb_max == rgb_min, so we don't worry about dividing by 0 below.
+        return 0, 0, v;
+    }
+
+    h: float = ---;
+    K :: (43/255.0);
+    if rgb_max == r
+        h = 0 + K * (g - b) / delta;
+    else if rgb_max == g
+        h = (85/255.0) + K * (b - r) / delta;
+    else
+        h = (171/255.0) + K * (r - g) / delta;
+
+    return h*360, s, v;
+}
+
+//
 // private imports
 //
 
