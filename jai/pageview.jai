@@ -3235,11 +3235,13 @@ complete_command :: () {
 
     // If it's a `> command ` insert the current external command for editting
     if command_line[command_line.count - 1] == #char " " && trim(xx command_line) == "command" {
-        for 0..command.count-2 {
-            array_add(*command_line, ..cast([] u8) command[it]);
-            array_add(*command_line, #char " ");
+        if command.count {
+            array_add(*command_line, ..cast([] u8) command[0]);
+            for 1..command.count-1 {
+                array_add(*command_line, #char " ");
+                array_add(*command_line, ..cast([] u8) command[it]);
+            }
         }
-        array_add(*command_line, ..cast([] u8) command[command.count - 1]);
         input_cursor = command_line.count;
         return;
     }
