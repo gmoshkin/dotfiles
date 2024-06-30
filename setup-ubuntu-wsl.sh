@@ -46,7 +46,8 @@ hash pip 2>/dev/null && {
     pip install --user \
         ipython \
         gevent \
-        || die "faile to get pip packages";
+        msgpack \
+        || die "failed to get pip packages";
 }
 
 ################################################################################
