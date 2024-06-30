@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set +e
+
 error() { >&2 echo -e "\x1b[31m===ERROR===\x1b[0m" $@; }
 info() { echo -e "\x1b[34m===INFO===\x1b[0m" $@; }
 warn() { echo -e "\x1b[33m===WARNING===\x1b[0m" $@; }
@@ -21,18 +23,14 @@ sudo apt install \
     curl \
     build-essential \
     cmake \
-    ninja-build \
     libssl-dev libncurses5-dev libreadline-dev libunwind-dev libicu-dev \
-    rlwrap \
     tmux \
     clang \
     golang \
     jq \
     ripgrep \
-    ranger \
     zsh zsh-syntax-highlighting zsh-autosuggestions \
     vim \
-    ruby \
     python3 python3-pip python-is-python3 \
     luajit libluajit-5.1-dev luarocks \
     || die "failed to get apt packages"
@@ -104,8 +102,6 @@ hash node 2>/dev/null && {
     rm -r "${NODE_ARCHIVE}"{,.tar.xz};
     popd;
 }
-
-exit 0
 
 ################################################################################
 ## ssh keys
@@ -181,10 +177,8 @@ for target in \
     gdbinit \
     gitignore \
     tmux_conf \
-    cmus \
     lesskey \
     htoprc \
-    ranger \
     radare2 \
     zsh \
     kak \
@@ -192,35 +186,4 @@ for target in \
 ; {
     ./deploy.sh $target \
         || warn "couldn't deploy '$target'";
-}
-
-################################################################################
-## rakubrew
-
-# XXX: latest changes aren't tested yet
-
-RAKU_TOOL=rakubrew
-RAKU_URL="https://${RAKU_TOOL}.org/install-on-perl.sh"
-RAKU_ROOT="$HOME/.${RAKU_TOOL}"
-RAKU_INIT="$HOME/dotfiles/${RAKU_TOOL}_init.bash"
-
-[ hash raku 2>/dev/null ] && {
-    info "'raku' exists, won't build";
-} || {
-    [ -d "${RAKU_ROOT}" ] || {
-        curl "${RAKU_URL}" | sh \
-            || die "failed to download ${RAKU_TOOL}";
-    };
-    export PATH="$PATH:${RAKU_ROOT}/bin";
-    source "$RAKU_INIT";
-
-    [ -d "${RAKU_ROOT}/versions/moar-blead" ] && {
-        info "raku moar-blead already built";
-    } || {
-        "$RAKU_TOOL" build moar-blead \
-            || die "failed to build 'raku moar-blead'";
-    }
-    "$RAKU_TOOL" switch moar-blead;
-    "$RAKU_TOOL" build-zef \
-        || die "failed to build 'zef'";
 }
