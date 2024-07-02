@@ -83,6 +83,7 @@ prependToPath "$HOME/.nimble/bin"
 prependToPath "$HOME/.cargo-target/release"
 prependToPath "$HOME/.cargo-target/debug"
 prependToPath "$DOTFILES/jai"
+[ -d "/mnt/d/jai/bin" ] && prependToPath "/mnt/d/jai/bin"
 
 # too slow
 # source "$DOTFILES/rakubrew_init.zsh"
