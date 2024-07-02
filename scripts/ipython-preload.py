@@ -72,7 +72,23 @@ def read_entire_file(filename, binary=False):
 
 
 # TEMPORARY:
-import magic
+modules_not_found = []
+
+try:
+    import magic
+except ModuleNotFoundError as e:
+    modules_not_found.append(e.name)
+try:
+    import sqlite3
+except ModuleNotFoundError as e:
+    modules_not_found.append(e.name)
+try:
+    import bplist
+except ModuleNotFoundError as e:
+    modules_not_found.append(e.name)
+
+if modules_not_found:
+    print(f"Couldn't import modules {modules_not_found}")
 
 source_c = '/mnt/c/Users/james/Apple/MobileSync/Backup/00008110-001E49690A07801E/'
 source_d = '/mnt/d/Apple/MobileSync/Backup/00008110-001E49690A07801E/'
@@ -85,7 +101,6 @@ def full_path(fileId):
         drive = 'd'
     return source, drive
 
-import sqlite3
 db_path = '/mnt/c/iphone-backup/Manifest.db'
 db_connection = None
 
@@ -112,6 +127,5 @@ def report_copied(entries):
             print(f'{fid},{fpath}', file=f)
 
 
-import bplist
 def parse_plist(plist):
     return bplist.BPListReader(plist).parse()
