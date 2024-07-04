@@ -1,6 +1,6 @@
 #run {
     #import "Compiler";
-    set_build_options_dc(.{ output_executable_name = "ps" });
+    set_build_options_dc(.{ output_executable_name = "myps" });
 }
 
 State :: struct {
