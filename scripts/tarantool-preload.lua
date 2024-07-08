@@ -7,6 +7,7 @@ log = require 'log'
 
 function import(module)
     rawset(_G, module, require(module))
+    return rawget(_G, module)
 end
 
 function hex(num)
