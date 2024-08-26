@@ -271,6 +271,40 @@ Stack_Or_Temporary_Allocator :: (total_size_on_stack := 4096) -> Allocator #expa
     return Allocator.{ stack_or_temporary_allocator_proc, *allocator };
 }
 
+type_info_void :: () {
+    #run print("################################################################################\n");
+    #run print("%\n", type_info(void).*);
+    #run print("%\n", type_info(string).*);
+    polymorphic_proc :: (v: $T = 1) -> s64 {
+        return type_info(T).runtime_size;
+    }
+
+    #run {
+        info := type_info(type_of(polymorphic_proc));
+
+        print("%\n", info.*);
+        for info.argument_types {
+            print("%\n", it.*);
+        }
+    }
+
+    overloaded_proc :: (v := 1) -> s64 { return v; }
+    overloaded_proc :: (v: string) -> s64 { return v.count; }
+
+    #run {
+        info := type_info(type_of(#procedure_of_call overloaded_proc()));
+
+        print("%\n", info.*);
+        for info.argument_types {
+            print("%\n", it.*);
+        }
+
+        #import "Compiler";
+        code := compiler_get_nodes(overloaded_proc);
+        print("%\n", code.*);
+    }
+}
+
 stack_or_temporary_allocator :: () {
     print("size_of(Stack_Or_Temporary_Storage): %\n", size_of(Stack_Or_Temporary_Storage));
     print("Stack_Or_Temporary_Storage.stack_buffer.count: %\n", Stack_Or_Temporary_Storage(4096).stack_buffer.count);
