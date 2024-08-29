@@ -1,8 +1,3 @@
-#run {
-    #import "Compiler";
-    set_build_options_dc(.{ output_executable_name = "pageview", write_added_strings=true });
-}
-
 /* TODO:
   - command to save the current buffer and show diffs (maybe even in split view)
       although I can just use the tmux splits for that....
@@ -3097,6 +3092,7 @@ proc_wrapper :: (args: .. Any) -> (ok: bool, error_message: string) {
 
         proc_name: string;
 
+        #import "Compiler";
         base_code := compiler_get_nodes(proc);
         if base_code.kind == .IDENT {
             code := cast(*Code_Ident) base_code;
