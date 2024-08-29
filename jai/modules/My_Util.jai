@@ -581,41 +581,72 @@ my_read_entire_file :: (name: string, log_errors := true) -> string, bool {
     s, success = my_read_entire_file(f);
 
     if log_errors && !success {
-        System :: #import "System";
-
         // If we put this error report at a lower level, we could
         // indicate how far into the file the error occurred, etc.
         code, s := System.get_error_value_and_string();
-        log("Read of '%' failed: code %, '%'.\n", name, code, s);
+        log_error("Read of '%' failed: code %, '%'.\n", name, code, s);
     }
 
     return s, success;
 }
 
-my_read_entire_file :: (f: File, log_errors := true) -> string, bool {
-    length, success := file_length(f);
+my_read_entire_file :: (f: File, zero_terminated := false, log_errors := true) -> string, bool {
+    length, success := my_file_length(f);
     if !success  return "", false;
 
     assert(length >= 0);
-    if length > 0 {
-        data, ok := read_entire_file(f);
-        return data, ok;
+    if length == 0 {
+        // Maybe special linux "file"
+        builder: String_Builder;
+        builder.allocator = context.allocator;
+
+        while true {
+            buffer := ensure_contiguous_space_and_return_available_range(*builder);
+            read_count := fread(buffer.data, 1, xx buffer.count, f.handle);
+            if read_count == 0 break;
+            assert(read_count > 0);
+
+            advance_through_ensured_space(*builder, xx read_count);
+        }
+
+        return builder_to_string(*builder), true;
     }
 
-    // Maybe special linux "file"
-    builder: String_Builder;
-    builder.allocator = context.allocator;
-
-    while true {
-        buffer := ensure_contiguous_space_and_return_available_range(*builder);
-        read_count := fread(buffer.data, 1, xx buffer.count, f.handle);
-        if read_count == 0 break;
-        assert(read_count > 0);
-
-        advance_through_ensured_space(*builder, xx read_count);
+    length_with_zero_termination := length + cast(s32) zero_terminated;
+    data := cast(*u8) alloc(length_with_zero_termination);
+    if data == null {
+        if log_errors log_error("failed to allocate % bytes", length_with_zero_termination);
+        return "", false;
     }
 
-    return builder_to_string(*builder), true;
+    // documentation seems to suggest that fread gaurantees size*count is fully read back otherwise error
+    rc := fread(data, 1, cast (u64) length, f.handle);
+    if rc < 0 {
+        free(data);
+        return "", false;
+    }
+    assert(rc == xx length);
+
+    s: string;
+    s.count = length;
+    s.data  = data;
+
+    if zero_terminated s.data[length] = 0;
+
+    return s, true;
+}
+
+// Copy-pasted version of file_length which replaces ftello64 with ftello
+my_file_length :: (file: File) -> (length: s64, success: bool) {
+    position_current := ftello(file.handle);
+    if (position_current == -1) || (position_current == DUMB_LINUX_FAILURE_NUMBER) return 0, false;
+
+    fseek(file.handle, 0, SEEK_END);
+    len := ftello(file.handle);
+    if (len == -1) || (len == DUMB_LINUX_FAILURE_NUMBER) return 0, false;
+
+    fseek(file.handle, position_current, SEEK_SET);
+    return len, true;
 }
 
 //
@@ -664,3 +695,4 @@ sysconf :: (name: s32) -> s64 #foreign libc;
 #import "Compiler";
 #import "Flat_Pool";
 #import "File";
+System :: #import "System";
