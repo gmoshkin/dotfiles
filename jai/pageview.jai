@@ -364,9 +364,9 @@ main :: () {
     }
 
     // Initialize X11 for the clipboard, which doesn't fucking work, of course it doesn't, why would anything ever work?
-    #if OS == .LINUX {
-        if getenv("DISPLAY") init_global_display();
-    }
+    // #if OS == .LINUX {
+    //     if getenv("DISPLAY") init_global_display();
+    // }
 
     // Initialize command
     init_commands();
@@ -1139,7 +1139,7 @@ select_word_delayed :: (window_buffer: *Window_Buffer, slice_of_only_text: strin
             last_selected_string = copy_string(selected_string_only_visible);
             log("selected string: %", last_selected_string);
             // FIXME: this don't work:
-            os_clipboard_set_text(last_selected_string);
+            // os_clipboard_set_text(last_selected_string);
 
             tmux_copy_to_clipboard(last_selected_string);
         } else if last_selected_string != selected_string_only_visible {
@@ -3888,6 +3888,6 @@ fmt :: inline (v: s64, minimum_digits := 1, $padding := "0") -> FormatInt #expan
 #import "Math";
 #import "Unicode";
 #import "Random";
-#if OS == .LINUX #import "X11";
-#import "Clipboard";
+// #if OS == .LINUX #import "X11";
+// #import "Clipboard";
 System :: #import "System";
