@@ -29,3 +29,60 @@ function table.values(t)
     end
     return res
 end
+
+function table.last(t)
+    return t[#t]
+end
+
+function lambda(s)
+    if type(s) == 'function' then
+        return s
+    elseif type(s) == 'string' then
+        return function(...)
+            local n_args = select('#', ...)
+            local prelude = {}
+            if n_args > 0 then
+                table.insert(prelude, 'local _1')
+                for i = 2,n_args do
+                    table.insert(prelude, ', _' .. i)
+                end
+                table.insert(prelude, '= ... ')
+                table.insert(prelude, 'local _ = _1')
+            end
+            table.insert(prelude, ';')
+
+            local prelude = table.concat(prelude, ' ')
+
+            local code = prelude .. s
+            local res, err = loadstring(code)
+            if res then
+                return res(...)
+            end
+
+            code = prelude .. 'return ' .. s
+            return loadstring(code)(...)
+        end
+    else
+        error("expected string or function")
+    end
+end
+
+function table.map(t, cb)
+    local cb = lambda(cb)
+
+    local result = {}
+    for k, v in pairs(t) do
+        result[k] = cb(k, v)
+    end
+    return result
+end
+
+function table.imap(t, cb)
+    local cb = lambda(cb)
+
+    local result = {}
+    for k, v in ipairs(t) do
+        result[k] = cb(k, v)
+    end
+    return result
+end
