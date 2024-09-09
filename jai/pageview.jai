@@ -102,16 +102,16 @@ State :: struct {
     main_window_source: enum {
         NONE;
         EXTERNAL_COMMAND;
-        STANDARD_INPUT;
+        PIPED_INPUT;
         DRAWING_MODE;
         // TODO: FILE;
     }
 
     //
-    // source: STANDARD_INPUT
+    // source: PIPED_INPUT
     //
-    input_stream_builder: String_Builder;
-    input_stream_fd: s32 = -1;
+    piped_input_builder: String_Builder;
+    piped_input_fd: s32 = -1;
     parent_process_command_line: [] string;
 
     //
@@ -346,7 +346,7 @@ main :: () {
 
     // Choose input source
     if !isatty(STDIN_FILENO) {
-        state.main_window_source = .STANDARD_INPUT;
+        state.main_window_source = .PIPED_INPUT;
         log("main window source is stdin");
     } else if state.main_window_source == .NONE {
         if state.command {
@@ -372,7 +372,7 @@ main :: () {
     signal(SIGWINCH, window_size_changed_signal_handler);
 
     // Reconfigure stdin to work properly
-    if state.main_window_source == .STANDARD_INPUT {
+    if state.main_window_source == .PIPED_INPUT {
         using context.state;
 
         print("Reading input from standard input...\n");
@@ -391,11 +391,11 @@ main :: () {
         }
 
         // Duplicate stdin to a different file descriptor
-        input_stream_fd = dup(STDIN_FILENO);
-        assert(input_stream_fd >= 0);
-        flags := fcntl(input_stream_fd, F_GETFL);
+        piped_input_fd = dup(STDIN_FILENO);
+        assert(piped_input_fd >= 0);
+        flags := fcntl(piped_input_fd, F_GETFL);
         flags |= O_NONBLOCK;
-        rc := fcntl(input_stream_fd, F_SETFL, flags);
+        rc := fcntl(piped_input_fd, F_SETFL, flags);
         assert(rc != -1);
 
         // Save tty_name
@@ -510,7 +510,7 @@ main :: () {
             // TODO: get a stdout fd from the subcommand and jam it into the epoll wait group
             case .EXTERNAL_COMMAND; maybe_get_external_command_output();
             // TODO: jam the dupped stdin fd into the epoll wait group
-            case .STANDARD_INPUT; read_some_from_input_stream();
+            case .PIPED_INPUT; read_some_from_piped_input();
 
             case .DRAWING_MODE;
                 if !pixel_buffer resize_pixel_buffer();
@@ -568,7 +568,7 @@ main :: () {
         line_buffer: [] string; // temporary storage
         if #complete main_window_source == {
             case .EXTERNAL_COMMAND; #through;
-            case .STANDARD_INPUT;
+            case .PIPED_INPUT;
                 assert(main_window_buffer != null);
                 line_buffer = build_line_buffer_for_main_window(main_window_buffer);
 
@@ -1331,16 +1331,16 @@ maybe_get_external_command_output :: () {
 }
 
 //
-// text source: STANDARD_INPUT
+// text source: PIPED_INPUT
 //
 
-read_some_from_input_stream :: () {
+read_some_from_piped_input :: () {
     using context.state;
     if !main_window_buffer_history array_add(*main_window_buffer_history, .{});
 
-    if input_stream_fd == -1 return;
+    if piped_input_fd == -1 return;
 
-    has_new_data := read_all_available_data_from_input_stream();
+    has_new_data := read_all_available_data_from_piped_input();
     if !has_new_data {
         if !parent_process_command_line return;
 
@@ -1362,22 +1362,22 @@ read_some_from_input_stream :: () {
     window_buffer := *main_window_buffer_history[current_shown_buffer_index];
     window_buffer.time_generated = current_time_consensus();
     free(window_buffer.raw_text_and_control_codes);
-    window_buffer.raw_text_and_control_codes = builder_to_string(*input_stream_builder, do_reset=false);
+    window_buffer.raw_text_and_control_codes = builder_to_string(*piped_input_builder, do_reset=false);
     separate_control_codes(window_buffer, window_buffer.raw_text_and_control_codes);
 }
 
-read_all_available_data_from_input_stream :: () -> has_new_data: bool {
+read_all_available_data_from_piped_input :: () -> has_new_data: bool {
     using context.state;
 
-    if input_stream_fd == -1 return false;
+    if piped_input_fd == -1 return false;
 
     has_new_data := false;
     while true {
-        buffer := ensure_contiguous_space_and_return_available_range(*input_stream_builder);
+        buffer := ensure_contiguous_space_and_return_available_range(*piped_input_builder);
 
-        read_count := read(input_stream_fd, buffer.data, xx buffer.count);
+        read_count := read(piped_input_fd, buffer.data, xx buffer.count);
         if read_count > 0 {
-            advance_through_ensured_space(*input_stream_builder, xx read_count);
+            advance_through_ensured_space(*piped_input_builder, xx read_count);
             has_new_data = true;
             continue;
         }
@@ -1385,11 +1385,11 @@ read_all_available_data_from_input_stream :: () -> has_new_data: bool {
         if read_count < 0 {
             code, message := System.get_error_value_and_string();
             if code != EAGAIN && code != EWOULDBLOCK {
-                append(*input_stream_builder, "\e[31m"); // color red
-                print(*input_stream_builder, "Error: (%) %\n", code, message);
-                append(*input_stream_builder, "\e[0m");
-                close(input_stream_fd);
-                input_stream_fd = -1;
+                append(*piped_input_builder, "\e[31m"); // color red
+                print(*piped_input_builder, "Error: (%) %\n", code, message);
+                append(*piped_input_builder, "\e[0m");
+                close(piped_input_fd);
+                piped_input_fd = -1;
             }
         }
 
@@ -1515,12 +1515,12 @@ render_status_line_1 :: () {
                 append(*builder, "\e[0m");
             }
         }
-        case .STANDARD_INPUT; {
+        case .PIPED_INPUT; {
             append(*builder, "\e[35m"); // color magenta
             append(*builder, "<stdin>");
             append(*builder, "\e[0m");
 
-            if input_stream_fd != -1 {
+            if piped_input_fd != -1 {
                 append(*builder, "\e[35m"); // color magenta
                 append(*builder, "...");
                 append(*builder, "\e[0m");
@@ -1639,7 +1639,7 @@ render_status_line_1 :: () {
 
         time: Apollo_Time;
         if main_window_source == {
-            case .STANDARD_INPUT;   time = current_time_consensus();
+            case .PIPED_INPUT;   time = current_time_consensus();
             case .EXTERNAL_COMMAND; time = main_window_buffer_history[current_shown_buffer_index].time_generated;
         }
         date_time := to_calendar(time, .LOCAL);
