@@ -479,10 +479,18 @@ main :: () {
         for 1..epoll_events.allocated array_add(*epoll_events, .{});
 
         event: epoll_event;
+
         event.events = EPOLLIN;
         event.data.fd = STDIN_FILENO;
         rc = epoll_ctl(epoll_fd, .ADD, STDIN_FILENO, *event);
         assert(rc == 0);
+
+        if main_window_source == .PIPED_INPUT {
+            event.events = EPOLLIN;
+            event.data.fd = piped_input_fd;
+            rc = epoll_ctl(epoll_fd, .ADD, piped_input_fd, *event);
+            assert(rc == 0);
+        }
     }
 
     status_line_init();
@@ -499,28 +507,29 @@ main :: () {
         // Wait for events
         timeout: s32 = 1000 / 10;
         if first_time then timeout = 0;
-        rc := epoll_wait(epoll_fd, epoll_events.data, xx epoll_events.count, timeout);
+        rc := epoll_wait(epoll_fd, epoll_events.data, xx epoll_events.allocated, timeout);
         if rc == -1 {
             code := errno();
             assert(code == EINTR, "%", code);
         }
+        epoll_events.count = rc;
 
         // Update main window buffer from the current source
         if state.main_window_source == {
             // TODO: get a stdout fd from the subcommand and jam it into the epoll wait group
             case .EXTERNAL_COMMAND; maybe_get_external_command_output();
-            // TODO: jam the dupped stdin fd into the epoll wait group
-            case .PIPED_INPUT; read_some_from_piped_input();
 
             case .DRAWING_MODE;
                 if !pixel_buffer resize_pixel_buffer();
         }
 
         input_received_this_tick = false;
-        for 0..rc-1 {
-            if epoll_events[it].data.fd == STDIN_FILENO {
+        for epoll_events {
+            if it.data.fd == STDIN_FILENO
                 input_received_this_tick = read_input();
-            }
+
+            if it.data.fd == piped_input_fd
+                read_some_from_piped_input();
         }
 
         frame_time = seconds_since_init();
@@ -569,7 +578,6 @@ main :: () {
         if #complete main_window_source == {
             case .EXTERNAL_COMMAND; #through;
             case .PIPED_INPUT;
-                assert(main_window_buffer != null);
                 line_buffer = build_line_buffer_for_main_window(main_window_buffer);
 
             case .DRAWING_MODE;
@@ -755,6 +763,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
     using context.state;
     using window_buffer;
 
+    if !window_buffer return .[];
     if main_window_height == 0 return .[];
 
     // `line_buffer` stores pointers into `window_buffer` or temporary storage
