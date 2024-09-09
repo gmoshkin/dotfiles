@@ -183,7 +183,7 @@ State :: struct {
     tty_name: string;
 
     epoll_fd: s32;
-    epoll_events: [1] epoll_event;
+    epoll_events: [..] epoll_event;
 }
 #add_context state: State;
 
@@ -470,11 +470,20 @@ main :: () {
     }
 
     // Setup epoll
-    state.epoll_fd = epoll_create(1);
-    assert(state.epoll_fd != -1);
-    state.epoll_events[0].events = EPOLLIN;
-    rc = epoll_ctl(state.epoll_fd, .ADD, STDIN_FILENO, state.epoll_events.data);
-    assert(rc == 0);
+    {
+        using state;
+        epoll_fd = epoll_create(1);
+        assert(epoll_fd != -1);
+
+        array_reserve(*epoll_events, 16);
+        for 1..epoll_events.allocated array_add(*epoll_events, .{});
+
+        event: epoll_event;
+        event.events = EPOLLIN;
+        event.data.fd = STDIN_FILENO;
+        rc = epoll_ctl(epoll_fd, .ADD, STDIN_FILENO, *event);
+        assert(rc == 0);
+    }
 
     status_line_init();
 
@@ -490,9 +499,10 @@ main :: () {
         // Wait for events
         timeout: s32 = 1000 / 10;
         if first_time then timeout = 0;
-        rc := epoll_wait(epoll_fd, epoll_events.data, epoll_events.count, timeout);
+        rc := epoll_wait(epoll_fd, epoll_events.data, xx epoll_events.count, timeout);
         if rc == -1 {
-            assert(errno() == EINTR);
+            code := errno();
+            assert(code == EINTR, "%", code);
         }
 
         // Update main window buffer from the current source
