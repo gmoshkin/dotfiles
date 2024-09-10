@@ -349,9 +349,14 @@ main :: () {
     context.logger_data = *context.state;
 
     if !isatty(STDOUT_FILENO) {
-        process: Process;
-        result := my_run_command(*process, ..state.command, capture_and_return_output = false);
-        exit(result.exit_code);
+        if state.command {
+            args := NewArray(state.command.count, *u8);
+            for state.command args[it_index] = it.data;
+            execvp(state.command[0].data, args.data);
+        }
+
+        print("Why would you redirect the output whithout even specifying a command?\n");
+        exit(1);
     }
 
     // Choose input source
