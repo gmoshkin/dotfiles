@@ -90,6 +90,7 @@ build_program :: (program_name: Program, debug_build: bool, dynamic_binary: bool
     mode := Optimization_Type.OPTIMIZED;
     if debug_build then mode = .DEBUG;
     set_optimization(*options, mode, preserve_debug_info = true);
+    if debug_build options.backend = .X64;
     options.array_bounds_check = .ON;
     options.cast_bounds_check  = .FATAL;
     options.null_pointer_check = .ON;
@@ -108,6 +109,11 @@ build_program :: (program_name: Program, debug_build: bool, dynamic_binary: bool
 
         if base_message.kind == .PHASE {
             using message := cast(*Message_Phase) base_message;
+
+            if phase == .ALL_TARGET_CODE_BUILT {
+                if options.backend == .LLVM print("Front-end done, passing to LLVM...\n");
+            }
+
             if phase == .READY_FOR_CUSTOM_LINK_COMMAND {
                 command: [..] string;
                 array_add(*command, linker_path);
@@ -125,10 +131,8 @@ build_program :: (program_name: Program, debug_build: bool, dynamic_binary: bool
 
                 array_add(*command, ..compiler_generated_object_files);
 
-
-                // I wonder what does this mean?
-                //                            vvvvvvv
-                array_add(*command, "-rpath=f'$ORIGIN'");
+                // Dynamic libraries are looked up in the directory of running executable
+                array_add(*command, "-rpath=$ORIGIN");
 
                 array_add(*command, sprint("%/modules/crt1.o", directory_of_this_file));
                 array_add(*command, sprint("%/modules/libc.a", directory_of_this_file));
