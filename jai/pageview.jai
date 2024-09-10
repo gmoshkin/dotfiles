@@ -234,14 +234,6 @@ List_Menu :: struct {
 }
 
 main :: () {
-    {
-        rc := syscall(SYS_pidfd_open, getpid(), 1);
-        if rc != 0 {
-            code, message := System.get_error_value_and_string();
-            log("%: %", code, message);
-        }
-        assert(rc == 0);
-    }
     // Setup struct_printer
     my_struct_printer_data := New(My_Struct_Printer_Data);
     array_add(*my_struct_printer_data.variant_printers, .{ type_info(Ascii_Or_Hex), ascii_or_hex_printer });
@@ -1291,7 +1283,7 @@ maybe_get_external_command_output :: () {
     }
 
     t0 := time;
-    last_command_result=, normal_output, error_output := my_run_command(*external_command_process, ..temp_command, capture_and_return_output = true);
+    last_command_result=, normal_output, error_output := my_run_command(..temp_command, capture_and_return_output = true);
     elapsed := seconds_since_init() - t0;
     if elapsed > 0.5 {
         log("executing % took % seconds", temp_command, elapsed);
@@ -2212,8 +2204,9 @@ scroll_string_with_control_codes :: (builder: *String_Builder, scrolling_text: s
 // my_run_command
 //
 
-my_run_command :: (process: *Process, args: .. string, working_directory := "", capture_and_return_output := false, print_captured_output := false, timeout_ms := -1, arg_quoting := Process_Argument_Quoting.QUOTE_IF_NEEDED) -> (process_result: Process_Result, output_string := "", error_string := "", timeout_reached := false) {
-    success := create_process(process, .. args, working_directory, capture_and_return_output, arg_quoting);
+my_run_command :: (args: .. string, working_directory := "", capture_and_return_output := false, print_captured_output := false, timeout_ms := -1, arg_quoting := Process_Argument_Quoting.QUOTE_IF_NEEDED) -> (process_result: Process_Result, output_string := "", error_string := "", timeout_reached := false) {
+    process: Process;
+    success := create_process(*process, .. args, working_directory, capture_and_return_output, arg_quoting);
 
     close(process.input.handle);
     process.input.handle = -1;
