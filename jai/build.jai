@@ -105,6 +105,8 @@ build_program :: (program_name: Program, debug_build: bool, dynamic_binary: bool
 
     while true {
         base_message := compiler_wait_for_message();
+        do_error_checking(null, base_message);
+
         if base_message.kind == .COMPLETE break;
 
         if base_message.kind == .PHASE {
@@ -165,3 +167,4 @@ last_char :: inline (s: string) -> u8 {
 #import "Process";
 #import "System";
 #import "String";
+#import "Check";
