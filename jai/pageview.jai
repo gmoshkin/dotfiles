@@ -120,9 +120,17 @@ State :: struct {
     command: [..] string;
 
     external_command_process: Process;
+    external_command_started: float64;
+    external_command_output_builder: String_Builder;
+    external_command_error_builder: String_Builder;
+
+    external_command_finished_count: u64;
+    external_command_last_handled_output_version: u64;
+
     command_run_period_seconds := 1.0;
     time_next_command_run : float64 = -1.0;
     last_command_result: Process_Result;
+    last_command_duration: float64;
 
     //
     // source: DRAWING_MODE
@@ -506,6 +514,8 @@ main :: () {
     array_reserve(*state.input_buffer, 4096);
 
     first_time := true;
+    last_frame_time := -FLOAT64_INFINITY;
+    profile_t0 = seconds_since_init();
     while !should_exit {
         defer first_time = false;
         using state;
@@ -514,32 +524,78 @@ main :: () {
         // Wait for events
         timeout: s32 = 1000 / 10;
         if first_time then timeout = 0;
-        rc := epoll_wait(epoll_fd, epoll_events.data, xx epoll_events.allocated, timeout);
-        if rc == -1 {
-            code := errno();
-            assert(code == EINTR, "%", code);
-        }
-        epoll_events.count = rc;
+
+        Profile();
 
         // Update main window buffer from the current source
         if state.main_window_source == {
-            // TODO: get a stdout fd from the subcommand and jam it into the epoll wait group
-            case .EXTERNAL_COMMAND; maybe_get_external_command_output();
+            case .EXTERNAL_COMMAND;
+                maybe_spawn_external_command();
 
             case .DRAWING_MODE;
                 if !pixel_buffer resize_pixel_buffer();
         }
 
-        input_received_this_tick = false;
-        for epoll_events {
-            if it.data.fd == STDIN_FILENO
-                input_received_this_tick = read_input();
+        Profile();
 
-            if it.data.fd == piped_input_fd
-                read_some_from_piped_input();
+        rc := epoll_wait(epoll_fd, epoll_events.data, xx epoll_events.allocated, timeout);
+        if rc == -1 {
+            code := errno();
+            assert(code == EINTR, "%", code);
         }
 
+        Profile();
+
         frame_time = seconds_since_init();
+        target_fps := 60;
+        min_period := 1000.0 / target_fps;
+        elapsed_ms := 1000 * (frame_time - last_frame_time);
+        if elapsed_ms < min_period {
+            sleep_milliseconds(xx (min_period - elapsed_ms));
+        }
+        last_frame_time = frame_time;
+
+        Profile();
+
+        epoll_events.count = rc;
+
+        input_received_this_tick = false;
+
+        // Handle IO events
+        external_command_ready := false;
+        external_command_output_closed := false;
+        external_command_error_closed := false;
+        for epoll_events {
+            if it.data.fd == STDIN_FILENO {
+                input_received_this_tick = read_input();
+            } else if it.data.fd == piped_input_fd {
+                read_some_from_piped_input();
+            } else if it.data.fd == external_command_process.output.handle {
+                external_command_ready = true;
+                external_command_output_closed ||= xx it.events & EPOLLHUP;
+            } else if it.data.fd == external_command_process.error.handle {
+                external_command_ready = true;
+                external_command_error_closed ||= xx it.events & EPOLLHUP;
+            } else {
+                log("unknown fd %: %", it.data.fd, cast(Epoll_Events) it.events);
+            }
+        }
+
+        Profile();
+
+        if external_command_ready {
+            read_some_from_external_command(external_command_output_closed, external_command_error_closed);
+        }
+
+        Profile();
+
+        // Update main window buffer from the current source
+        if state.main_window_source == {
+            case .EXTERNAL_COMMAND;
+                maybe_handle_external_command_output();
+        }
+
+        Profile();
 
         // FIXME: stupid fucking windows terminal flickers when you redraw a
         // large portion of the screen. I could check per line if something
@@ -575,7 +631,11 @@ main :: () {
         }
 
 
+        Profile();
+
         render_status_line_1();
+
+        Profile();
 
         //
         // Main window
@@ -636,12 +696,18 @@ main :: () {
             memory_pool_for_last_shown_line_buffer_high_water_mark = max(memory_pool_for_last_shown_line_buffer_high_water_mark, flat_pool_allocated(*memory_pool_for_last_shown_line_buffer));
         }
 
+        Profile();
+
         maybe_render_completion_menu();
+
+        Profile();
 
         //
         // second status line
         //
         render_status_line_2();
+
+        Profile();
 
         // memory usage window
         if show_memory_usage
@@ -722,6 +788,8 @@ main :: () {
             write_string(substring(total_string, start));
         }
 
+        Profile();
+
         // draw particles
         if party_time do_party_mode();
 
@@ -738,6 +806,8 @@ main :: () {
 
         if should_exit break;
 
+        Profile();
+
         // cleanup child processes
         for *children_for_copying_to_clipboard {
             ok, result := get_process_result(*it.process, timeout_ms = 0);
@@ -750,8 +820,13 @@ main :: () {
             remove it;
         }
 
+        Profile();
+
         temporary_storage_high_water_mark = max(temporary_storage_high_water_mark, context.temporary_storage.high_water_mark);
         reset_temporary_storage();
+
+        Profile();
+
     }
 
     // Restore terminal state
@@ -1267,13 +1342,14 @@ tmux_copy_to_clipboard :: (text: string) {
 // text source: EXTERNAL_COMMAND
 //
 
-maybe_get_external_command_output :: () {
+maybe_spawn_external_command :: () {
     using context.state;
 
     time := seconds_since_init();
+    if external_command_process.output.handle != -1 return;
+    if external_command_process.error.handle != -1 return;
+    if last_command_result.type == .STILL_RUNNING return;
     if time < time_next_command_run return;
-
-    using new_window_buffer: Window_Buffer;
 
     // If the command is a single argument which contains a string,
     // assume it's some shell pipeline & run it in a shell
@@ -1283,23 +1359,140 @@ maybe_get_external_command_output :: () {
     }
 
     t0 := time;
-    last_command_result=, normal_output, error_output := my_run_command(..temp_command, capture_and_return_output = true);
-    elapsed := seconds_since_init() - t0;
-    if elapsed > 0.5 {
-        log("executing % took % seconds", temp_command, elapsed);
+    process := *external_command_process;
+    success := create_process(process, ..temp_command, capture_and_return_output=true);
+    if !success {
+        last_command_result.type = .FAILED_TO_LAUNCH;
+        return;
     }
-    time_next_command_run = time + command_run_period_seconds;
 
+    external_command_started = seconds_since_init();
+    last_command_result.type = .STILL_RUNNING;
+
+    close(process.input.handle);
+    process.input.handle = -1;
+
+    event: epoll_event;
+    rc: s32;
+
+    event.events = EPOLLIN;
+    event.data.fd = process.output.handle;
+    rc = epoll_ctl(epoll_fd, .ADD, process.output.handle, *event);
+    assert(rc == 0);
+
+    event.events = EPOLLIN;
+    event.data.fd = process.error.handle;
+    rc = epoll_ctl(epoll_fd, .ADD, process.error.handle, *event);
+    assert(rc == 0);
+}
+
+read_some_from_external_command :: (output_closed: bool, error_closed: bool) {
+    using context.state;
+
+    process := *external_command_process;
+    if process.output.handle != -1 {
+        handle := *process.output.handle;
+        builder := *external_command_output_builder;
+        ok, has_new_data := read_all_available_data(handle.*, builder);
+        if !ok {
+            code, message := System.get_error_value_and_string();
+            log_error("Failed reading subprocess output: [%] %\n", code, message);
+
+            shutdown_fd(handle);
+        }
+        if output_closed {
+            shutdown_fd(handle);
+        }
+    }
+
+    Profile();
+
+    if process.error.handle != -1 {
+        handle := *external_command_process.error.handle;
+        builder := *external_command_error_builder;
+        ok, has_new_data := read_all_available_data(handle.*, builder);
+        if !ok {
+            code, message := System.get_error_value_and_string();
+            log_error("Failed reading subprocess error stream: [%] %\n", code, message);
+
+            shutdown_fd(handle);
+        }
+        if error_closed {
+            shutdown_fd(handle);
+        }
+    }
+
+    Profile();
+
+    if last_command_result.type == .STILL_RUNNING {
+        success:, last_command_result = get_process_result(process, timeout_ms=0);
+    }
+
+    Profile();
+
+    if process.output.handle == -1 && process.error.handle == -1 && last_command_result.type != .STILL_RUNNING {
+        now := seconds_since_init();
+        last_command_duration = now - external_command_started;
+        if last_command_duration > .5 {
+            log("command finished: elapsed: %", last_command_duration);
+        }
+        time_next_command_run = now + command_run_period_seconds;
+        external_command_finished_count += 1;
+    }
+}
+
+maybe_handle_external_command_output :: () {
+    using context.state;
+
+    if external_command_last_handled_output_version != 0 &&
+        external_command_finished_count == external_command_last_handled_output_version
+    {
+        return;
+    }
+    external_command_last_handled_output_version = external_command_finished_count;
+
+    using new_window_buffer: Window_Buffer;
     time_generated = current_time_consensus();
+    raw_text_and_control_codes = prepare_raw_text_and_control_codes_from_external_command();
+
+    // FIXME: compute and compare hash, not the whole buffer
+    if main_window_buffer_history && raw_text_and_control_codes == main_window_buffer_history[main_window_buffer_history.count - 1].raw_text_and_control_codes
+        return;
+
+    Profile();
+    separate_control_codes(*new_window_buffer, raw_text_and_control_codes);
+    Profile("length: %, lines: %, codes: %", raw_text_and_control_codes.count, line_offsets.count, control_codes.count);
+
+    new_window_buffer.index_in_history = main_window_buffer_history.count;
+    // TODO: could do some big-brain compression here for old buffers,
+    // currently when doing `ps` 10 times a second on a pytest in picodata I get
+    // 20meg memory usage by the end with about 500 buffers which is liveabel
+    // for a while...
+    array_add(*main_window_buffer_history, new_window_buffer);
+
+    if show_latest_buffer {
+        current_shown_buffer_index = new_window_buffer.index_in_history;
+    }
+}
+
+prepare_raw_text_and_control_codes_from_external_command :: () -> string {
+    using context.state;
 
     if last_command_result.type == .FAILED_TO_LAUNCH
     {
-        prefix :: "\e[31m";
-        raw_text_and_control_codes = builder_to_string(*error_log_builder, extra_bytes_to_prepend=prefix.count);
-        memcpy(raw_text_and_control_codes.data, prefix.data, prefix.count);
+        prefix :: "\e[31m"; // color red
+        error_message := builder_to_string(*error_log_builder, extra_bytes_to_prepend=prefix.count);
+        memcpy(error_message.data, prefix.data, prefix.count);
+        return error_message;
     }
-    else if error_output
-    {
+
+    reset_builders := external_command_finished_count > 0;
+
+    // FIXME: could reuse this memory
+    normal_output := builder_to_string(*external_command_output_builder, do_reset=reset_builders);
+    error_output := builder_to_string(*external_command_error_builder, do_reset=reset_builders);
+
+    if error_output {
         error_builder: String_Builder; error_builder.allocator = temp;
         tail := error_output;
         while tail {
@@ -1320,30 +1513,12 @@ maybe_get_external_command_output :: () {
         }
         array_add(*buffer, ..cast([] u8) normal_output);
 
-        raw_text_and_control_codes = xx buffer;
         free(normal_output);
         free(error_output);
-    }
-    else
-    {
-        raw_text_and_control_codes = normal_output;
+        return xx buffer;
     }
 
-    if main_window_buffer_history && raw_text_and_control_codes == main_window_buffer_history[main_window_buffer_history.count - 1].raw_text_and_control_codes
-        return;
-
-    separate_control_codes(*new_window_buffer, raw_text_and_control_codes);
-
-    new_window_buffer.index_in_history = main_window_buffer_history.count;
-    // TODO: could do some big-brain compression here for old buffers,
-    // currently when doing `ps` 10 times a second on a pytest in picodata I get
-    // 20meg memory usage by the end with about 500 buffers which is liveabel
-    // for a while...
-    array_add(*main_window_buffer_history, new_window_buffer);
-
-    if show_latest_buffer {
-        current_shown_buffer_index = new_window_buffer.index_in_history;
-    }
+    return normal_output;
 }
 
 //
@@ -1367,9 +1542,8 @@ read_some_from_piped_input :: () {
             for parent_process_command_line {
                 array_add(*command, copy_string(it));
             }
-            time_next_command_run = frame_time;
+            time_next_command_run = -1;
             main_window_source = .EXTERNAL_COMMAND;
-            maybe_get_external_command_output();
         }
 
         return;
@@ -1387,30 +1561,35 @@ read_all_available_data_from_piped_input :: () -> has_new_data: bool {
 
     if piped_input_fd == -1 return false;
 
-    has_new_data := false;
-    while true {
-        buffer := ensure_contiguous_space_and_return_available_range(*piped_input_builder);
+    ok, has_new_data := read_all_available_data(piped_input_fd, *piped_input_builder);
+    if !ok {
+        code, message := System.get_error_value_and_string();
+        append(*piped_input_builder, "\e[31m"); // color red
+        print(*piped_input_builder, "Failed reading from stdin pipe: (%) %\n", code, message);
+        append(*piped_input_builder, "\e[0m");
 
-        read_count := read(piped_input_fd, buffer.data, xx buffer.count);
-        if read_count > 0 {
-            advance_through_ensured_space(*piped_input_builder, xx read_count);
-            has_new_data = true;
-            continue;
-        }
-
-        if read_count < 0 {
-            code, message := System.get_error_value_and_string();
-            if code != EAGAIN && code != EWOULDBLOCK {
-                append(*piped_input_builder, "\e[31m"); // color red
-                print(*piped_input_builder, "Error: (%) %\n", code, message);
-                append(*piped_input_builder, "\e[0m");
-                close(piped_input_fd);
-                piped_input_fd = -1;
-            }
-        }
-
-        return has_new_data;
+        shutdown_fd(*piped_input_fd);
     }
+
+    return has_new_data;
+}
+
+shutdown_fd :: (fd: *s32) {
+    using context.state;
+
+    rc := epoll_ctl(epoll_fd, .DEL, fd.*, null);
+    if rc != 0 {
+        code, message := System.get_error_value_and_string();
+        log_error("epoll_ctl failed: [%] %", code, message);
+    }
+
+    rc = close(fd.*);
+    if rc != 0 {
+        code, message := System.get_error_value_and_string();
+        log_error("close failed: [%] %", code, message);
+    }
+
+    fd.* = -1;
 }
 
 //
@@ -1510,12 +1689,23 @@ render_status_line_1 :: () {
             append(*builder, "\e[35m"); // color magenta
             append(*builder, ")");
             append(*builder, "\e[0m");
-            if last_command_result.exit_code != 0 {
+            if last_command_result.type == .STILL_RUNNING {
+                append(*builder, "\e[35m"); // color magenta
+
+                widget :: string.["⢎⡀", "⢆⡠", "⢄⡰", "⢀⡱", "⠈⡱", "⠊⠱", "⠎⠑", "⢎⠁"];
+                append(*builder, " ");
+                t := cast(int) (frame_time * 10);
+                append(*builder, widget[t % widget.count]);
+
+                append(*builder, "\e[0m");
+            } else if last_command_result.exit_code != 0 {
                 append(*builder, "\e[35m"); // color magenta
                 append(*builder, " -> ");
                 append(*builder, "\e[31m"); // color red
                 print(*builder, "%", last_command_result.exit_code);
                 append(*builder, "\e[0m");
+            } else {
+                append(*builder, "   ");
             }
 
             // command rerun period
@@ -1534,13 +1724,13 @@ render_status_line_1 :: () {
         case .PIPED_INPUT; {
             append(*builder, "\e[35m"); // color magenta
             append(*builder, "<stdin>");
-            append(*builder, "\e[0m");
 
-            if piped_input_fd != -1 {
-                append(*builder, "\e[35m"); // color magenta
-                append(*builder, "...");
-                append(*builder, "\e[0m");
-            }
+            widget :: string.["⢎⡀", "⢆⡠", "⢄⡰", "⢀⡱", "⠈⡱", "⠊⠱", "⠎⠑", "⢎⠁"];
+            append(*builder, " ");
+            t := cast(int) (frame_time * 10);
+            append(*builder, widget[t % widget.count]);
+
+            append(*builder, "\e[0m");
         }
         case .DRAWING_MODE; {
             append(*builder, "\e[36m"); // color cyan
@@ -1653,10 +1843,9 @@ render_status_line_1 :: () {
         append(*right_side_builder, "\e[0m");
         append(*right_side_builder, " ");
 
-        time: Apollo_Time;
-        if main_window_source == {
-            case .PIPED_INPUT;   time = current_time_consensus();
-            case .EXTERNAL_COMMAND; time = main_window_buffer_history[current_shown_buffer_index].time_generated;
+        time := current_time_consensus();
+        if main_window_source == .EXTERNAL_COMMAND && main_window_buffer_history {
+            time = main_window_buffer_history[current_shown_buffer_index].time_generated;
         }
         date_time := to_calendar(time, .LOCAL);
 
@@ -1738,14 +1927,19 @@ render_status_line_2 :: () {
     } else {
         if input_mode ==  {
             case .NAVIGATE;
-                main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
+                line_count := 0;
+                if main_window_buffer_history {
+                    main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
+                    line_count = main_window_buffer.line_offsets.count;
+                }
+
                 text_start := buffer.count;
                 {
                     append(*builder, "offset: ");
                     if !line_wrapping then print(*builder, "%, ", col_offset);
                     print(*builder, "%", row_offset);
                     if line_wrapping then print(*builder, "(+%)", wrapped_line_offset);
-                    print(*builder, "/%  ", main_window_buffer.line_offsets.count);
+                    print(*builder, "/%  ", line_count);
                     if stick_to_the_bottom then append(*builder, "sinking   ");
 
                     // Print current input buffer
@@ -2201,112 +2395,35 @@ scroll_string_with_control_codes :: (builder: *String_Builder, scrolling_text: s
 }
 
 //
-// my_run_command
+// io stuff
 //
 
-my_run_command :: (args: .. string, working_directory := "", capture_and_return_output := false, print_captured_output := false, timeout_ms := -1, arg_quoting := Process_Argument_Quoting.QUOTE_IF_NEEDED) -> (process_result: Process_Result, output_string := "", error_string := "", timeout_reached := false) {
-    process: Process;
-    success := create_process(*process, .. args, working_directory, capture_and_return_output, arg_quoting);
-
-    close(process.input.handle);
-    process.input.handle = -1;
-
-    if !success    return .{type = .FAILED_TO_LAUNCH};
-
-    defer deinit(*process);
-
-    output_string: string;
-    error_string : string;
-    timeout_reached: bool;
-
-    exit_timeout_ms := timeout_ms;
-    if capture_and_return_output {
-        output_builder: String_Builder;
-        init_string_builder(*output_builder);
-        error_builder : String_Builder;
-        init_string_builder(*error_builder);
-
-        start_time := current_time_monotonic();
-        remaining_timeout_ms := timeout_ms;
-
-        while true {
-            output_buffer := ensure_contiguous_space_and_return_available_range(*output_builder);
-            error_buffer := ensure_contiguous_space_and_return_available_range(*error_builder);
-            success, output_bytes, error_bytes := read_from_process(*process, output_buffer, error_buffer, remaining_timeout_ms);
-
-            if output_bytes {
-                advance_through_ensured_space(*output_builder, output_bytes);
-                if print_captured_output {
-                    new_data := to_string(output_buffer.data, output_bytes);
-                    write_string(new_data, to_standard_error = false);
-                }
-            }
-            if error_bytes {
-                advance_through_ensured_space(*error_builder, error_bytes);
-                if print_captured_output {
-                    new_data := to_string(error_buffer.data, error_bytes);
-                    write_string(new_data, to_standard_error = true);
-                }
-            }
-
-            if !success {
-                log_error("Could not read output of command \"%\"", get_quoted_command_string(args,, temp));
-                kill_process(*process);
-                break;
-            }
-
-            if timeout_ms >= 0 {
-                now := current_time_monotonic();
-                remaining_timeout_ms = timeout_ms - to_milliseconds(now - start_time);
-
-                if remaining_timeout_ms <= 0 {
-                    // We’ve hit a timeout! Time to kill the child. (will be reaped below)
-                    timeout_reached = true;
-                    success := kill_process(*process);
-                    if !success {
-                        error_code, error_string := System.get_error_value_and_string();
-                        log_error("Could not kill child for command \"%\": % %", get_quoted_command_string(args,, temp), error_code, error_string);
-                    }
-                    break;
-                }
-            }
-
-            if process.output.eof && process.error.eof    break;
-        }
-
-        output_string = builder_to_string(*output_builder);
-        error_string  = builder_to_string(*error_builder);
-        exit_timeout_ms = -1;
-    }
-
-    process_result: Process_Result;
-    exit_code: s32;
+read_all_available_data :: (fd: s32, builder: *String_Builder) -> (success: bool, has_new_data: bool) {
+    has_new_data := false;
+    i := 0;
     while true {
-        success, process_result = get_process_result(*process, exit_timeout_ms);
-        if !success {
-            error_code, error_string := System.get_error_value_and_string();
-            log_error("Could not get process result for command \"%\": % %", get_quoted_command_string(args,, temp), error_code, error_string);
-            kill_process(*process);
-            process_result = .{type = .EXITED, exit_code = 1};
-            break;
+        buffer := ensure_contiguous_space_and_return_available_range(builder);
+        i += 1;
+
+        read_count := read(fd, buffer.data, xx buffer.count);
+        if read_count < 0 {
+            code := System.get_error_value();
+            #assert EAGAIN == EWOULDBLOCK;
+            if code == EINTR continue;
+            if code == EWOULDBLOCK return true, has_new_data;
+
+            return false, has_new_data;
         }
 
-        if process_result.type != .STILL_RUNNING     break;
+        if read_count > 0 {
+            advance_through_ensured_space(builder, xx read_count);
+            has_new_data = true;
 
-        assert(exit_timeout_ms >= 0);
-        exit_timeout_ms = -1;
-        timeout_reached = true;
-        // Kill process and then try to reap it again
-        success = kill_process(*process);
-        if !success {
-            error_code, error_string := System.get_error_value_and_string();
-            log_error("Could not kill child for command \"%\": % %", get_quoted_command_string(args,, temp), error_code, error_string);
-            process_result = .{type = .EXITED, exit_code = 1};
-            break;
+            continue;
         }
+
+        return true, has_new_data;
     }
-
-    return process_result, output_string, error_string, timeout_reached;
 }
 
 //
@@ -2322,7 +2439,8 @@ read_input :: () -> bool {
                                    xx (input_buffer.allocated - input_buffer.count));
         if rc < 0 {
             code, message := System.get_error_value_and_string();
-            if code != EAGAIN && code != EWOULDBLOCK {
+            #assert EAGAIN == EWOULDBLOCK;
+            if code != EWOULDBLOCK {
                 log_error("Failed reading from stdin: #% %", code, message);
             }
             return false;
@@ -2726,10 +2844,10 @@ handle_input_event :: (_event: Input_Event) {
             }
 
             row_offset = max(row_offset, -(main_window_height - 1));
-            row_offset = min(row_offset, main_window_buffer.line_offsets.count - 1);
+            row_offset = min(row_offset, max(0, main_window_buffer.line_offsets.count - 1));
 
             col_offset = max(col_offset, -(cast(int) terminal_size.cols - 1));
-            col_offset = min(col_offset, main_window_buffer.max_line_length - 1);
+            col_offset = min(col_offset, max(0, main_window_buffer.max_line_length - 1));
 
         case .INPUT_SEARCH_STRING; #through;
         case .INPUT_COMMAND;
@@ -3602,7 +3720,8 @@ my_logger :: (message: string, data: *void, info: Log_Info) {
 
     builder: String_Builder;
     print_date_time_for_log(*builder, to_calendar(current_time_consensus(), .LOCAL));
-    print(*builder, ": %\n", message);
+    filename := path_filename(info.location.fully_pathed_filename);
+    print(*builder, ": [%:%] %\n", filename, info.location.line_number, message);
     file_write(*state.log_file, builder_to_string(*builder,, temp));
     fflush(state.log_file.handle);
 }
@@ -3882,6 +4001,45 @@ tcgetattr :: (fd: s32, termios: *Termios) -> s32 #foreign libc;
 tcsetattr :: (fd: s32, optional_actions: s32, termios: *Termios) -> s32 #foreign libc;
 
 SYS_pidfd_open :: 434;
+
+Epoll_Events :: enum_flags {
+    EPOLLIN          :: 0x0001;
+    EPOLLPRI         :: 0x0002;
+    EPOLLOUT         :: 0x0004;
+    EPOLLERR         :: 0x0008;
+    EPOLLHUP         :: 0x0010;
+    EPOLLNVAL        :: 0x0020;
+    EPOLLRDNORM      :: 0x0040;
+    EPOLLRDBAND      :: 0x0080;
+    EPOLLWRNORM      :: 0x0100;
+    EPOLLWRBAND      :: 0x0200;
+    EPOLLMSG         :: 0x0400;
+    EPOLLRDHUP       :: 0x2000;
+    EPOLL_URING_WAKE :: 1 << 27;
+    EPOLLEXCLUSIVE   :: 1 << 28;
+    EPOLLWAKEUP      :: 1 << 29;
+    EPOLLONESHOT     :: 1 << 30;
+    EPOLLET          :: 1 << 31;
+}
+
+profile_t0: f64 = 0.0;
+Profile :: (format: string = "", args: ..Any, loc := #caller_location) #expand {
+    t1 := seconds_since_init();
+    elapsed := t1 - `profile_t0;
+    if elapsed > .1 {
+        msg := tprint(format, ..args);
+        log("[elapsed: %]: %", elapsed, msg, loc=loc);
+    }
+    `profile_t0 = t1;
+} @PrintLike
+
+debug_log :: ($args: .. Code) #expand {
+    builder: String_Builder;
+    builder.allocator = temp;
+    print_vars_helper(*builder, .{}, args);
+    s := builder_to_string(*builder,, temp);
+    log("%", trim_right(s));
+}
 
 //
 // formatting utilities

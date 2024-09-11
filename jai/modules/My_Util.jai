@@ -232,9 +232,9 @@ count_visible_characters :: (text: string) -> visible_count: s64 {
     cursor := 0;
     while cursor < text.count {
         index := find_index_from_left(text, #char "\e", cursor);
-        if index < 0 return visible_count + text.count - cursor;
+        if index < 0 return visible_count + utf8_count(substring(text, cursor));
 
-        visible_count += index - cursor;
+        visible_count += utf8_count(substring(text, cursor, index));
         cursor = index + 1; // `+ 1` to skip the current "\e"
 
         char := text[cursor];
