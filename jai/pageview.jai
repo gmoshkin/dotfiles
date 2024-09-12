@@ -349,10 +349,19 @@ main :: () {
     context.logger_data = *context.state;
 
     if !isatty(STDOUT_FILENO) {
-        if state.command {
-            args := NewArray(state.command.count, *u8);
-            for state.command args[it_index] = it.data;
-            execvp(state.command[0].data, args.data);
+        using state;
+        if command {
+            if command.count == 1 && find_index_from_left(command[0], #char " ") != -1 {
+                array_insert_at(*command, "/bin/sh", 0);
+                array_insert_at(*command, "-c", 1);
+            }
+
+            args := NewArray(command.count, *u8);
+            for command args[it_index] = it.data;
+            execvp(command[0].data, args.data);
+            code, message := get_error_value_and_string();
+            print("execvp(%) failed: [%] %\n", command, code, message);
+            exit(1);
         }
 
         print("Why would you redirect the output whithout even specifying a command?\n");
@@ -1326,7 +1335,7 @@ tmux_copy_to_clipboard :: (text: string) {
     process: Process;
     ok := create_process(*process, ..command, capture_and_return_output = false);
     if !ok {
-        code, message := System.get_error_value_and_string();
+        code, message := get_error_value_and_string();
         log_error("starting command % failed: #% %", command, code, message);
         return;
     }
@@ -1395,7 +1404,7 @@ read_some_from_external_command :: (output_closed: bool, error_closed: bool) {
         builder := *external_command_output_builder;
         ok, has_new_data := read_all_available_data(handle.*, builder);
         if !ok {
-            code, message := System.get_error_value_and_string();
+            code, message := get_error_value_and_string();
             log_error("Failed reading subprocess output: [%] %\n", code, message);
 
             shutdown_fd(handle);
@@ -1412,7 +1421,7 @@ read_some_from_external_command :: (output_closed: bool, error_closed: bool) {
         builder := *external_command_error_builder;
         ok, has_new_data := read_all_available_data(handle.*, builder);
         if !ok {
-            code, message := System.get_error_value_and_string();
+            code, message := get_error_value_and_string();
             log_error("Failed reading subprocess error stream: [%] %\n", code, message);
 
             shutdown_fd(handle);
@@ -1563,7 +1572,7 @@ read_all_available_data_from_piped_input :: () -> has_new_data: bool {
 
     ok, has_new_data := read_all_available_data(piped_input_fd, *piped_input_builder);
     if !ok {
-        code, message := System.get_error_value_and_string();
+        code, message := get_error_value_and_string();
         append(*piped_input_builder, "\e[31m"); // color red
         print(*piped_input_builder, "Failed reading from stdin pipe: (%) %\n", code, message);
         append(*piped_input_builder, "\e[0m");
@@ -1579,13 +1588,13 @@ shutdown_fd :: (fd: *s32) {
 
     rc := epoll_ctl(epoll_fd, .DEL, fd.*, null);
     if rc != 0 {
-        code, message := System.get_error_value_and_string();
+        code, message := get_error_value_and_string();
         log_error("epoll_ctl failed: [%] %", code, message);
     }
 
     rc = close(fd.*);
     if rc != 0 {
-        code, message := System.get_error_value_and_string();
+        code, message := get_error_value_and_string();
         log_error("close failed: [%] %", code, message);
     }
 
@@ -2438,7 +2447,7 @@ read_input :: () -> bool {
         rc: = xx read(STDIN_FILENO, input_buffer.data + input_buffer.count,
                                    xx (input_buffer.allocated - input_buffer.count));
         if rc < 0 {
-            code, message := System.get_error_value_and_string();
+            code, message := get_error_value_and_string();
             #assert EAGAIN == EWOULDBLOCK;
             if code != EWOULDBLOCK {
                 log_error("Failed reading from stdin: #% %", code, message);
@@ -3459,7 +3468,7 @@ set_log_file :: (new_log_file: string) -> (ok: bool, error_message: string) {
 
     log_file=, ok := file_open(log_file_name, for_writing = true, keep_existing_content = true, log_errors = false);
     if !ok {
-        code, message := System.get_error_value_and_string();
+        code, message := get_error_value_and_string();
         return false, tprint("open('%'): (%) %", new_log_file, code, message);
     }
     log_file = log_file;
@@ -3519,7 +3528,7 @@ save_current_buffer :: (filename: string) -> (ok := true, error_message := "") {
 
     file, ok = file_open(filename, for_writing=true, log_errors=false);
     if !ok {
-        code, message := System.get_error_value_and_string();
+        code, message := get_error_value_and_string();
         return false, tprint("failed creating file '%': #% %", filename, code, message);
     }
     defer file_close(*file);
@@ -3528,7 +3537,7 @@ save_current_buffer :: (filename: string) -> (ok := true, error_message := "") {
     ok = file_write(*file, raw_text_and_control_codes);
 
     if !ok {
-        code, message := System.get_error_value_and_string();
+        code, message := get_error_value_and_string();
         return false, tprint("failed writing to file '%': #% %", filename, code, message);
     }
 
@@ -3929,6 +3938,8 @@ window_size_changed_signal_handler :: (signal: s32) #c_call #no_context {
 
 libc :: #system_library "libc";
 
+strerror :: (code: u32) -> *u8 #foreign libc;
+
 //
 // terminal settings
 //
@@ -4041,6 +4052,12 @@ debug_log :: ($args: .. Code) #expand {
     log("%", trim_right(s));
 }
 
+get_error_value_and_string :: () -> u32, string {
+    code := System.get_error_value();
+    message := to_string(strerror(xx code));
+    return xx code, copy_temporary_string(message);
+}
+
 //
 // formatting utilities
 //
@@ -4061,7 +4078,6 @@ fmt :: inline (v: s64, minimum_digits := 1, $padding := "0") -> FormatInt #expan
 #import "String";
 #import "POSIX";
 #import "Linux";
-#import "System";
 #import "File";
 #import "Flat_Pool";
 #import "Print_Vars";
