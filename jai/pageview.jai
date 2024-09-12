@@ -130,7 +130,10 @@ State :: struct {
     command_run_period_seconds := 1.0;
     time_next_command_run : float64 = -1.0;
     last_command_result: Process_Result;
-    last_command_duration: float64;
+    last_command_finish: float64 = -1.0;
+    second_to_last_command_finish: float64 = -FLOAT64_INFINITY;
+
+    anti_flicker_period: float64 = 0.2;
 
     //
     // source: DRAWING_MODE
@@ -1441,7 +1444,9 @@ read_some_from_external_command :: (output_closed: bool, error_closed: bool) {
 
     if process.output.handle == -1 && process.error.handle == -1 && last_command_result.type != .STILL_RUNNING {
         now := seconds_since_init();
-        last_command_duration = now - external_command_started;
+        second_to_last_command_finish = last_command_finish;
+        last_command_finish = now;
+        last_command_duration := last_command_finish - external_command_started;
         if last_command_duration > .5 {
             log("command finished: elapsed: %", last_command_duration);
         }
@@ -1698,7 +1703,7 @@ render_status_line_1 :: () {
             append(*builder, "\e[35m"); // color magenta
             append(*builder, ")");
             append(*builder, "\e[0m");
-            if last_command_result.type == .STILL_RUNNING {
+            if last_command_result.type == .STILL_RUNNING || (frame_time - second_to_last_command_finish < anti_flicker_period) {
                 append(*builder, "\e[35m"); // color magenta
 
                 widget :: string.["⢎⡀", "⢆⡠", "⢄⡰", "⢀⡱", "⠈⡱", "⠊⠱", "⠎⠑", "⢎⠁"];
@@ -3428,6 +3433,7 @@ init_commands :: () {
         array_add(*commands, make_command("current_shown_buffer_number", set_current_shown_buffer_index));
         array_add(*commands, make_command("clear_buffer_history_up_to", clear_buffer_history_up_to));
         array_add(*commands, make_command("save_current_buffer", save_current_buffer));
+        array_add(*commands, make_command("anti_flicker_period", set_anti_flicker_period));
     }
 }
 
@@ -3485,6 +3491,14 @@ set_current_shown_buffer_index :: (number: s64) -> (ok: bool, error_message: str
 
     show_latest_buffer = (index == main_window_buffer_history.count - 1);
     current_shown_buffer_index = index;
+
+    return true, "";
+}
+
+set_anti_flicker_period :: (number: float64) -> (ok: bool, error_message: string) {
+    using context.state;
+
+    anti_flicker_period = number;
 
     return true, "";
 }
