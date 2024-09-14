@@ -65,7 +65,7 @@ build_program :: (program_name: Program, debug_build: bool, dynamic_binary: bool
             source = "ps.jai";
         case .STATUS_LINE;
             exe_name = "status-line-linux";
-            exe_path = "../tmux/";
+            exe_path = sprint("%/../tmux/", directory_of_this_file);
             source = sprint("%/../tmux/status-line.jai", directory_of_this_file);
         case .ALL;
             assert(false, "unreachable");
