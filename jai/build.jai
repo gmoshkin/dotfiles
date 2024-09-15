@@ -1,26 +1,74 @@
+directory_of_this_file :: #run trim_right(path_strip_filename(#file), "/");
+
 #run {
     set_build_options_dc(.{do_output = false});
 
-    debug_build := false;
-    dynamic_binary := false;
     program := Program.ALL;
+    mode := Mode.COMPILE;
+    compile_parameters: Compile_Parameters;
+    inspect_parameters: Inspect_Parameters;
 
     cursor := 0;
     options := get_build_options();
     args := options.compile_time_command_line;
     while cursor < args.count {
-        defer cursor += 1;
-        it := args[cursor];
-        if it == {
-            case "debug";       debug_build = true;
-            case "dynamic";     dynamic_binary = true;
+        arg: string;
+        take_argument(args, *cursor, *arg);
+        if arg == {
+            case "debug";       compile_parameters.debug_build = true;
+            case "dynamic";     compile_parameters.dynamic_binary = true;
+
+            case "source-info-generate";
+                mode = .GENERATE_SOURCE_INFO;
+
+
+            case "source-info-get";
+                mode = .INSPECT_SOURCE_INFO;
+
+                sub_command: string;
+                if !take_argument(args, *cursor, *sub_command)
+                    die("usage: ...  source-info-get SUBCOMMAND  ...");
+
+                if sub_command == {
+                    case "global";
+                        inspect_parameters.sub_command = .GLOBAL;
+                        if !take_argument(args, *cursor, *inspect_parameters.global_symbol)
+                            die("usage: ...  source-info-get global SYMBOL  ...");
+
+                    case "def"; #through;
+                    case "definition";
+                        inspect_parameters.sub_command = .DEFINITION;
+                        usage :: "usage: ...  source-info-get definition FILEPATH LINE [COLUMN] ...";
+                        ok := take_file_line_column_from_arguments(args, *cursor, *inspect_parameters.filepath, *inspect_parameters.line, *inspect_parameters.column);
+                        if !ok die(usage);
+
+                    case "ref"; #through;
+                    case "references";
+                        inspect_parameters.sub_command = .REFERENCES;
+                        usage :: "usage: ...  source-info-get references FILEPATH LINE [COLUMN] ...";
+                        ok := take_file_line_column_from_arguments(args, *cursor, *inspect_parameters.filepath, *inspect_parameters.line, *inspect_parameters.column);
+                        if !ok die(usage);
+
+                    case;
+                        die("unknown sub command '%'", sub_command);
+                }
+
 
             case "pageview";    program = .PAGEVIEW;
             case "ps";          program = .PS;
             case "status-line"; program = .STATUS_LINE;
             case "all";         program = .ALL;
 
-            case; print("\x1b[33mUnknown argument '%'\x1b[0m\n", it);
+            case;
+                die("unknown argument '%'", arg);
+        }
+    }
+
+    Strategy_Pattern_My_Ass :: (program: Program) #expand {
+        if `mode == {
+            case .COMPILE;              build_program(program, compile_parameters);
+            case .GENERATE_SOURCE_INFO; generate_source_info(program);
+            case .INSPECT_SOURCE_INFO;  inspect_source_info(program, inspect_parameters);
         }
     }
 
@@ -28,10 +76,10 @@
         for type_info(Program).values {
             program = xx it;
             if program == .ALL continue;
-            build_program(program, debug_build, dynamic_binary);
+            Strategy_Pattern_My_Ass(program);
         }
     } else {
-        build_program(program, debug_build, dynamic_binary);
+        Strategy_Pattern_My_Ass(program);
     }
 }
 
@@ -42,19 +90,32 @@ Program :: enum {
     STATUS_LINE;
 }
 
-build_program :: (program_name: Program, debug_build: bool, dynamic_binary: bool) {
-    directory_of_this_file := path_strip_filename(#file);
-    directory_of_this_file = trim_right(directory_of_this_file, "/");
+Mode :: enum {
+    COMPILE;
+    GENERATE_SOURCE_INFO;
+    INSPECT_SOURCE_INFO;
+}
 
-    compiler_path := get_path_of_running_executable();
-    compiler_directory := path_strip_filename(compiler_path);
-    compiler_directory = trim_right(compiler_directory, "/");
-    linker_path := sprint("%/lld-linux", compiler_directory);
+Compile_Parameters :: struct {
+    debug_build: bool;
+    dynamic_binary: bool;
+}
 
+Inspect_Parameters :: struct {
+    sub_command: enum { GLOBAL; DEFINITION; REFERENCES; };
+
+    global_symbol: string;
+
+    filepath: string;
+    line: int;
+    column: int;
+}
+
+get_program_info :: (program: Program) -> (exe_name: string, exe_path: string, source: string) {
     exe_name: string;
     exe_path: string;
     source: string;
-    if #complete program_name == {
+    if #complete program == {
         case .PAGEVIEW;
             exe_name = "pageview";
             exe_path = directory_of_this_file;
@@ -70,6 +131,18 @@ build_program :: (program_name: Program, debug_build: bool, dynamic_binary: bool
         case .ALL;
             assert(false, "unreachable");
     }
+    return exe_name, exe_path, source;
+}
+
+build_program :: (program: Program, parameters: Compile_Parameters) {
+    using parameters;
+
+    compiler_path := get_path_of_running_executable();
+    compiler_directory := path_strip_filename(compiler_path);
+    compiler_directory = trim_right(compiler_directory, "/");
+    linker_path := sprint("%/lld-linux", compiler_directory);
+
+    exe_name, exe_path, source := get_program_info(program);
 
     if debug_build {
         exe_name = sprint("%-debug", exe_name);
@@ -109,11 +182,25 @@ build_program :: (program_name: Program, debug_build: bool, dynamic_binary: bool
 
         if base_message.kind == .COMPLETE break;
 
+        if base_message.kind == .TYPECHECKED {
+            using message := cast(*Message_Typechecked) base_message;
+            for body: procedure_bodies {
+                if has_note(body.expression.header, "DumpAst")
+                    dump_proc_ast(body.expression);
+            }
+        }
+
+        // if base_message.kind == .TYPECHECKED {
+        //     using message := cast(*Message_Typechecked) base_message;
+        //     for declarations dump_declaration(it.expression);
+        // }
+
         if base_message.kind == .PHASE {
             using message := cast(*Message_Phase) base_message;
 
             if phase == .ALL_TARGET_CODE_BUILT {
-                if options.backend == .LLVM print("Front-end done, passing to LLVM...\n");
+                if options.output_type != .NO_OUTPUT && options.backend == .LLVM
+                    print("Front-end done, passing to LLVM...\n");
             }
 
             if phase == .READY_FOR_CUSTOM_LINK_COMMAND {
@@ -153,11 +240,923 @@ build_program :: (program_name: Program, debug_build: bool, dynamic_binary: bool
     }
 
     compiler_end_intercept(workspace);
-};
+}
+
+db_file_path :: () -> string {
+    directory_of_this_file := path_strip_filename(#file);
+    directory_of_this_file = trim_right(directory_of_this_file, "/");
+
+    return sprint("%/source_info.db", directory_of_this_file);
+}
+
+generate_source_info :: (program: Program) {
+    exe_name, exe_path, source := get_program_info(program);
+
+    print("Parsing %...\n", source);
+    t0 := seconds_since_init();
+
+    workspace := compiler_create_workspace(tprint("%-source-info", exe_name));
+    if !workspace {
+        log_error("Failed to create workspace");
+        return;
+    }
+
+    options := get_build_options(workspace);
+    options.output_type = .NO_OUTPUT;
+    options.write_added_strings = false;
+    set_build_options(options, workspace);
+    compiler_begin_intercept(workspace);
+    add_build_file(source, workspace);
+
+    modules: [..] *Message_Import;
+    module_to_files: Table(*Message_Import, [..] *Message_File);
+    file_to_declarations: Table(*Message_File, Table(*Code_Declaration, void));
+    declarations_to_idents: Table(*Code_Declaration, [..] *Code_Ident);
+
+    files_count := 0;
+
+    while true {
+        base_message := compiler_wait_for_message();
+
+        if base_message.kind == {
+            case .COMPLETE;
+                break;
+
+            case .PHASE;
+                using message := cast(*Message_Phase) base_message;
+
+            case .IMPORT;
+                using message := cast(*Message_Import) base_message;
+                array_add(*modules, message);
+
+            case .FILE;
+                files_count += 1;
+                using message := cast(*Message_File) base_message;
+
+                files := find_or_add(*module_to_files, enclosing_import);
+                array_add(files, message);
+
+
+            case .TYPECHECKED;
+                using message := cast(*Message_Typechecked) base_message;
+
+                Add_Declaration :: (code: *Code_Node) #expand {
+                    decl := cast(*Code_Declaration) code;
+                    decls := find_or_add(*`file_to_declarations, decl.enclosing_load);
+                    table_set(decls, decl, Void);
+                }
+
+                Add_Ident :: (code: *Code_Node) #expand {
+                    ident := cast(*Code_Ident) code;
+                    decl := ident.resolved_declaration;
+                    if decl Add_Declaration(decl);
+                    idents := find_or_add(*`declarations_to_idents, decl);
+                    array_add(idents, ident);
+                }
+
+                for expr: all {
+                    if expr.expression.kind == {
+                        case .DECLARATION; Add_Declaration(expr.expression);
+                        case .IDENT;       Add_Ident(expr.expression);
+                        case .TYPE_INSTANTIATION; // TODO: walk type_valued_expression and add the idents
+                    }
+                    for subexpr: expr.subexpressions {
+                        if subexpr.kind == {
+                            case .DECLARATION; Add_Declaration(subexpr);
+                            case .IDENT;       Add_Ident(subexpr);
+                            case .TYPE_INSTANTIATION; // TODO: walk type_valued_expression and add the idents
+                        }
+                    }
+                }
+
+                for procedure_bodies {
+                    if !has_note(it.expression.header, "DumpAst") continue;
+                    walk_procedure_body(it.expression);
+                }
+        }
+    }
+    compiler_end_intercept(workspace);
+
+    parsing_duration := seconds_since_init() - t0;
+
+    db_path := db_file_path();
+    print("Saving data to %...\n", db_path);
+    t0 = seconds_since_init();
+    db := Open_Database(db_path, create=true);
+
+    Execute(db, #string SQL
+        DROP TABLE IF EXISTS module;
+        DROP TABLE IF EXISTS file;
+        DROP TABLE IF EXISTS decl;
+        DROP TABLE IF EXISTS ident;
+
+        CREATE TABLE IF NOT EXISTS module (id INT PRIMARY KEY, name TEXT, type TEXT);
+        CREATE TABLE IF NOT EXISTS file (id INT PRIMARY KEY, filepath TEXT, module INT, flags INT);
+        CREATE TABLE IF NOT EXISTS decl (
+            id INT PRIMARY KEY, name TEXT, flags UNSIGNED, type_or_value TEXT,
+            start_line INT, start_column INT, end_line INT, end_column INT, file INT
+        );
+        CREATE TABLE IF NOT EXISTS ident (
+            id INT PRIMARY KEY, name TEXT, decl INT,
+            start_line INT, start_column INT, end_line INT, end_column INT, file INT
+        );
+    SQL);
+
+    insert_module := Prepare_Stmt(db, "INSERT INTO module VALUES (?, ?, ?);");
+    insert_file := Prepare_Stmt(db, "INSERT INTO file VALUES (?, ?, ?, ?);");
+    insert_decl := Prepare_Stmt(db, "INSERT INTO decl VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);");
+    insert_ident := Prepare_Stmt(db, "INSERT INTO ident VALUES (?, ?, ?, ?, ?, ?, ?, ?);");
+
+    Execute(db, "BEGIN");
+
+    files_count_check := 0;
+    decl_id := 0;
+    ident_id := 0;
+    for module, module_id: modules {
+        ok := sqlite3_put_values(insert_module, module_id, module.module_name, enum_to_string(module.module_type));
+        Unwrap(ok);
+
+        ok=, files := table_remove(*module_to_files, module);
+        assert(ok);
+
+        for file: files {
+            flags: int = ifx file.from_a_string then 1 else 0;
+            ok := sqlite3_put_values(insert_file, cast(int) file, file.fully_pathed_filename, module_id, flags);
+            Unwrap(ok);
+
+            ok=, decls := table_remove(*file_to_declarations, file);
+            if !ok continue;
+            for _, decl: decls {
+                defer decl_id += 1;
+
+                type_or_value := get_type_or_value_of_declaration(decl);
+                ok := sqlite3_put_values(insert_decl, decl_id, decl.name, cast(int) decl.flags, type_or_value, decl.l0, decl.c0, decl.l1, decl.c1, cast(int) file);
+                Unwrap(ok);
+
+                ok=, idents := table_remove(*declarations_to_idents, decl);
+
+                if !ok continue;
+                for ident: idents {
+                    defer ident_id += 1;
+
+                    ok := sqlite3_put_values(insert_ident, ident_id, ident.name,
+                                             decl_id, ident.l0, ident.c0, ident.l1, ident.c1,
+                                             cast(int) ident.enclosing_load);
+                    Unwrap(ok);
+                }
+            }
+
+        }
+    }
+
+    Execute(db, "COMMIT");
+    saving_duration := seconds_since_init() - t0;
+    // assert(module_to_files.count == 0);
+    // assert(file_to_declarations.count == 0);
+
+    // assert(files_count == files_count_check);
+
+    print("Some stats:\n");
+    print("    parsing took %s\n", parsing_duration);
+    print("    saving data took %s\n", saving_duration);
+    print("    number of declarations: %\n", decl_id);
+    print("    number of identifiers: %\n", ident_id);
+}
+
+inspect_source_info :: (program: Program, parameters: Inspect_Parameters) {
+    db_path := db_file_path();
+    db := Open_Database(db_path);
+
+    if parameters.sub_command == {
+        case .GLOBAL;     inspect_find_global_symbol(db, parameters);
+        case .DEFINITION; inspect_find_definition(db, parameters);
+        case .REFERENCES; inspect_find_references(db, parameters);
+    }
+}
+
+inspect_find_global_symbol :: (db: *sqlite3, parameters: Inspect_Parameters) {
+    using parameters;
+    flags := cast(int) type_of(Code_Declaration.flags).IS_GLOBAL;
+
+    Row :: struct {
+        filepath: string;
+        start_line: int;
+        start_column: int;
+        name: string;
+        type_or_value: string;
+    }
+    query := #string SQL
+        SELECT file.filepath, decl.start_line, decl.start_column, decl.name, decl.type_or_value
+        FROM decl
+        JOIN file ON file.id = decl.file
+        WHERE decl.name LIKE ? AND decl.flags & ?
+    SQL;
+    ok, rows := sqlite_execute(db, query, Row,
+        global_symbol, flags,, temp);
+
+    if !ok {
+        log_last_error(.WITH_STACK_TRACE);
+        exit(1);
+    }
+
+    print("Here's all global declarations that match '%':\n", global_symbol);
+    for rows {
+        print("%:%,% \e[34m%\e[0m %\n", it.filepath, it.start_line, it.start_column, it.name, it.type_or_value);
+    }
+}
+
+inspect_find_definition :: (db: *sqlite3, parameters: Inspect_Parameters) {
+    using parameters;
+    flags := cast(int) type_of(Code_Declaration.flags).IS_GLOBAL;
+
+
+    //
+    // lookup the identifier first
+    //
+    Ident_Info :: struct {
+        name: string;
+        id: int;
+    }
+    ok: bool; idents: [] Ident_Info;
+    if column == -1 {
+        query := #string SQL
+            SELECT ident.name, ident.id
+            FROM ident
+            JOIN file AS ident_file ON ident_file.id = ident.file
+            WHERE
+                ident_file.filepath = ? AND ident.start_line = ?
+        SQL;
+        ok, idents = sqlite_execute(db, query, Ident_Info, filepath, line,, temp);
+    } else {
+        query := #string SQL
+            SELECT ident.name, ident.id
+            FROM ident
+            JOIN file AS ident_file ON ident_file.id = ident.file
+            WHERE
+                ident_file.filepath = ? AND ident.start_line = ?
+                AND ident.start_column <= ? AND ident.end_column >= ?
+        SQL;
+        ok, idents = sqlite_execute(db, query, Ident_Info, filepath, line, column, column,, temp);
+    }
+    Unwrap(ok);
+
+    if !idents die("no identifer found");
+
+    for idents {
+        //
+        // lookup the identifier's declaration
+        //
+        Row :: struct {
+            filepath: string;
+            start_line: int;
+            start_column: int;
+            name: string;
+            type_or_value: string;
+        }
+        query := #string SQL
+        SELECT decl_file.filepath, decl.start_line, decl.start_column, decl.name, decl.type_or_value
+        FROM ident
+        JOIN decl ON decl.id = ident.decl
+        JOIN file AS decl_file ON decl_file.id = decl.file
+        WHERE ident.id = ?
+        SQL;
+
+        rows: [] Row;
+        ok, rows = sqlite_execute(db, query, Row, it.id,, temp);
+        Unwrap(ok);
+
+        print("Here's the declaration for identifier `%`:\n", it.name);
+        for rows {
+            print("%:%,% \e[34m%\e[0m %\n", it.filepath, it.start_line, it.start_column, it.name, it.type_or_value);
+        }
+    }
+}
+
+inspect_find_references :: (db: *sqlite3, parameters: Inspect_Parameters) {
+    using parameters;
+    flags := cast(int) type_of(Code_Declaration.flags).IS_GLOBAL;
+
+    Row :: struct {
+        filepath: string;
+        start_line: int;
+        start_column: int;
+        name: string;
+    }
+    ok: bool; rows: [] Row;
+    if column == -1 {
+
+        query := #string SQL
+            SELECT ident_file.filepath, ident.start_line, ident.start_column, ident.name
+            FROM ident
+            JOIN file AS ident_file ON ident_file.id = ident.file
+            JOIN file AS decl_file ON decl_file.id = decl.file
+            JOIN decl ON decl.id = ident.decl
+            WHERE
+                decl_file.filepath = ? AND decl.start_line = ?
+        SQL;
+
+        ok, rows = sqlite_execute(db, query, Row, filepath, line,, temp);
+
+    } else {
+
+        query := #string SQL
+            SELECT ident_file.filepath, ident.start_line, ident.start_column, ident.name
+            FROM ident
+            JOIN file AS ident_file ON ident_file.id = ident.file
+            JOIN file AS decl_file ON decl_file.id = decl.file
+            JOIN decl ON decl.id = ident.decl
+            WHERE
+                decl_file.filepath = ? AND decl.start_line = ?
+                AND decl.start_column <= ? AND decl.end_column >= ?
+        SQL;
+
+        ok, rows = sqlite_execute(db, query, Row,
+            filepath, line, column, column
+            ,, temp);
+
+    }
+
+    if !ok {
+        log_last_error(.WITH_STACK_TRACE);
+        exit(1);
+    }
+
+    print("Here's all references to that declaration:\n");
+    for rows {
+        print("%:%,% \e[34m%\e[0m\n", it.filepath, it.start_line, it.start_column, it.name);
+    }
+}
+
+
+
+enum_to_string :: inline (value: $E) -> string {
+    #assert type_info(E).type == .ENUM;
+    return enum_to_string(xx value, type_info(E));
+}
+
+enum_to_string :: (value: int, type: *Type_Info_Enum) -> string {
+    for type.values if it == value return type.names[it_index];
+    return tprint("<out of range %>", value);
+}
+
+Open_Database :: (path: string, create := false) -> *sqlite3 #expand {
+    db: *sqlite3;
+    `defer sqlite3_close(db);
+
+    flags := ifx create then SQLITE_OPEN_READWRITE else SQLITE_OPEN_READONLY;
+    rc := sqlite3_open_v2(path.data, *db, xx flags, null);
+    assert(rc == SQLITE_OK);
+
+    return db;
+}
+
+Execute :: (db: *sqlite3, query: string) {
+    error: *u8;
+    rc := sqlite3_exec(db, query.data, null, null, *error);
+    if rc != SQLITE_OK {
+        set_last_error_from_sql(db);
+        log_last_error(.WITH_STACK_TRACE);
+        exit(1);
+    }
+}
+
+Prepare_Stmt :: (db: *sqlite3, query: string) -> *sqlite3_stmt #expand {
+    stmt: *sqlite3_stmt;
+    `defer sqlite3_finalize(stmt);
+
+    rc := sqlite3_prepare_v2(db, query.data, xx query.count, *stmt, null);
+    if rc == SQLITE_ERROR {
+        set_last_error_from_sql(db);
+        log_last_error(.WITH_STACK_TRACE);
+        exit(1);
+    }
+    assert(rc == SQLITE_OK, "%", rc);
+
+    return stmt;
+}
+
+Unwrap :: (ok: bool) #expand {
+    if !ok {
+        log_last_error(.WITH_STACK_TRACE);
+        exit(1);
+    }
+}
+
+get_type_or_value_of_declaration :: (decl: *Code_Declaration) -> string {
+    logger_saved := context.logger;
+    defer context.logger = logger_saved;
+    context.logger = (_, _, _) => {};
+
+    print_procedure_bodies = false;
+    builder: String_Builder;
+    if decl.expression {
+        if decl.flags & .IS_CONSTANT print(*builder, ":: ");
+        else                         print(*builder, ":= ");
+
+        print_expression(*builder, decl.expression);
+    } else if decl.type_inst {
+        print(*builder, ": ");
+        print_expression(*builder, decl.type_inst);
+    } else {
+        print(*builder, "?");
+    }
+    return builder_to_string(*builder);
+}
+
+get_location :: (code: *Code_Node) -> string {
+    builder := String_Builder.{ allocator = temp };
+    print_location(*builder, code);
+    return builder_to_string(*builder,, temp);
+}
+
+print_location :: (builder: *String_Builder, code: *Code_Node) {
+    print(builder, "%:%,%", code.enclosing_load.fully_pathed_filename, code.l0, code.c0);
+}
+
+
+walk_procedure_body :: (proc: *Code_Procedure_Body, level := 0) {
+    builder := String_Builder.{ allocator = temp };
+
+    block := proc.block;
+    print("%\n", Temp_String(#code print_base_code(b, block)));
+
+    walk_block(block, 1);
+}
+
+walk_block :: (block: *Code_Block, level := 0) {
+    if !block return;
+    builder := String_Builder.{ allocator = temp };
+    append_padding(*builder, level * 4);
+    padding := builder_to_string(*builder,, temp);
+
+    next_level := level + 1;
+
+    for block.statements {
+        print("%1%2\n", padding, Temp_String(#code print_base_code(b, it)));
+        if it.kind == {
+            case .BLOCK;
+                walk_block(xx it, next_level);
+            case .DEFER;
+                code := cast(*Code_Defer) it;
+                if code.block {
+                    print("%", padding);
+                    print_base_code(b, code.block);
+                    print("\n");
+                    walk_block(code.block, next_level);
+                }
+            case .IF;
+                code := cast(*Code_If) it;
+                if code.then_block {
+                    print("%", padding);
+                    print_base_code(b, code.then_block);
+                    print("\n");
+                    walk_block(code.then_block, next_level);
+                }
+                if code.else_block {
+                    print("%", padding);
+                    print_base_code(b, code.else_block);
+                    print("\n");
+                    walk_block(code.else_block, next_level);
+                }
+            case .CASE;
+                code := cast(*Code_Case) it;
+                if code.then_block {
+                    print("%", padding);
+                    print_base_code(b, code.then_block);
+                    print("\n");
+                    walk_block(code.then_block, next_level);
+                }
+            case .FOR;
+                code := cast(*Code_For) it;
+                if code.block {
+                    print("%", padding);
+                    print_base_code(b, code.block);
+                    print("\n");
+                    walk_block(code.block, next_level);
+                }
+            case .WHILE;
+                code := cast(*Code_While) it;
+                if code.block {
+                    print("%", padding);
+                    print_base_code(b, code.block);
+                    print("\n");
+                    walk_block(code.block, next_level);
+                }
+            case .PROCEDURE_CALL;
+                code := cast(*Code_Procedure_Call) it;
+                if code.macro_expansion_block {
+                    print("%", padding);
+                    print_base_code(b, code.macro_expansion_block);
+                    print("\n");
+                    walk_block(code.macro_expansion_block, next_level);
+                }
+            case;
+        }
+    }
+}
+
+
+Temp_String :: ($code: Code) -> string #expand {
+    builder := String_Builder.{ allocator = temp };
+    `b := *builder;
+    #insert code;
+    return builder_to_string(*builder,, temp);
+}
+
+dump_proc_ast :: (proc: *Code_Procedure_Body) {
+    format_struct := *context.print_style.default_format_struct;
+    format_struct.draw_type_name = true;
+    format_struct.use_long_form_if_more_than_this_many_members = -1;
+    format_struct.use_newlines_if_long_form = true;
+    data: My_Struct_Printer_Data;
+    context.print_style.struct_printer = code_struct_printer;
+    context.print_style.struct_printer_data = *data;
+    defer context.print_style.struct_printer_data = null;
+
+    print("--------------------------------------------------\n");
+    print("got procedure %\n", proc.header.name);
+    // print("%\n", proc.block.*);
+}
+
+dump_declaration :: (decl: *Code_Declaration) {
+    using decl;
+    filepath := get_filename(decl);
+    filename := get_short_filename(filepath);
+
+    builder: String_Builder;
+    print(*builder, "%:%,%: %", filename, location.l0, location.c0, name);
+    if type.type == .TYPE {
+        print(*builder, " :: ");
+
+        type: *Type_Info;
+        if decl.expression.kind == {
+            case .TYPE_DEFINITION;
+                code := cast(*Code_Type_Definition) decl.expression;
+                type = code.info;
+            case .TYPE_INSTANTIATION;
+                code := cast(*Code_Type_Instantiation) decl.expression;
+                if code.result
+                    type = code.result;
+                else if code.type_directive_target && code.type_directive_target.result {
+                    type = code.type_directive_target.result;
+                } else
+                    print(*builder, "<null>");
+            case .IDENT;
+                code := cast(*Code_Ident) decl.expression;
+                type = code.resolved_declaration.type;
+            case .STRUCT;
+                code := cast(*Code_Struct) decl.expression;
+                type = code.defined_type;
+                print(*builder, "struct ");
+            case .ENUM;
+                code := cast(*Code_Enum) decl.expression;
+                type = code.external_type;
+                print(*builder, "enum ");
+            case;
+                print_base_code(*builder, decl.expression);
+        }
+        if type {
+            print_type_to_builder(*builder, type);
+            print(*builder, " /* size: % */", type.runtime_size);
+        }
+
+    } else {
+        char := ifx decl.flags & .IS_CONSTANT then ":" else "=";
+        print(*builder, ": ");
+        print_type_to_builder(*builder, type);
+        if decl.expression {
+            if decl.expression.kind == {
+                case .LITERAL;
+                    code := cast(*Code_Literal) decl.expression;
+                    print(*builder, " % ", char);
+                    print_literal(*builder, code);
+                case .PROCEDURE_HEADER;
+                case;
+                    print(*builder, " % ", char);
+                    print_base_code(*builder, decl.expression);
+            }
+        }
+    }
+    print(*builder, "\n");
+    write_builder(*builder);
+}
+
+print_literal :: (builder: *String_Builder, code: *Code_Literal) {
+    if code.value_type == {
+        case .UNINITIALIZED;
+            print(builder, "<uninit>");
+        case .NUMBER;
+            if code.value_flags & .FLOAT    print(builder, "%", code.values._float64);
+            else                            print(builder, "%", code.values._s64);
+        case .STRING;
+            print(builder, "'%'", code.values._string);
+        case .BOOLEAN;
+            if code.values._u64  print(builder, "true");
+            else                 print(builder, "false");
+        case .ARRAY;
+            print(builder, "<array>");
+        case .STRUCT;
+            print(builder, "<struct>");
+        case .POINTER;
+            print(builder, "<pointer>");
+        case .TYPE_INFO;
+            print(builder, "<type_info>");
+    }
+}
+
+My_Struct_Printer_Data :: struct {
+    seen_nodes: Table(*Code_Node, bool);
+    skip_next_code: bool;
+    skip_next_type: bool;
+}
+
+code_struct_printer :: (builder: *String_Builder, any: Any, struct_printer_data: *void) -> bool {
+    data := cast(*My_Struct_Printer_Data) struct_printer_data;
+
+    if any.type == type_info(*Type_Info) {
+        // if data.skip_next_type {
+        //     data.skip_next_type = false;
+        //     return false;
+        // }
+        // data.skip_next_type = true;
+
+        type := << cast(**Type_Info) any.value_pointer;
+        if !type return false;
+        print_type_to_builder(builder, type);
+        return true;
+    }
+
+    base_code, ok := cast_to_base_with_dereference(any.type, any.value_pointer, Code_Node);
+    if !ok return false;
+    if !base_code return false;
+
+    if data.skip_next_code {
+        data.skip_next_code = false;
+        return false;
+    }
+
+    // {
+    //     builder: String_Builder;
+    //     // print(*builder, "depth: %, ", depth.*);
+    //     print(*builder, "%: ", cast(*void) base_code);
+    //     print_base_code(*builder, base_code);
+    //     append(*builder, "\n");
+    //     write_builder(*builder);
+    // }
+
+    print(builder, "(%)", cast(*void) base_code);
+    if table_find_pointer(*data.seen_nodes, base_code) {
+        // print("second time\n");
+        // Already did a deep print for this guy
+        print_base_code(builder, base_code);
+        return true;
+    }
+    table_add(*data.seen_nodes, base_code, true);
+
+    data.skip_next_code = true;
+    if base_code.kind == {
+        case .BLOCK;                        print(builder, "%", << cast(*Code_Block) base_code);
+        case .USING;                        print(builder, "%", << cast(*Code_Using) base_code);
+        case .PROCEDURE_CALL;               print(builder, "%", << cast(*Code_Procedure_Call) base_code);
+        case .PROCEDURE_BODY;               print(builder, "%", << cast(*Code_Procedure_Body) base_code);
+        case .DECLARATION;                  print(builder, "%", << cast(*Code_Declaration) base_code);
+        case .COMPOUND_DECLARATION;         print(builder, "%", << cast(*Code_Compound_Declaration) base_code);
+        case .COMMA_SEPARATED_ARGUMENTS;    print(builder, "%", << cast(*Code_Comma_Separated_Arguments) base_code);
+        case .TYPE_DEFINITION;              print(builder, "%", << cast(*Code_Type_Definition) base_code);
+        case .TYPE_QUERY;                   print(builder, "%", << cast(*Code_Type_Query) base_code);
+        case .IF;                           print(builder, "%", << cast(*Code_If) base_code);
+        case .FOR;                          print(builder, "%", << cast(*Code_For) base_code);
+        case .WHILE;                        print(builder, "%", << cast(*Code_While) base_code);
+        case .UNARY_OPERATOR;               print(builder, "%", << cast(*Code_Unary_Operator) base_code);
+        case .BINARY_OPERATOR;              print(builder, "%", << cast(*Code_Binary_Operator) base_code);
+        case .CONTEXT;                      print(builder, "%", << cast(*Code_Context) base_code);
+        case .EXTRACT;                      print(builder, "%", << cast(*Code_Extract) base_code);
+        case .TYPE_INSTANTIATION;           print(builder, "%", << cast(*Code_Type_Instantiation) base_code);
+        case .IDENT;                        print(builder, "%", << cast(*Code_Ident) base_code);
+        case .LITERAL;                      print(builder, "%", << cast(*Code_Literal) base_code);
+        case .STRUCT;                       print(builder, "%", << cast(*Code_Struct) base_code);
+        case .ENUM;                         print(builder, "%", << cast(*Code_Enum) base_code);
+        case .RETURN;                       print(builder, "%", << cast(*Code_Return) base_code);
+        case .CAST;                         print(builder, "%", << cast(*Code_Cast) base_code);
+        case .MAKE_VARARGS;                 print(builder, "%", << cast(*Code_Make_Varargs) base_code);
+        case .DIRECTIVE_PLACE;      // print(builder, "%", << cast(*Code_Directive_Place) base_code);
+            print_base_code(builder, base_code);
+
+        case .PROCEDURE_HEADER; // print(builder, "%", << cast(*Code_Procedure_Header) base_code);
+            print_base_code(builder, base_code);
+
+        case;
+            print(builder, "[**UNHANDLED**]", base_code);
+            print_base_code(builder, base_code);
+    }
+    return true;
+}
+
+print_base_code :: (code: *Code_Node) {
+    builder := String_Builder.{ allocator = temp };
+    print_base_code(*builder, code);
+    write_builder(*builder);
+}
+
+print_base_code :: (builder: *String_Builder, code: *Code_Node) {
+    if !code return;
+    using code;
+    print_location(builder, code);
+    print(builder, " ");
+    if serial print(builder, "#% ", serial);
+    print(builder, "\e[35m%\e[0m ", kind);
+    if node_flags print(builder, "[%] ", node_flags);
+    if code.kind == {
+        case .DECLARATION;
+            print(builder, "%: ", (cast(*Code_Declaration) code).name);
+            print_type_to_builder(builder, type);
+        case .IDENT;
+            print(builder, "%: ", (cast(*Code_Ident) code).name);
+            print_type_to_builder(builder, type);
+        case .LITERAL;
+            print_literal(builder, cast(*Code_Literal) code); print(builder, " ");
+        case .BINARY_OPERATOR;
+            print_operator_type(builder, (cast(*Code_Binary_Operator) code).operator_type);
+            print(builder, " ");
+            print_type_to_builder(builder, type);
+    }
+}
+
+print_operator_type :: (builder: *String_Builder, operator_type: s32) {
+    buf: [1] u8;
+    if operator_type < 0x7f {
+        buf[0] = xx operator_type;
+        print(builder, "%", cast(string) buf);
+    } else {
+        print(builder, "%", operator_to_string(cast(Operator_Type) operator_type));
+    }
+}
+
+get_short_filename :: (code: *Code_Node) -> string {
+    return get_short_filename(get_filename(code));
+}
+
+get_short_filename :: (filepath: string) -> string {
+    filename := path_filename(filepath);
+    if filename == "module.jai" {
+        p := filename.data - 2;
+        while p >= filepath.data {
+            if p[0] == #char "/" break;
+            p -= 1;
+        }
+        p = max(filepath.data, p + 1);
+        filename.count += filename.data - p;
+        filename.data = p;
+    }
+    return filename;
+}
+
+cast_to_base_with_dereference :: (type_: *Type_Info, value_pointer_: *void, $T: Type) -> *T, ok: bool {
+    type := type_;
+    value_pointer := value_pointer_;
+    i := 1;
+    while true {
+        defer i += 1;
+        // builder: String_Builder;
+        // print(*builder, "got type #%: ", i);
+        // print_type_to_builder(*builder, type);
+        // print(*builder, ", %\n", value_pointer);
+        // write_builder(*builder);
+
+        if !value_pointer return null, false;
+
+        if type == type_info(T) return xx value_pointer, true;
+
+        if type.type == {
+            case .POINTER;
+                type = (cast(*Type_Info_Pointer) type).pointer_to;
+                value_pointer = << cast(**void) value_pointer;
+                continue;
+            case .STRUCT;
+                struct_type := cast(*Type_Info_Struct) type;
+                if struct_type.members.count == 0 return null, false;
+                first_member := struct_type.members[0];
+                if !(first_member.flags & .AS) return null, false;
+
+                type = first_member.type;
+                value_pointer = xx ((cast(*u8) value_pointer) + first_member.offset_in_bytes);
+                continue;
+            case;
+                return null, false;
+        }
+
+    }
+    return null, false;
+}
+
+cast_with_dereference :: (type_: *Type_Info, value_pointer_: *void, $T: Type) -> *T, found_null: bool {
+    type := type_;
+    value_pointer := value_pointer_;
+    while true {
+        if !value_pointer return null, true;
+
+        if type == type_info(T) return xx value_pointer, false;
+
+        if type.type != .POINTER return null, false;
+
+        type = (cast(*Type_Info_Pointer) type).pointer_to;
+        value_pointer = << cast(**void) value_pointer;
+    }
+    return null, true;
+}
+
+is_code_node :: (info: *Type_Info) -> bool {
+    while true {
+        info = unwrap_pointers(info);
+
+        if info.type != .STRUCT return false;
+        info_struct := cast(*Type_Info_Struct) info;
+
+        if info_struct == type_info(Code_Node) return true;
+
+        if info_struct.members.count == 0 return false;
+        first_member := info_struct.members[0];
+        if !(first_member.flags & .AS) return false;
+
+        info = first_member.type;
+    }
+
+    return false;
+}
+
+unwrap_pointers :: (info: *Type_Info) -> *Type_Info {
+    while true {
+        if info.type != .POINTER return info;
+        info = (cast(*Type_Info_Pointer) info).pointer_to;
+    }
+    return null;
+}
+
+has_note :: (proc: *Code_Procedure_Header, note: string) -> bool {
+    for proc.notes {
+        if it.text == note return true;
+    }
+    return false;
+}
 
 last_char :: inline (s: string) -> u8 {
     return s[s.count - 1];
 }
+
+take_file_line_column_from_arguments :: (args: [] string, cursor: *int, file: *string, line: *int, column: *int) -> bool {
+    ok: bool;
+    column.* = -1;
+
+    if !take_argument(args, cursor, file) return false;
+    found, f, line_column := split_from_left(<<file, #char ":");
+    if found  file.* = f;
+    if file.*[0] != #char "/" then file.* = tprint("%/%", directory_of_this_file, file.*);
+
+    if !found {
+        if !take_argument(args, cursor, line) return false;
+        if cursor.* == args.count return true;
+        return take_argument(args, cursor, column);
+    }
+
+    found=, line_str, column_str := split_from_left(line_column, #char ",");
+    line.*, ok = string_to_int(line_str);
+    if !ok return false;
+    if !found return true;
+
+    value:, ok = string_to_int(column_str);
+    if !ok return false;
+    column.* = value;
+
+    return true;
+}
+
+take_argument :: (args: [] string, cursor: *int, result: *$T) -> bool {
+    if args.count <= cursor.* return false;
+    defer cursor.* += 1;
+    arg := args[cursor.*];
+
+    #if T == string {
+        result.* = arg;
+        return true;
+
+    } else #if T == int {
+        value, ok := string_to_int(arg);
+        result.* = value;
+        return ok;
+
+    } else {
+        #assert false;
+    }
+}
+
+die :: (format: string, args: .. Any) {
+    print("\x1b[31m");
+    print(format, ..args);
+    print("\x1b[0m\n");
+    exit(1);
+} @PrintLike
+
+Void: void;
 
 #import "Basic";
 #import "Compiler";
@@ -168,3 +1167,9 @@ last_char :: inline (s: string) -> u8 {
 #import "System";
 #import "String";
 #import "Check";
+#import "Hash_Table";
+#import "Sqlite3";
+#import "Error_Info";
+#import "Program_Print";
+#import "Program_Print";
+#import "My_Util";

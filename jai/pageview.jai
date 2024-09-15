@@ -3411,6 +3411,52 @@ set_error_message :: (format: string, args: .. Any) {
     error_message_deadline = frame_time + 3;
 } @PrintLike
 
+test_proc :: () {
+    defer {
+        "block"; "inside"; "defer";
+    }
+
+    T1 :: struct { f1: int; f2: int; };
+    T2 :: struct { f3: T1; };
+    using v1: T1;
+    v2 := 123;
+    // v3 := 321 + v2;
+    // v4 := v2 + v3;
+    // {
+    //     v4 = v2 * v3;
+    // }
+    // v4 /= v2;
+    // f1 = v4;
+    // f2 = xx (v3 + f1);
+    v5: T1;
+    v5.f1 = f1 + v2;
+    v5.f2 = f2 + v5.f2;
+    v6 := T2.{ f3 = v5 };
+    v6.f3.f2 = f2;
+    if v2 > 100 {
+        v6.f3 = v1;
+    } else v6.f3 = v5;
+
+    if v2 == {
+        case 1;
+        case 2;
+        case 3;
+    }
+
+    { { "coupla bloks in"; } }
+
+    for u8.[1,2,3] { "for"; }
+
+    while true { break; }
+
+    Macro :: () #expand {
+        `decl: int;
+    }
+    Macro();
+
+    // print("%, %, %, %, %", v2, v3, v4, f1, f2);
+} @DumpAst
+
 //
 // command procs
 //
