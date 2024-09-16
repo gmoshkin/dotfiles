@@ -35,6 +35,15 @@ get_common_options :: () -> Generate_Bindings_Options {
         "-Wno-expansion-to-defined",
     );
 
+    /* Here's how you may get this library: (TODO add just do this in this program)
+    ```
+    wget https://sqlite.org/snapshot/sqlite-snapshot-202408161851.tar.gz
+    # untar & cd & mkdir build
+    gcc -c ../sqlite3.c -o sqlite3.o -O3 -fPIC
+    gcc -shared -o libsqlite3.so sqlite3.o
+    ```
+    */
+
     array_add(*options.libnames, "libsqlite3.so");
 
     options.generate_printf_wrappers            = false;
