@@ -90,8 +90,9 @@ State :: struct {
     // status
     //
     frame_time: float64;
-    error_message_builder: String_Builder;
-    error_message_deadline: float64 = -1.0;
+    info_message_color: string;
+    info_message_builder: String_Builder;
+    info_message_deadline: float64 = -1.0;
     status_scroll_interval_seconds := 0.1;
     next_status_scroll_time : float64 = -1.0;
     before_scroll_time_seconds : float64 = 2.0;
@@ -1962,10 +1963,8 @@ render_status_line_2 :: () {
     append(*builder, "\e[K"); // "\e[K": erase in line
     append(*builder, "\e[2;37m"); // color gray
 
-    if frame_time < error_message_deadline {
-        append(*builder, "\e[0;31m"); // color red;
-        append(*builder, to_string(*error_message_builder));
-        append(*builder, "\e[0m");
+    if frame_time < info_message_deadline {
+        append(*builder, to_string(*info_message_builder));
     } else if main_window_source == .DRAWING_MODE {
         append(*builder, "drawing mode");
 
@@ -2870,7 +2869,7 @@ handle_input_event :: (_event: Input_Event) {
                         input_cursor = command_line.count;
                         history_cursor = -1;
                         // turn off error message instantly
-                        error_message_deadline = frame_time - 1;
+                        info_message_deadline = frame_time - 1;
                     }
 
                     case #char ";";
@@ -3081,7 +3080,7 @@ switch_to_command_line_mode :: () {
     input_cursor = command_line.count;
     history_cursor = -1;
     // turn off error message instantly
-    error_message_deadline = frame_time - 1;
+    info_message_deadline = frame_time - 1;
 }
 
 move_command_line_cursor_left :: () {
@@ -3438,9 +3437,11 @@ complete_console_command :: () {
 set_error_message :: (format: string, args: .. Any) {
     using context.state;
 
-    reset(*error_message_builder);
-    print(*error_message_builder, format, ..args);
-    error_message_deadline = frame_time + 3;
+    reset(*info_message_builder);
+    print(*info_message_builder, "\e[0;31m"); // color red
+    print(*info_message_builder, format, ..args);
+    print(*info_message_builder, "\e[0m");
+    info_message_deadline = frame_time + 3;
 } @PrintLike
 
 test_proc :: () {
