@@ -773,8 +773,7 @@ dump_proc_ast :: (proc: *Code_Procedure_Body) {
     context.print_style.struct_printer_data = *data;
     defer context.print_style.struct_printer_data = null;
 
-    print("--------------------------------------------------\n");
-    print("got procedure %\n", proc.header.name);
+    print("@DumpAst on procedure %\n", proc.header.name);
     // print("%\n", proc.block.*);
 }
 

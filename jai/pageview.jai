@@ -1,8 +1,19 @@
 /* TODO:
   - command to save the current buffer and show diffs (maybe even in split view)
       although I can just use the tmux splits for that....
-   - implement saving buffer history so that it's easy to cycle back and see if
-     there was anything interesting
+
+  - optimize parsing the input stream. Currently I read the whole buffer in and
+    parse it all together, but then I only show a small portion of that, this sucks.
+    `git log -p` doesn't work because of that. Potential solutions:
+    - parse stream in chunks, don't reparse chunks if they didn't change
+    - don't parse further than needed. Although my search command relies on the
+      whole input being parsed which sucks, should rework it also
+
+  - option to watch a file/directory for changes and only rerun the command then
+    Some use cases for that:
+        - lightweight LSP alternative `pageview --watch src/ 'jai src/myprogram.jai'`
+        - ?
+
    - I support running command in shell, so that you can do stuff like
         `pv "cat /proc/123/stat | tr ' ' '\n'"`
         although maybe doing simple filters is going to be simple?
@@ -131,6 +142,7 @@ State :: struct {
     time_next_command_run : float64 = -1.0;
     last_command_result: Process_Result;
     last_command_finish: float64 = -1.0;
+    last_command_duration: float64 = -1.0;
     second_to_last_command_finish: float64 = -FLOAT64_INFINITY;
 
     anti_flicker_period: float64 = 0.2;
@@ -556,6 +568,7 @@ main :: () {
             assert(code == EINTR, "%", code);
         }
 
+        profile_t0 = seconds_since_init();
         Profile();
 
         frame_time = seconds_since_init();
@@ -580,8 +593,10 @@ main :: () {
         for epoll_events {
             if it.data.fd == STDIN_FILENO {
                 input_received_this_tick = read_input();
+                // TODO: do I wanna do something about EPOLLHUP on stdin?
             } else if it.data.fd == piped_input_fd {
-                read_some_from_piped_input();
+                if it.events & EPOLLIN  read_some_from_piped_input();
+                if it.events & EPOLLHUP handle_piped_input_end();
             } else if it.data.fd == external_command_process.output.handle {
                 external_command_ready = true;
                 external_command_output_closed ||= xx it.events & EPOLLHUP;
@@ -1446,11 +1461,12 @@ read_some_from_external_command :: (output_closed: bool, error_closed: bool) {
         now := seconds_since_init();
         second_to_last_command_finish = last_command_finish;
         last_command_finish = now;
-        last_command_duration := last_command_finish - external_command_started;
+        last_command_duration = last_command_finish - external_command_started;
         if last_command_duration > .5 {
             log("command finished: elapsed: %", last_command_duration);
         }
         time_next_command_run = now + command_run_period_seconds;
+        log("time_next_command_run = %", time_next_command_run);
         external_command_finished_count += 1;
     }
 }
@@ -1546,28 +1562,35 @@ read_some_from_piped_input :: () {
     if piped_input_fd == -1 return;
 
     has_new_data := read_all_available_data_from_piped_input();
-    if !has_new_data {
-        if !parent_process_command_line return;
-
-        if path_filename(parent_process_command_line[0]) == "git" {
-            for command free(it);
-            command.count = 0;
-            array_reserve(*command, parent_process_command_line.count);
-            for parent_process_command_line {
-                array_add(*command, copy_string(it));
-            }
-            time_next_command_run = -1;
-            main_window_source = .EXTERNAL_COMMAND;
-        }
-
-        return;
-    }
+    if !has_new_data return;
 
     window_buffer := *main_window_buffer_history[current_shown_buffer_index];
     window_buffer.time_generated = current_time_consensus();
     free(window_buffer.raw_text_and_control_codes);
     window_buffer.raw_text_and_control_codes = builder_to_string(*piped_input_builder, do_reset=false);
     separate_control_codes(window_buffer, window_buffer.raw_text_and_control_codes);
+}
+
+handle_piped_input_end :: () {
+    using context.state;
+
+    shutdown_fd(*piped_input_fd);
+
+    if !parent_process_command_line return;
+    if path_filename(parent_process_command_line[0]) == "git" {
+        for command free(it);
+        command.count = 0;
+        array_reserve(*command, parent_process_command_line.count);
+        for parent_process_command_line {
+            array_add(*command, copy_string(it));
+        }
+        time_next_command_run = -1;
+        log("time_next_command_run = %", time_next_command_run);
+        main_window_source = .EXTERNAL_COMMAND;
+        log("main window source is now external command: %", command);
+    }
+
+    return;
 }
 
 read_all_available_data_from_piped_input :: () -> has_new_data: bool {
@@ -1703,6 +1726,15 @@ render_status_line_1 :: () {
             append(*builder, "\e[35m"); // color magenta
             append(*builder, ")");
             append(*builder, "\e[0m");
+
+            // last command duration
+            if last_command_duration > 0
+            {
+                append(*builder, " \e[35m"); // color magenta
+                print(*builder, "%s", fmt(last_command_duration, digits_after_comma=3, keep_zero=true)); // color magenta
+                append(*builder, "\e[0m");
+            }
+
             if last_command_result.type == .STILL_RUNNING || (frame_time - second_to_last_command_finish < anti_flicker_period) {
                 append(*builder, "\e[35m"); // color magenta
 
@@ -3500,6 +3532,7 @@ set_external_command :: (new_command: string) -> (ok: bool, error_message: strin
     // FIXME: probably want to split the command and do some special character escaping
     array_add(*command, copy_string(new_command));
     time_next_command_run = frame_time;
+    log("time_next_command_run = %", time_next_command_run);
     main_window_source = .EXTERNAL_COMMAND;
     return true, "";
 }
