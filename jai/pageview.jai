@@ -3432,6 +3432,18 @@ complete_console_command :: () {
         input_cursor = command_line.count;
         return;
     }
+
+    // TODO: this should be pretty simple
+    // if starts_with(command_line, "show_state_field ") {
+    //     found, head, tail := split_from_left(command_line, " ");
+    //     assert(found);
+    //     get_subfield_by_path()
+    //     for type_info(State) {
+    //         if !starts_with(it.name, xx command_line) continue;
+
+    //         array_add(*completion_menu.items, it.name);
+    //     }
+    // }
 }
 
 set_error_message :: (format: string, args: .. Any) {
@@ -3442,6 +3454,14 @@ set_error_message :: (format: string, args: .. Any) {
     print(*info_message_builder, format, ..args);
     print(*info_message_builder, "\e[0m");
     info_message_deadline = frame_time + 3;
+} @PrintLike
+
+set_info_message :: (format: string, args: .. Any, timeout := 3.0) {
+    using context.state;
+
+    reset(*info_message_builder);
+    print(*info_message_builder, format, ..args);
+    info_message_deadline = frame_time + timeout;
 } @PrintLike
 
 test_proc :: () {
@@ -3513,6 +3533,7 @@ init_commands :: () {
         array_add(*console_commands, make_command("clear_buffer_history_up_to", clear_buffer_history_up_to));
         array_add(*console_commands, make_command("save_current_buffer", save_current_buffer));
         array_add(*console_commands, make_command("anti_flicker_period", set_anti_flicker_period));
+        array_add(*console_commands, make_command("show_state_field", show_state_field));
     }
 }
 
@@ -3636,6 +3657,82 @@ save_current_buffer :: (filename: string) -> (ok := true, error_message := "") {
     }
 
     return;
+}
+
+show_state_field :: (path: string) -> (ok := true, error_message := "") {
+    using context.state;
+
+    ok, field := get_subfield_by_path(*context.state, path);
+    if !ok {
+        return false, context.last_error.message;
+    }
+
+    set_info_message("%", field);
+    return;
+}
+
+get_subfield_by_path :: inline (value: *$T, path: string) -> bool, Any {
+    found, result := get_subfield_by_path(value, type_info(T), path);
+    return found, result;
+}
+
+// TODO: support getting a partial result to help with auto completion
+get_subfield_by_path :: (value_pointer_: *void, type_: *Type_Info, path: string) -> bool, Any {
+    result: Any;
+
+    value_pointer := value_pointer_;
+    type := type_;
+    if path == "" {
+        result.value_pointer = value_pointer;
+        result.type = type;
+        return true, result;
+    }
+
+    tail := path;
+    while true {
+        found:, head:, tail = split_from_left(tail, #char ".");
+        up_to_and_including_head := slice(path, 0, head.data - path.data + head.count);
+
+        if type.type == .ARRAY && head == "count" {
+            if found return set_last_error("`%` is not a struct, can't get field `%` from it", up_to_and_including_head, tail), result;
+
+            result.type = type_info(s64);
+            array_type := cast(*Type_Info_Array) type;
+            if array_type.array_type == .FIXED {
+                result.value_pointer = *array_type.array_count;
+            } else {
+                array := cast(*Array_View_64) value_pointer;
+                result.value_pointer = *array.count;
+            }
+            return true, result;
+        }
+        // TODO: support indexing the array
+
+        if type.type != .STRUCT {
+            up_to_and_excluding_head := slice(path, 0, head.data - path.data);
+            return set_last_error("`%` is not a struct", up_to_and_excluding_head), result;
+        }
+
+        member: *Type_Info_Struct_Member;
+        for *(cast(*Type_Info_Struct) type).members if it.name == head {
+            member = it;
+            break;
+        }
+        if !member {
+            return set_last_error("no such field `%` in state", up_to_and_including_head), result;
+        }
+
+        value_pointer += member.offset_in_bytes;
+        type = member.type;
+        if !found {
+            result.type = type;
+            result.value_pointer = value_pointer;
+            return true, result;
+        }
+    }
+
+    assert(false, "unreachable");
+    return false, result;
 }
 
 Toggle_Field_Callback :: #type () -> (bool, string);
@@ -4180,6 +4277,7 @@ fmt :: inline (v: s64, minimum_digits := 1, $padding := "0") -> FormatInt #expan
 #import "Math";
 #import "Unicode";
 #import "Random";
+#import "Error_Info";
 // #if OS == .LINUX #import "X11";
 // #import "Clipboard";
 System :: #import "System";

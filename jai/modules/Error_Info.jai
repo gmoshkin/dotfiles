@@ -52,28 +52,32 @@ Error_Info_Log_Mode :: enum  {
     WITH_SOURCE_LOCATION;
     WITH_STACK_TRACE;
 }
+print_last_error :: (builder: *String_Builder, mode := Error_Info_Log_Mode.WITH_SOURCE_LOCATION) {
+    info := *context.last_error;
+    if mode == {
+        case .ONLY_MESSAGE;
+            print_message_with_code(builder, info);
+        case .WITH_SOURCE_LOCATION;
+            node := info.stack_trace[0];
+            print(builder, "%:%: ", node.info.location.fully_pathed_filename, node.line_number);
+            print_message_with_code(builder, info);
+        case .WITH_STACK_TRACE;
+            print_message_with_code(builder, info);
+            append(builder, "\n");
+            for node: info.stack_trace {
+                if node.info
+                    print(builder, "    %:%: in '%'\n", node.info.location.fully_pathed_filename, node.line_number, node.info.name);
+                else
+                    print(builder, "    ?:%: in ?\n", node.line_number);
+            }
+    }
+}
+
 log_last_error :: (mode := Error_Info_Log_Mode.WITH_SOURCE_LOCATION) {
     builder: String_Builder;
     builder.allocator = temp;
 
-    info := *context.last_error;
-    if mode == {
-        case .ONLY_MESSAGE;
-            print_message_with_code(*builder, info);
-        case .WITH_SOURCE_LOCATION;
-            node := info.stack_trace[0];
-            print(*builder, "%:%: ", node.info.location.fully_pathed_filename, node.line_number);
-            print_message_with_code(*builder, info);
-        case .WITH_STACK_TRACE;
-            print_message_with_code(*builder, info);
-            append(*builder, "\n");
-            for node: info.stack_trace {
-                if node.info
-                    print(*builder, "    %:%: in '%'\n", node.info.location.fully_pathed_filename, node.line_number, node.info.name);
-                else
-                    print(*builder, "    ?:%: in ?\n", node.line_number);
-            }
-    }
+    print_last_error(*builder, mode);
 
     log_error("%", builder_to_string(*builder,, temp));
 }
