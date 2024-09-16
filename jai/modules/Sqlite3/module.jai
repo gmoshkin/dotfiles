@@ -275,7 +275,7 @@ set_last_error_from_sql :: inline (stmt: *sqlite3_stmt) -> bool {
 }
 
 set_last_error_from_sql :: inline (db: *sqlite3) -> bool {
-    return set_last_error(cast(Sqlite3_Result_Code) sqlite3_errcode(db), "%", to_string(sqlite3_errmsg(db)));
+    return set_last_error(cast(SQLITE_RESULT_CODE) sqlite3_errcode(db), "%", to_string(sqlite3_errmsg(db)));
 }
 
 Sqlite3_Logger :: struct {
@@ -289,116 +289,8 @@ log_trampoline :: (data: *void, code: s32, message: *u8) #c_call {
     ctx.logger = logger.proc;
     ctx.logger_data = logger.data;
     push_context ctx {
-        log("[%] %", cast(Sqlite3_Result_Code) code, to_string(message));
+        log("[%] %", cast(SQLITE_RESULT_CODE) code, to_string(message));
     }
-}
-
-Sqlite3_Result_Code :: enum {
-    ABORT                   :: 4;
-    AUTH                    :: 23;
-    BUSY                    :: 5;
-    CANTOPEN                :: 14;
-    CONSTRAINT              :: 19;
-    CORRUPT                 :: 11;
-    DONE                    :: 101;
-    EMPTY                   :: 16;
-    ERROR                   :: 1;
-    FORMAT                  :: 24;
-    FULL                    :: 13;
-    INTERNAL                :: 2;
-    INTERRUPT               :: 9;
-    IOERR                   :: 10;
-    LOCKED                  :: 6;
-    MISMATCH                :: 20;
-    MISUSE                  :: 21;
-    NOLFS                   :: 22;
-    NOMEM                   :: 7;
-    NOTADB                  :: 26;
-    NOTFOUND                :: 12;
-    NOTICE                  :: 27;
-    OK                      :: 0;
-    PERM                    :: 3;
-    PROTOCOL                :: 15;
-    RANGE                   :: 25;
-    READONLY                :: 8;
-    ROW                     :: 100;
-    SCHEMA                  :: 17;
-    TOOBIG                  :: 18;
-    WARNING                 :: 28;
-    ABORT_ROLLBACK          :: 516;
-    AUTH_USER               :: 279;
-    BUSY_RECOVERY           :: 261;
-    BUSY_SNAPSHOT           :: 517;
-    BUSY_TIMEOUT            :: 773;
-    CANTOPEN_CONVPATH       :: 1038;
-    CANTOPEN_DIRTYWAL       :: 1294;
-    CANTOPEN_FULLPATH       :: 782;
-    CANTOPEN_ISDIR          :: 526;
-    CANTOPEN_NOTEMPDIR      :: 270;
-    CANTOPEN_SYMLINK        :: 1550;
-    CONSTRAINT_CHECK        :: 275;
-    CONSTRAINT_COMMITHOOK   :: 531;
-    CONSTRAINT_DATATYPE     :: 3091;
-    CONSTRAINT_FOREIGNKEY   :: 787;
-    CONSTRAINT_FUNCTION     :: 1043;
-    CONSTRAINT_NOTNULL      :: 1299;
-    CONSTRAINT_PINNED       :: 2835;
-    CONSTRAINT_PRIMARYKEY   :: 1555;
-    CONSTRAINT_ROWID        :: 2579;
-    CONSTRAINT_TRIGGER      :: 1811;
-    CONSTRAINT_UNIQUE       :: 2067;
-    CONSTRAINT_VTAB         :: 2323;
-    CORRUPT_INDEX           :: 779;
-    CORRUPT_SEQUENCE        :: 523;
-    CORRUPT_VTAB            :: 267;
-    ERROR_MISSING_COLLSEQ   :: 257;
-    ERROR_RETRY             :: 513;
-    ERROR_SNAPSHOT          :: 769;
-    IOERR_ACCESS            :: 3338;
-    IOERR_AUTH              :: 7178;
-    IOERR_BEGIN_ATOMIC      :: 7434;
-    IOERR_BLOCKED           :: 2826;
-    IOERR_CHECKRESERVEDLOCK :: 3594;
-    IOERR_CLOSE             :: 4106;
-    IOERR_COMMIT_ATOMIC     :: 7690;
-    IOERR_CONVPATH          :: 6666;
-    IOERR_CORRUPTFS         :: 8458;
-    IOERR_DATA              :: 8202;
-    IOERR_DELETE            :: 2570;
-    IOERR_DELETE_NOENT      :: 5898;
-    IOERR_DIR_CLOSE         :: 4362;
-    IOERR_DIR_FSYNC         :: 1290;
-    IOERR_FSTAT             :: 1802;
-    IOERR_FSYNC             :: 1034;
-    IOERR_GETTEMPPATH       :: 6410;
-    IOERR_LOCK              :: 3850;
-    IOERR_MMAP              :: 6154;
-    IOERR_NOMEM             :: 3082;
-    IOERR_RDLOCK            :: 2314;
-    IOERR_READ              :: 266;
-    IOERR_ROLLBACK_ATOMIC   :: 7946;
-    IOERR_SEEK              :: 5642;
-    IOERR_SHMLOCK           :: 5130;
-    IOERR_SHMMAP            :: 5386;
-    IOERR_SHMOPEN           :: 4618;
-    IOERR_SHMSIZE           :: 4874;
-    IOERR_SHORT_READ        :: 522;
-    IOERR_TRUNCATE          :: 1546;
-    IOERR_UNLOCK            :: 2058;
-    IOERR_VNODE             :: 6922;
-    IOERR_WRITE             :: 778;
-    LOCKED_SHAREDCACHE      :: 262;
-    LOCKED_VTAB             :: 518;
-    NOTICE_RECOVER_ROLLBACK :: 539;
-    NOTICE_RECOVER_WAL      :: 283;
-    OK_LOAD_PERMANENTLY     :: 256;
-    READONLY_CANTINIT       :: 1288;
-    READONLY_CANTLOCK       :: 520;
-    READONLY_DBMOVED        :: 1032;
-    READONLY_DIRECTORY      :: 1544;
-    READONLY_RECOVERY       :: 264;
-    READONLY_ROLLBACK       :: 776;
-    WARNING_AUTOINDEX       :: 284;
 }
 
 #scope_file

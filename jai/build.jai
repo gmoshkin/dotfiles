@@ -603,8 +603,13 @@ Open_Database :: (path: string, create := false) -> *sqlite3 #expand {
     db: *sqlite3;
     `defer sqlite3_close(db);
 
-    flags := ifx create then SQLITE_OPEN_READWRITE else SQLITE_OPEN_READONLY;
+    flags: SQLITE_OPEN = ifx create then .READWRITE | .CREATE else .READONLY;
     rc := sqlite3_open_v2(path.data, *db, xx flags, null);
+    if rc != SQLITE_OK {
+        set_last_error_from_sql(db);
+        prepend_error_message("failed to open db '%': ", path);
+        log_last_error(.WITH_STACK_TRACE);
+    }
     assert(rc == SQLITE_OK);
 
     return db;
