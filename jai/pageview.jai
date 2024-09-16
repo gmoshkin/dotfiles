@@ -138,7 +138,7 @@ State :: struct {
     external_command_finished_count: u64;
     external_command_last_handled_output_version: u64;
 
-    command_run_period_seconds := 1.0;
+    external_command_run_period_seconds := 1.0;
     time_next_command_run : float64 = -1.0;
     last_command_result: Process_Result;
     last_command_finish: float64 = -1.0;
@@ -314,7 +314,7 @@ main :: () {
                     print("Expected a number of seconds after '%', got '%'\n", arg, args[cursor]);
                     exit(1);
                 }
-                state.command_run_period_seconds = seconds;
+                state.external_command_run_period_seconds = seconds;
 
             case "-w"; #through;
             case "--wrap"; #through;
@@ -1465,7 +1465,7 @@ read_some_from_external_command :: (output_closed: bool, error_closed: bool) {
         if last_command_duration > .5 {
             log("command finished: elapsed: %", last_command_duration);
         }
-        time_next_command_run = now + command_run_period_seconds;
+        time_next_command_run = now + external_command_run_period_seconds;
         log("time_next_command_run = %", time_next_command_run);
         external_command_finished_count += 1;
     }
@@ -1760,7 +1760,7 @@ render_status_line_1 :: () {
                 append(*builder, " T: ");
                 // XXX: am I stupid, or is stb_print_float doing something
                 // weird when removing zero and when trailing_width is not zero?
-                text := tprint("%", fmt(command_run_period_seconds, digits_after_comma=1));
+                text := tprint("%", fmt(external_command_run_period_seconds, digits_after_comma=1));
                 text = trim(text);
                 append(*builder, text);
                 append(*builder, "s");
@@ -2968,7 +2968,7 @@ handle_input_event_in_input_command_mode :: (event: Input_Event) {
                     array_add(history, copy_string(xx command_line));
                 }
                 if input_mode == .INPUT_COMMAND {
-                    execute_command(xx command_line);
+                    execute_console_command(xx command_line);
                     command_line.count = 0;
                 }
                 switch_to_navigate_mode();
@@ -2990,7 +2990,7 @@ handle_input_event_in_input_command_mode :: (event: Input_Event) {
                     else
                         completion_menu.selected_item = min(completion_menu.selected_item + 1, completion_menu.items.count - 1);
                 } else {
-                    complete_command();
+                    complete_console_command();
                 }
             } else if input_mode == .INPUT_SEARCH_STRING {
                 // TODO: complete identifiers in the fucking text yo,
@@ -3260,7 +3260,7 @@ jump_to_previous_search_match :: () {
 }
 
 //
-// commands
+// console_commands
 //
 
 Command :: struct {
@@ -3325,7 +3325,7 @@ proc_wrapper :: (args: .. Any) -> (ok: bool, error_message: string) {
     };
 }
 
-execute_command :: (command_line: string) {
+execute_console_command :: (command_line: string) {
     using,except.["command_line", "command"] context.state;
 
     tail := command_line;
@@ -3333,7 +3333,7 @@ execute_command :: (command_line: string) {
     if !ok return;
 
     command: *Command;
-    for *commands {
+    for *console_commands {
         if it.name == command_name {
             command = it;
             break;
@@ -3387,7 +3387,7 @@ execute_command :: (command_line: string) {
     }
 }
 
-complete_command :: () {
+complete_console_command :: () {
     using context.state;
 
     if input_cursor != command_line.count {
@@ -3406,7 +3406,7 @@ complete_command :: () {
     // Moving the cursor also exits completion mode
     // Pressing enter runs the command
     completion_menu.items.count = 0;
-    for commands {
+    for console_commands {
         if !starts_with(it.name, xx command_line) continue;
 
         array_add(*completion_menu.items, it.name);
@@ -3493,34 +3493,34 @@ test_proc :: () {
 // command procs
 //
 
-commands: [..] Command;
+console_commands: [..] Command;
 init_commands :: () {
-    if !commands {
-        array_add(*commands, make_command("period", change_command_rerun_period));
-        array_add(*commands, make_command("interval", change_command_rerun_period));
-        array_add(*commands, make_command("command", set_external_command));
-        array_add(*commands, make_command("log", set_log_file));
-        array_add(*commands, make_command("memory_usage", make_toggle("show_memory_usage")));
-        array_add(*commands, make_command("strip_control_codes", make_toggle("strip_control_codes")));
-        array_add(*commands, make_command("number_lines", make_toggle("line_numberring")));
-        array_add(*commands, make_command("line_numberring", make_toggle("line_numberring")));
-        array_add(*commands, make_command("wrap_lines", make_toggle("line_wrapping")));
-        array_add(*commands, make_command("line_wrapping", make_toggle("line_wrapping")));
-        array_add(*commands, make_command("visualize_control_codes", make_toggle("visualize_control_codes")));
-        array_add(*commands, make_command("party_time", make_toggle("party_time")));
-        array_add(*commands, make_command("current_shown_buffer_number", set_current_shown_buffer_index));
-        array_add(*commands, make_command("clear_buffer_history_up_to", clear_buffer_history_up_to));
-        array_add(*commands, make_command("save_current_buffer", save_current_buffer));
-        array_add(*commands, make_command("anti_flicker_period", set_anti_flicker_period));
+    if !console_commands {
+        array_add(*console_commands, make_command("period", change_external_command_rerun_period));
+        array_add(*console_commands, make_command("interval", change_external_command_rerun_period));
+        array_add(*console_commands, make_command("command", set_external_command));
+        array_add(*console_commands, make_command("log", set_log_file));
+        array_add(*console_commands, make_command("memory_usage", make_toggle("show_memory_usage")));
+        array_add(*console_commands, make_command("strip_control_codes", make_toggle("strip_control_codes")));
+        array_add(*console_commands, make_command("number_lines", make_toggle("line_numberring")));
+        array_add(*console_commands, make_command("line_numberring", make_toggle("line_numberring")));
+        array_add(*console_commands, make_command("wrap_lines", make_toggle("line_wrapping")));
+        array_add(*console_commands, make_command("line_wrapping", make_toggle("line_wrapping")));
+        array_add(*console_commands, make_command("visualize_control_codes", make_toggle("visualize_control_codes")));
+        array_add(*console_commands, make_command("party_time", make_toggle("party_time")));
+        array_add(*console_commands, make_command("current_shown_buffer_number", set_current_shown_buffer_index));
+        array_add(*console_commands, make_command("clear_buffer_history_up_to", clear_buffer_history_up_to));
+        array_add(*console_commands, make_command("save_current_buffer", save_current_buffer));
+        array_add(*console_commands, make_command("anti_flicker_period", set_anti_flicker_period));
     }
 }
 
-change_command_rerun_period :: (time: float32) -> (ok: bool, error_msg: string) {
+change_external_command_rerun_period :: (time: float32) -> (ok: bool, error_msg: string) {
     using context.state;
 
     if time <= 0.0001 return false, "value must not be less than 0.0001";
 
-    command_run_period_seconds = time;
+    external_command_run_period_seconds = time;
     return true, "";
 }
 
