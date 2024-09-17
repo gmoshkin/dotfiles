@@ -247,9 +247,13 @@ Control_Code_Info :: struct {
 
 List_Menu :: struct {
     items: [..] string;
+    displayed_items: [..] string;
+    builder_for_items: String_Builder;
+
     selected_item: s64;
 
     is_active: bool;
+    completion_insert_offset: s64;
 
     start_row: s64;
     start_column: s64;
@@ -455,6 +459,9 @@ main :: () {
     // Get terminal size
     rc := ioctl(STDIN_FILENO, TIOCGWINSZ, *state.terminal_size);
     assert(rc == 0);
+
+    // Completion menu depends on termnal_size
+    init_completion_menu();
 
     // `- 2` for :2_status_lines
     state.main_window_height = state.terminal_size.rows - 2;
@@ -2038,32 +2045,6 @@ render_status_line_2 :: () {
     write_builder(*builder);
 }
 
-maybe_render_completion_menu :: () {
-    using context.state;
-
-    if !completion_menu.is_active return;
-
-    builder: String_Builder;
-    builder.allocator = temp;
-
-    max_width := 0;
-    for completion_menu.items  max_width = max(max_width, it.count);
-
-    for completion_menu.items {
-        row := 3 + it_index;
-        if row > terminal_size.rows break;
-
-        print(*builder, "\e[%;%H", row, 1);
-        if completion_menu.selected_item == it_index append(*builder, "\e[7m"); // invert color mode
-        append(*builder, "\e[100m"); // background color gray
-        print(*builder, " % ", it);
-        append_padding(*builder, max_width - it.count);
-        append(*builder, "\e[0m");
-    }
-
-    write_builder(*builder);
-}
-
 //
 // iterating over control codes
 //
@@ -2865,8 +2846,7 @@ handle_input_event :: (_event: Input_Event) {
 
                     case #char "/"; {
                         input_mode = .INPUT_SEARCH_STRING;
-                        array_replace(*command_line, search_string_buffer);
-                        input_cursor = command_line.count;
+                        replace_console_command_line(xx search_string_buffer);
                         history_cursor = -1;
                         // turn off error message instantly
                         info_message_deadline = frame_time - 1;
@@ -2958,8 +2938,7 @@ handle_input_event_in_input_command_mode :: (event: Input_Event) {
 
         case #char "\n"; /* ENTER */
             if completion_menu.is_active {
-                array_replace(*command_line, completion_menu.items[completion_menu.selected_item]);
-                input_cursor = command_line.count;
+                replace_console_command_line_from_completion_menu(completion_menu.selected_item);
                 deactivate_completion_menu();
             } else {
                 history := get_history_for_input_mode();
@@ -3069,6 +3048,7 @@ deactivate_completion_menu :: () {
 
     if completion_menu.is_active {
         completion_menu.is_active = false;
+        completion_menu.completion_insert_offset = 0;
         redraw_once = true;
     }
 }
@@ -3182,8 +3162,7 @@ history_previous :: () {
     }
     if history_cursor > 0 {
         history_cursor -= 1;
-        command_line.count = 0;
-        array_replace(*command_line, history.*[history_cursor]);
+        replace_console_command_line(history.*[history_cursor]);
         input_cursor = command_line.count;
     }
 }
@@ -3196,14 +3175,10 @@ history_next :: () {
     if history_cursor == -1 return;
     if history_cursor < history.count - 1 {
         history_cursor += 1;
-        command_line.count = 0;
-        array_replace(*command_line, history.*[history_cursor]);
-        input_cursor = command_line.count;
+        replace_console_command_line(history.*[history_cursor]);
     } else {
         history_cursor = -1;
-        command_line.count = 0;
-        array_replace(*command_line, history_stash);
-        input_cursor = command_line.count;
+        replace_console_command_line(history_stash);
     }
 }
 
@@ -3404,16 +3379,17 @@ complete_console_command :: () {
     // Pressing any character key exits completion mode into INPUT_COMMAND mode
     // Moving the cursor also exits completion mode
     // Pressing enter runs the command
-    completion_menu.items.count = 0;
+    reset_completion_menu();
     for console_commands {
         if !starts_with(it.name, xx command_line) continue;
 
-        array_add(*completion_menu.items, it.name);
+        completion_menu.completion_insert_offset = 0;
+        add_completion_menu_item(it.name);
     }
 
     if completion_menu.items.count == 1 {
-        array_replace(*command_line, completion_menu.items[0]);
-        input_cursor = command_line.count;
+        replace_console_command_line_from_completion_menu(0);
+        return;
     } else if completion_menu.items.count > 1 {
         completion_menu.is_active = true;
         completion_menu.selected_item = 0;
@@ -3433,17 +3409,61 @@ complete_console_command :: () {
         return;
     }
 
-    // TODO: this should be pretty simple
-    // if starts_with(command_line, "show_state_field ") {
-    //     found, head, tail := split_from_left(command_line, " ");
-    //     assert(found);
-    //     get_subfield_by_path()
-    //     for type_info(State) {
-    //         if !starts_with(it.name, xx command_line) continue;
+    if starts_with(xx command_line, "show_state_field ") {
+        found, _, path := split_from_left(xx command_line, " ");
+        assert(found);
+        ok, field, field_prefix := get_subfield_by_path(*context.state, path, allow_partial=true);
+        if !ok return;
 
-    //         array_add(*completion_menu.items, it.name);
-    //     }
-    // }
+        if field.type.type == {
+            case .STRUCT;
+                for (cast(*Type_Info_Struct) field.type).members {
+                    if !starts_with(it.name, field_prefix) continue;
+                    completion_menu.completion_insert_offset = command_line.count - field_prefix.count;
+
+                    field_value: Any;
+                    field_value.value_pointer = field.value_pointer + it.offset_in_bytes;
+                    field_value.type = it.type;
+                    print_completion_menu_item("%: %", it.name, field_value, actual_item = it.name);
+                }
+            case .ARRAY; #through;
+            case .STRING;
+                completion_menu.completion_insert_offset = command_line.count - field_prefix.count;
+                for property: string.["count", "data"] {
+                    ok, value := get_array_or_string_property_as_any(field, property);
+                    assert(ok);
+                    print_completion_menu_item("%: %", property, value, actual_item = property);
+                }
+            case;
+                return;
+        }
+
+        if completion_menu.items.count == 1 {
+            replace_console_command_line_from_completion_menu(0);
+            return;
+        } else if completion_menu.items.count > 1 {
+            completion_menu.is_active = true;
+            completion_menu.selected_item = 0;
+            return;
+        }
+    }
+}
+
+replace_console_command_line_from_completion_menu :: (item_index: s64) {
+    using context.state;
+
+    replacement := completion_menu.items[item_index];
+    command_line.count = completion_menu.completion_insert_offset;
+    array_add(*command_line, ..cast([] u8) replacement);
+    input_cursor = command_line.count;
+}
+
+replace_console_command_line :: (replacement: string) {
+    using context.state;
+
+    command_line.count = 0;
+    array_add(*command_line, ..cast([] u8) replacement);
+    input_cursor = command_line.count;
 }
 
 set_error_message :: (format: string, args: .. Any) {
@@ -3509,6 +3529,76 @@ test_proc :: () {
 
     // print("%, %, %, %, %", v2, v3, v4, f1, f2);
 } @DumpAst
+
+//
+// completion menu
+//
+
+init_completion_menu :: () {
+    reset_completion_menu();
+}
+
+reset_completion_menu :: () {
+    using context.state;
+
+    completion_menu.items.count = 0;
+    completion_menu.displayed_items.count = 0;
+    get_base_buffer(*completion_menu.builder_for_items).count = 0;
+    completion_menu.width = xx (terminal_size.cols * 0.66);
+}
+
+add_completion_menu_item :: (item: string) {
+    using context.state;
+
+    array_add(*completion_menu.items, item);
+    array_add(*completion_menu.displayed_items, item);
+}
+
+print_completion_menu_item :: (format: string, args: .. Any, actual_item: string) {
+    using context.state;
+
+    temp_string := tprint(format, ..args);
+    padding := 2; // 1 space on each side
+    max_count := completion_menu.width - padding;
+    if temp_string.count > max_count  temp_string.count = max_count;
+
+    buffer := get_base_buffer(*completion_menu.builder_for_items);
+    item_start := buffer.count;
+    append(*completion_menu.builder_for_items, temp_string);
+    assert(get_base_buffer(*completion_menu.builder_for_items) == buffer);
+
+    item: string;
+    item.data = get_buffer_data(buffer) + item_start;
+    item.count = buffer.count - item_start;
+    array_add(*completion_menu.displayed_items, item);
+    array_add(*completion_menu.items, actual_item);
+} @PrintLike
+
+maybe_render_completion_menu :: () {
+    using context.state;
+
+    if !completion_menu.is_active return;
+
+    builder: String_Builder;
+    builder.allocator = temp;
+
+    max_width := 0;
+    for completion_menu.displayed_items  max_width = max(max_width, it.count);
+
+    for completion_menu.displayed_items {
+        row := 3 + it_index;
+        if row > terminal_size.rows break;
+
+        print(*builder, "\e[%;%H", row, 1);
+        if completion_menu.selected_item == it_index append(*builder, "\e[7m"); // invert color mode
+        append(*builder, "\e[100m"); // background color gray
+        print(*builder, " % ", it);
+        append_padding(*builder, max_width - it.count);
+        append(*builder, "\e[0m");
+    }
+
+    write_builder(*builder);
+}
 
 //
 // command procs
@@ -3669,70 +3759,6 @@ show_state_field :: (path: string) -> (ok := true, error_message := "") {
 
     set_info_message("%", field);
     return;
-}
-
-get_subfield_by_path :: inline (value: *$T, path: string) -> bool, Any {
-    found, result := get_subfield_by_path(value, type_info(T), path);
-    return found, result;
-}
-
-// TODO: support getting a partial result to help with auto completion
-get_subfield_by_path :: (value_pointer_: *void, type_: *Type_Info, path: string) -> bool, Any {
-    result: Any;
-
-    value_pointer := value_pointer_;
-    type := type_;
-    if path == "" {
-        result.value_pointer = value_pointer;
-        result.type = type;
-        return true, result;
-    }
-
-    tail := path;
-    while true {
-        found:, head:, tail = split_from_left(tail, #char ".");
-        up_to_and_including_head := slice(path, 0, head.data - path.data + head.count);
-
-        if type.type == .ARRAY && head == "count" {
-            if found return set_last_error("`%` is not a struct, can't get field `%` from it", up_to_and_including_head, tail), result;
-
-            result.type = type_info(s64);
-            array_type := cast(*Type_Info_Array) type;
-            if array_type.array_type == .FIXED {
-                result.value_pointer = *array_type.array_count;
-            } else {
-                array := cast(*Array_View_64) value_pointer;
-                result.value_pointer = *array.count;
-            }
-            return true, result;
-        }
-        // TODO: support indexing the array
-
-        if type.type != .STRUCT {
-            up_to_and_excluding_head := slice(path, 0, head.data - path.data);
-            return set_last_error("`%` is not a struct", up_to_and_excluding_head), result;
-        }
-
-        member: *Type_Info_Struct_Member;
-        for *(cast(*Type_Info_Struct) type).members if it.name == head {
-            member = it;
-            break;
-        }
-        if !member {
-            return set_last_error("no such field `%` in state", up_to_and_including_head), result;
-        }
-
-        value_pointer += member.offset_in_bytes;
-        type = member.type;
-        if !found {
-            result.type = type;
-            result.value_pointer = value_pointer;
-            return true, result;
-        }
-    }
-
-    assert(false, "unreachable");
-    return false, result;
 }
 
 Toggle_Field_Callback :: #type () -> (bool, string);
@@ -3927,6 +3953,138 @@ my_logger :: (message: string, data: *void, info: Log_Info) {
 }
 
 //
+// reflection/introspection utilities
+//
+
+get_subfield_by_path :: inline (value: *$T, path: string, allow_partial := false) -> bool, Any, string {
+    found, result, remainder := get_subfield_by_path(value, type_info(T), path, allow_partial);
+    return found, result, remainder;
+}
+
+// TODO: support getting a partial result to help with auto completion
+get_subfield_by_path :: (value_pointer: *void, type: *Type_Info, path: string, allow_partial := false) -> bool, Any, remainder := "" {
+    result: Any;
+    result.value_pointer = value_pointer;
+    result.type = type;
+
+    if path == "" {
+        return true, result;
+    }
+
+    log("path.data: %, path.count: %", path.data, path.count);
+
+    tail := path;
+    up_to_and_including_head := "";
+    while true {
+        // jai's empty string are always {null, 0}, so the up_to_and_including_head calculation down there
+        // will fail if we don't handle this case here
+        if !tail {
+            if allow_partial {
+                return type_supports_subfields(result.type), result, "";
+            } else {
+                return set_last_error("expected a field name after `%`", path), result;
+            }
+        }
+
+        found:, head:, tail = split_from_left(tail, #char ".");
+        up_to_and_including_head = slice(path, 0, head.data - path.data + head.count);
+
+        if result.type.type == {
+            case .ARRAY; #through;
+            case .STRING;
+                ok:, result = get_array_or_string_property_as_any(result, head);
+                if ok {
+                    if found return set_last_error("`%` is not a struct, can't get field `%` from it", up_to_and_including_head, tail), result;
+                    return true, result;
+                }
+        }
+        // TODO: support indexing the array
+
+        if result.type.type != .STRUCT {
+            up_to_and_excluding_head := slice(path, 0, head.data - path.data);
+            return set_last_error("`%` is not a struct", up_to_and_excluding_head), result;
+        }
+
+        member: *Type_Info_Struct_Member;
+        for *(cast(*Type_Info_Struct) result.type).members if it.name == head {
+            member = it;
+            break;
+        }
+        if !member {
+            if allow_partial {
+                return true, result, head;
+            } else {
+                return set_last_error("no such field `%` in state", up_to_and_including_head), result;
+            }
+        }
+
+        result.value_pointer += member.offset_in_bytes;
+        result.type = member.type;
+        if !found {
+            return true, result;
+        }
+    }
+
+    assert(false, "unreachable");
+    return false, result;
+}
+
+get_array_or_string_property_as_any :: (array_or_string: Any, property: string) -> (bool, Any) {
+    result: Any;
+    type := array_or_string.type;
+    value_pointer := array_or_string.value_pointer;
+    assert(type.type == .ARRAY || type.type == .STRING);
+
+    if property == {
+        case "count";
+            if type.type == {
+                case .ARRAY;
+                    result.type = type_info(s64);
+                    array_type := cast(*Type_Info_Array) type;
+                    if array_type.array_type == .FIXED {
+                        result.value_pointer = *array_type.array_count;
+                    } else {
+                        array := cast(*Array_View_64) value_pointer;
+                        result.value_pointer = *array.count;
+                    }
+                case .STRING;
+                    result.type = type_info(s64);
+                    string_ := cast(*string) value_pointer;
+                    result.value_pointer = *string_.count;
+            }
+            return true, result;
+
+        case "data";
+            if type.type == {
+                case .ARRAY;
+                    array_type := cast(*Type_Info_Array) type;
+                    pointer_to_element_type := New(Type_Info_Pointer,, temp);
+                    pointer_to_element_type.pointer_to = array_type.element_type;
+                    result.type = pointer_to_element_type;
+
+                    if array_type.array_type == .FIXED {
+                        result.value_pointer = value_pointer;
+                    } else {
+                        array := cast(*Array_View_64) value_pointer;
+                        result.value_pointer = *array.data;
+                    }
+                case .STRING;
+                    result.type = type_info(*u8);
+                    string_ := cast(*string) value_pointer;
+                    result.value_pointer = *string_.data;
+            }
+            return true, result;
+
+    }
+
+    return false, result;
+}
+
+type_supports_subfields :: (type: *Type_Info) -> bool {
+    return type.type == .STRUCT || type.type == .ARRAY || type.type == .STRING;
+}
+
+//
 // print utilities
 //
 
@@ -4088,18 +4246,6 @@ advance :: inline (a: *[] $T, amount: s64 = 1) {
     assert(a.count >= amount);
     a.count -= amount;
     a.data  += amount;
-}
-
-// TODO: come up with a better name
-array_replace :: inline (a: *[..] u8, b: string) {
-    a.count = 0;
-    array_add(a, ..cast([] u8)b);
-}
-
-// TODO: come up with a better name
-array_replace :: inline (a: *[..] u8, b: [] u8) {
-    a.count = 0;
-    array_add(a, ..b);
 }
 
 
