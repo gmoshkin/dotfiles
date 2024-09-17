@@ -223,6 +223,7 @@ build_program :: (program: Program, parameters: Compile_Parameters) {
                 // Dynamic libraries are looked up in the directory of running executable
                 array_add(*command, "-rpath=$ORIGIN");
 
+                // wget https://git.musl-libc.org/cgit/musl/snapshot/musl-1.2.5.tar.gz & configure --prefix=... & make install
                 array_add(*command, sprint("%/modules/crt1.o", directory_of_this_file));
                 array_add(*command, sprint("%/modules/libc.a", directory_of_this_file));
                 array_add(*command, sprint("%/modules/libexecinfo.a", directory_of_this_file));
