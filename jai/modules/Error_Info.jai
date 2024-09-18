@@ -1,3 +1,6 @@
+// TODO: module_parameters
+LOG_WHEN_SETTING :: false;
+
 Error_Code :: enum {
     OK;
     UNCATEGORIZED;
@@ -38,6 +41,11 @@ set_last_error :: (code: $T, format: string, args: .. Any) -> bool {
     free(info.message);
     info.message = sprint(format, .. args);
     info.stack_trace = get_stack_trace();
+
+    if LOG_WHEN_SETTING {
+        log_last_error(.WITH_STACK_TRACE);
+    }
+
     return false;
 } @PrintLike
 
