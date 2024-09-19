@@ -129,3 +129,52 @@ def report_copied(entries):
 
 def parse_plist(plist):
     return bplist.BPListReader(plist).parse()
+
+
+tens_twenty_to_fifty = { 2: 'twenty', 3: 'thirty', 4: 'forty', 5: 'fifty' }
+one_to_nineteen = {
+    1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven', 8: 'eight', 9: 'nine', 10: 'ten',
+    11: 'eleven', 12: 'twelve', 13: 'thirteen', 14: 'fourteen', 15: 'fifteen', 16: 'sixteen', 17: 'seventeen', 18: 'eighteen', 19: 'nineteen',
+}
+def spell_out(number: int) -> str:
+    if number == 0:
+        return 'zero'
+    rest = number
+    assert rest < 1000_000_000_000
+
+    pieces = []
+
+    billions, rest = divmod(rest, 1000_000_000)
+    if billions > 0:
+        pieces.append(spell_out(billions) + ' billion')
+
+    millions, rest = divmod(rest, 1000_000)
+    if millions > 0:
+        pieces.append(spell_out(millions) + ' million')
+
+    thousands, rest = divmod(rest, 1000)
+    if thousands > 0:
+        pieces.append(spell_out(thousands) + ' thousand')
+
+    hundreds, rest = divmod(rest, 100)
+    if hundreds > 0:
+        pieces.append(spell_out(hundreds) + ' hundred')
+
+    if not rest:
+        return ' '.join(pieces)
+
+    if pieces:
+        pieces.append('and')
+
+    tens, ones = divmod(rest, 10)
+    if tens > 1:
+        if tens > 5:
+            pieces.append(spell_out(tens) + 'ty')
+        else:
+            pieces.append(tens_twenty_to_fifty[tens])
+        if ones > 0:
+            pieces.append(one_to_nineteen[ones])
+    else: # tens <= 1
+        pieces.append(one_to_nineteen[rest])
+
+    return ' '.join(pieces)
