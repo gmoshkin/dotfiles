@@ -2276,14 +2276,7 @@ separate_control_codes :: (window_buffer: *Window_Buffer, raw_text: string) {
     // `only_text.count <= raw_text_and_control_codes.count` is always true
     raw_text_and_control_codes = raw_text;
 
-    tab_count := 0;
-    {
-        tail := raw_text_and_control_codes;
-        while tail {
-            found:, head:, tail = split_from_left(tail, #char "\t");
-            if found then tab_count += 1;
-        }
-    }
+    tab_count := count_occurences(raw_text_and_control_codes, #char "\t");
 
     // When doing :automatic_tab_expansion: every tab character is replaced with
     // 8 spaces, so we need to allocate additional memory for that.
@@ -4306,6 +4299,19 @@ is_mode_reset_control_sequence :: inline (s: string) -> bool {
             return false;
 
     return true;
+}
+
+count_occurences :: (text: string, byte: u8) -> s64 {
+    count := 0;
+
+    cursor := 0;
+    while true {
+        cursor = inline find_index_from_left(text, byte, cursor);
+        if cursor < 0 break;
+        count += 1;
+    }
+
+    return count;
 }
 
 //
