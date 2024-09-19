@@ -219,8 +219,8 @@ eat_visible_or_escape_sequence :: (text: string) -> head: string, visible_count:
         }
     }
 
-    head := substring(text, 0, count = count);
-    tail := substring(text, count);
+    head := slice(text, 0, count);
+    tail := advance(text, count);
     return head, 0, tail;
 }
 

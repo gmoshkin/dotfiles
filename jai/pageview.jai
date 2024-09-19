@@ -229,18 +229,29 @@ Cell_Position :: struct {
 Window_Buffer :: struct {
     index_in_history: s64;
     time_generated: Apollo_Time;
+    hash: U128;
+
+    chunk_count: s64;
+    using first_chunk: Window_Buffer_Chunk;
+}
+
+Window_Buffer_Chunk :: struct {
+    chunk_hash: U128;
+
+    next_chunk: *Window_Buffer_Chunk;
+    prev_chunk: *Window_Buffer_Chunk;
 
     raw_text_and_control_codes: string;
 
     only_text_storage: [..] u8; // allocated separately
     only_text: string; // points into `only_text_storage`
 
-    control_codes: [..] Control_Code_Info; // offsets into `only_text`, data into `raw_text_and_control_codes`
     line_offsets: [..] s64; // offsets into `only_text`
-
-    control_codes_cursor: s64;
-
     max_line_length: s64;
+
+    control_codes: [..] Control_Code_Info; // offsets into `only_text`, data into `raw_text_and_control_codes`
+    control_codes_cursor: s64;
+    first_unfinished_control_code: s64;
 }
 
 Control_Code_Info :: struct {
@@ -1494,9 +1505,10 @@ maybe_handle_external_command_output :: () {
     using new_window_buffer: Window_Buffer;
     time_generated = current_time_consensus();
     raw_text_and_control_codes = prepare_raw_text_and_control_codes_from_external_command();
+    hash = Meow_Hash_Compute(xx raw_text_and_control_codes);
+    chunk_hash = hash;
 
-    // FIXME: compute and compare hash, not the whole buffer
-    if main_window_buffer_history && raw_text_and_control_codes == main_window_buffer_history[main_window_buffer_history.count - 1].raw_text_and_control_codes
+    if main_window_buffer_history && hash == main_window_buffer_history[main_window_buffer_history.count - 1].hash
         return;
 
     Profile();
@@ -1578,6 +1590,7 @@ read_some_from_piped_input :: () {
     window_buffer.time_generated = current_time_consensus();
     free(window_buffer.raw_text_and_control_codes);
     window_buffer.raw_text_and_control_codes = builder_to_string(*piped_input_builder, do_reset=false);
+    window_buffer.hash = Meow_Hash_Compute(xx window_buffer.raw_text_and_control_codes);
     separate_control_codes(window_buffer, window_buffer.raw_text_and_control_codes);
 }
 
@@ -4550,6 +4563,42 @@ get_error_value_and_string :: () -> u32, string {
 }
 
 //
+// meow hash wrapper with normal spelling
+//
+
+Meow_Hash_State :: Meow_Hash.meow_state;
+Meow_Hash_Default_Seed :: #run -> [128] u8 { return Meow_Hash.MeowDefaultSeed; }
+
+Meow_Hash_Init :: (state: *Meow_Hash_State, seed: [128] u8 = Meow_Hash_Default_Seed) #expand {
+    Meow_Hash.MeowBegin(state, seed);
+}
+
+Meow_Hash_Consume :: (state: *Meow_Hash_State, data: *void, count: s64) #expand {
+    Meow_Hash.MeowAbsorb(state, count, data);
+}
+
+Meow_Hash_Consume :: (state: *Meow_Hash_State, bytes: [] u8) #expand {
+    Meow_Hash.MeowAbsorb(state, xx bytes.count, bytes.data);
+}
+
+Meow_Hash_Finalize :: (state: *Meow_Hash_State) -> U128 #expand {
+    #asm { hash: vec; };
+    Meow_Hash.MeowEnd(state, hash);
+    result: U128 = ---;
+    result.low = Meow_Hash.MeowU64From(hash, 0);
+    result.high = Meow_Hash.MeowU64From(hash, 1);
+    return result;
+}
+
+Meow_Hash_Compute :: (bytes: [] u8, seed: [128] u8 = Meow_Hash_Default_Seed) -> U128 {
+    state: Meow_Hash_State;
+    Meow_Hash_Init(*state, seed);
+    Meow_Hash_Consume(*state, bytes);
+
+    return inline Meow_Hash_Finalize(*state);
+}
+
+//
 // formatting utilities
 //
 
@@ -4578,6 +4627,7 @@ fmt :: inline (v: s64, minimum_digits := 1, $padding := "0") -> FormatInt #expan
 #import "Unicode";
 #import "Random";
 #import "Error_Info";
+Meow_Hash :: #import "meow_hash";
 // #if OS == .LINUX #import "X11";
 // #import "Clipboard";
 System :: #import "System";
