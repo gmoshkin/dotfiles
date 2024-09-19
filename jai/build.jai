@@ -188,6 +188,9 @@ build_program :: (program: Program, parameters: Compile_Parameters) {
                 if has_note(body.expression.header, "DumpAst")
                     dump_proc_ast(body.expression);
             }
+            for all if has_note(it.expression, "DumpAst") {
+                dump_ast(it.expression);
+            }
         }
 
         // if base_message.kind == .TYPECHECKED {
@@ -331,7 +334,20 @@ generate_source_info :: (program: Program) {
 
                 for procedure_bodies {
                     if !has_note(it.expression.header, "DumpAst") continue;
-                    walk_procedure_body(it.expression);
+                    print("procedure body for '%':\n", it.expression.header.name);
+                    walk_procedure_body(it.expression, level=1);
+                }
+                for declarations {
+                    decl := it.expression;
+                    if !has_note(decl, "DumpAst") continue;
+                    if decl.expression.kind == .PROCEDURE_HEADER {
+                        proc := cast_code_node(.PROCEDURE_HEADER, decl.expression);
+                        print("declaration of procedure '%':\n", proc.name);
+                        if proc.body_or_null
+                            walk_procedure_body(proc.body_or_null, level=1);
+                        else
+                            print("    no body\n");
+                    }
                 }
         }
     }
@@ -782,6 +798,14 @@ dump_proc_ast :: (proc: *Code_Procedure_Body) {
     // print("%\n", proc.block.*);
 }
 
+dump_ast :: (base_code: *Code_Node) {
+    builder := String_Builder.{ allocator = temp };
+    print(*builder, "@DumpAst on ");
+    print_base_code(*builder, base_code);
+    print(*builder, "\n");
+    write_builder(*builder);
+}
+
 dump_declaration :: (decl: *Code_Declaration) {
     using decl;
     filepath := get_filename(decl);
@@ -1101,6 +1125,90 @@ has_note :: (proc: *Code_Procedure_Header, note: string) -> bool {
         if it.text == note return true;
     }
     return false;
+}
+
+has_note :: (base_code: *Code_Node, note: string) -> bool {
+    notes: [] *Code_Note;
+    if base_code.kind == {
+        case .COMPOUND_DECLARATION; notes = cast_code_node(.COMPOUND_DECLARATION, base_code).notes;
+        case .DECLARATION;          notes = cast_code_node(.DECLARATION,          base_code).notes;
+        case .ENUM;                 notes = cast_code_node(.ENUM,                 base_code).notes;
+        case .STRUCT;               notes = cast_code_node(.STRUCT,               base_code).notes;
+        case .PROCEDURE_HEADER;     notes = cast_code_node(.PROCEDURE_HEADER,     base_code).notes;
+    }
+    for notes if it.text == note return true;
+    return false;
+}
+
+cast_code_node :: ($tag: Code_Node.Kind, base: *Code_Node) -> *$R
+#modify {
+    R = tag_to_type(tag);
+    return true;
+}
+#expand {
+    return cast(*R) base;
+}
+
+tag_to_type :: (tag: Code_Node.Kind) -> Type {
+    if #complete tag == {
+        case .UNINITIALIZED;               assert(false, "no type to cast to");
+        case .BLOCK;                       return Code_Block;
+        case .LITERAL;                     return Code_Literal;
+        case .IDENT;                       return Code_Ident;
+        case .UNARY_OPERATOR;              return Code_Unary_Operator;
+        case .BINARY_OPERATOR;             return Code_Binary_Operator;
+        case .PROCEDURE_BODY;              return Code_Procedure_Body;
+        case .PROCEDURE_CALL;              return Code_Procedure_Call;
+        case .CONTEXT;                     return Code_Context;
+        case .WHILE;                       return Code_While;
+        case .IF;                          return Code_If;
+        case .LOOP_CONTROL;                return Code_Loop_Control;
+        case .CASE;                        return Code_Case;
+        case .RETURN;                      return Code_Return;
+        case .FOR;                         return Code_For;
+        case .TYPE_DEFINITION;             return Code_Type_Definition;
+        case .TYPE_INSTANTIATION;          return Code_Type_Instantiation;
+        case .ENUM;                        return Code_Enum;
+        case .PROCEDURE_HEADER;            return Code_Procedure_Header;
+        case .STRUCT;                      return Code_Struct;
+        case .COMMA_SEPARATED_ARGUMENTS;   return Code_Comma_Separated_Arguments;
+        case .EXTRACT;                     return Code_Extract;
+        case .DIRECTIVE_BYTES;             return Code_Directive_Bytes;
+        case .MAKE_VARARGS;                return Code_Make_Varargs;
+        case .DECLARATION;                 return Code_Declaration;
+        case .CAST;                        return Code_Cast;
+        case .DIRECTIVE_IMPORT;            return Code_Directive_Import;
+        case .DIRECTIVE_THIS;              assert(false, "no type to cast to");
+        case .DIRECTIVE_THROUGH;           return Code_Directive_Through;
+        case .DIRECTIVE_LOAD;              return Code_Directive_Load;
+        case .DIRECTIVE_RUN;               return Code_Directive_Run;
+        case .DIRECTIVE_CODE;              return Code_Directive_Code;
+        case .DIRECTIVE_POKE_NAME;         return Code_Directive_Poke_Name;
+        case .ASM;                         return Code_Asm;
+        case .DIRECTIVE_BAKE;              return Code_Directive_Bake;
+        case .DIRECTIVE_MODIFY;            return Code_Directive_Modify;
+        case .DIRECTIVE_LIBRARY;           return Code_Directive_Library;
+        case .EXPRESSION_QUERY;            return Code_Expression_Query;
+        case .PUSH_CONTEXT;                return Code_Push_Context;
+        case .NOTE;                        return Code_Note;
+        case .DIRECTIVE_PLACE;             assert(false, "no type to cast to");
+        case .DIRECTIVE_SCOPE;             return Code_Directive_Scope;
+        case .TYPE_QUERY;                  return Code_Type_Query;
+        case .DIRECTIVE_LOCATION;          return Code_Directive_Location;
+        case .DIRECTIVE_MODULE_PARAMETERS; return Code_Directive_Module_Parameters;
+        case .DIRECTIVE_ADD_CONTEXT;       assert(false, "no type to cast to");
+        case .DIRECTIVE_COMPILE_TIME;      assert(false, "no type to cast to");
+        case .COMPOUND_DECLARATION;        return Code_Compound_Declaration;
+        case .DEFER;                       return Code_Defer;
+        case .USING;                       return Code_Using;
+        case .PLACEHOLDER;                 return Code_Placeholder;
+        case .DIRECTIVE_INSERT;            return Code_Directive_Insert;
+        case .DIRECTIVE_PROCEDURE_NAME;    return Code_Directive_Procedure_Name;
+        case .DIRECTIVE_WILDCARD;          return Code_Directive_Wildcard;
+        case .DIRECTIVE_EXISTS;            return Code_Directive_Exists;
+    }
+    assert(false, "unexpected Code_Node.Kind: %", tag);
+    return void;
 }
 
 last_char :: inline (s: string) -> u8 {
