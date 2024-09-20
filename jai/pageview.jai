@@ -230,9 +230,11 @@ Window_Buffer :: struct {
     index_in_history: s64;
     time_generated: Apollo_Time;
     hash: U128;
+    hash_state: Meow_Hash_State;
 
+    line_count: s64;
     chunk_count: s64;
-    using first_chunk: Window_Buffer_Chunk;
+    using first_chunk: *Window_Buffer_Chunk;
 }
 
 Window_Buffer_Chunk :: struct {
@@ -892,9 +894,10 @@ main :: () {
 
 build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] string {
     using context.state;
-    using window_buffer;
+    window_buffer;
 
     if !window_buffer return .[];
+    if !window_buffer.chunk_count return .[];
     if main_window_height == 0 return .[];
 
     // `line_buffer` stores pointers into `window_buffer` or temporary storage
@@ -916,7 +919,10 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
         current_screen_row += -row_offset;
     }
 
-    line_number_max_digits := tprint("%", line_offsets.count).count;
+    chunk := get_window_buffer_chunk_for_line_index(window_buffer, line_index);
+    using chunk;
+
+    line_number_max_digits := tprint("%", window_buffer.line_count).count;
     main_window_left_offset := 0;
     if line_numberring then main_window_left_offset = line_number_max_digits + 1;
     if col_offset < 0 {
@@ -1512,7 +1518,7 @@ maybe_handle_external_command_output :: () {
         return;
 
     Profile();
-    separate_control_codes(*new_window_buffer, raw_text_and_control_codes);
+    separate_control_codes(first_chunk, raw_text_and_control_codes);
     Profile("length: %, lines: %, codes: %", raw_text_and_control_codes.count, line_offsets.count, control_codes.count);
 
     new_window_buffer.index_in_history = main_window_buffer_history.count;
@@ -1587,11 +1593,24 @@ read_some_from_piped_input :: () {
     if !has_new_data return;
 
     window_buffer := *main_window_buffer_history[current_shown_buffer_index];
+    if window_buffer.chunk_count == 0 {
+        Meow_Hash_Init(*window_buffer.hash_state, Meow_Hash_Default_Seed);
+    }
+
+    chunk := add_window_buffer_chunk(window_buffer);
+    chunk.raw_text_and_control_codes = builder_to_string(*piped_input_builder, do_reset=true);
+    Meow_Hash_Consume(*window_buffer.hash_state, xx chunk.raw_text_and_control_codes);
+
+    // TODO: control code handling. Must keep track of any non disabled control
+    // codes from the last chunk (index of last reset control code?).
+    separate_control_codes(chunk, chunk.raw_text_and_control_codes);
+
+    // FIXME: must make sure the chunks are newline - aligned, meaning must keep
+    // track of the last newline of the chunk and add everything after it to the
+    // next chunk.
+    window_buffer.line_count += chunk.line_offsets.count;
     window_buffer.time_generated = current_time_consensus();
-    free(window_buffer.raw_text_and_control_codes);
-    window_buffer.raw_text_and_control_codes = builder_to_string(*piped_input_builder, do_reset=false);
-    window_buffer.hash = Meow_Hash_Compute(xx window_buffer.raw_text_and_control_codes);
-    separate_control_codes(window_buffer, window_buffer.raw_text_and_control_codes);
+    window_buffer.hash = Meow_Hash_Finalize(*window_buffer.hash_state);
 }
 
 handle_piped_input_end :: () {
@@ -2232,7 +2251,7 @@ test_get_next_control_code_in_range :: () {
     text := "foo\e[31mbar\e[32mbaz\e[33mboobies\e[0m";
 
     using window_buffer: Window_Buffer;
-    separate_control_codes(*window_buffer, text);
+    separate_control_codes(first_chunk, text);
 
     print_vars(raw_text_and_control_codes, only_text, control_codes);
 
@@ -2269,9 +2288,9 @@ test_get_next_control_code_in_range :: () {
     do_test(4, 7);
 }
 
-separate_control_codes :: (window_buffer: *Window_Buffer, raw_text: string) {
+separate_control_codes :: (chunk: *Window_Buffer_Chunk, raw_text: string) {
     using context.state;
-    using window_buffer;
+    using chunk;
 
     // `only_text.count <= raw_text_and_control_codes.count` is always true
     raw_text_and_control_codes = raw_text;
@@ -2425,6 +2444,40 @@ scroll_string_with_control_codes :: (builder: *String_Builder, scrolling_text: s
             break;
         }
     }
+}
+
+//
+// window buffer chunks
+//
+
+add_window_buffer_chunk :: (window_buffer: *Window_Buffer) -> *Window_Buffer_Chunk {
+    p := *window_buffer.first_chunk;
+    prev: *Window_Buffer_Chunk;
+    while p.* {
+        prev = p.*;
+        p = *p.*.next_chunk;
+    }
+    p.* = New(Window_Buffer_Chunk);
+    if prev {
+        p.*.prev_chunk = prev;
+    }
+    window_buffer.chunk_count += 1;
+
+    return p.*;
+}
+
+get_window_buffer_chunk_for_line_index :: (window_buffer: *Window_Buffer, line_index: s64) -> *Window_Buffer_Chunk {
+    chunk := window_buffer.first_chunk;
+    line_count := 0;
+    while chunk {
+        if line_count <= line_index && chunk.line_offsets.count > line_index {
+            break;
+        }
+        line_count += chunk.line_offsets.count;
+        chunk = chunk.next_chunk;
+    }
+
+    return chunk;
 }
 
 //
