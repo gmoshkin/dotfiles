@@ -183,11 +183,13 @@ tcp_server_connection_on_input :: (using connection: *Http_Server_Connection) ->
         return false;
     }
 
-    builder := String_Builder.{ allocator = temp };
-    print(*builder, "new data from connection #%: \"", id);
-    print_ascii_or_hex(*builder, builder_to_string(*input_builder,, temp));
-    print(*builder, "\"");
-    log("%", builder_to_string(*builder,, temp));
+    if has_new_data {
+        builder := String_Builder.{ allocator = temp };
+        print(*builder, "new data from connection #%: \"", id);
+        print_ascii_or_hex(*builder, builder_to_string(*input_builder,, temp));
+        print(*builder, "\"");
+        log("%", builder_to_string(*builder,, temp));
+    }
 
     if !has_new_data {
         if !tcp_server_connection_on_hang_up(connection) return false;
