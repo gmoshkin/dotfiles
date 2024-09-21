@@ -3100,11 +3100,14 @@ delete_word_before_command_line_cursor :: () {
     string_before_cursor := cast(string) command_line;
     string_before_cursor.count = input_cursor;
 
-    // skip any whitespace before the cursor
-    while string_before_cursor.count && string_before_cursor[string_before_cursor.count - 1] == #char " "
+    // skip any separator characters before the cursor
+    while string_before_cursor.count {
+        char := string_before_cursor[string_before_cursor.count - 1];
+        if char != #char " " && char != #char "." break;
         string_before_cursor.count -= 1;
+    }
 
-    to_delete_from := find_index_from_right(string_before_cursor, #char " ");
+    to_delete_from := find_index_of_any_from_right(string_before_cursor, " .");
     if to_delete_from == -1 then to_delete_from = 0;
 
     // leave the space before the deleted word
