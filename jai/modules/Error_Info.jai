@@ -1,5 +1,11 @@
-// TODO: module_parameters
-LOG_WHEN_SETTING :: false;
+#module_parameters(LOG_ERRORS_ON_CREATION := Error_Info_Log_Mode.NONE) {
+    Error_Info_Log_Mode :: enum  {
+        NONE; // Only used in module parameters
+        ONLY_MESSAGE;
+        WITH_SOURCE_LOCATION;
+        WITH_STACK_TRACE;
+    }
+}
 
 Error_Code :: enum {
     OK;
@@ -15,8 +21,16 @@ Error_Code :: enum {
 Error_Info :: struct {
     code: s64;
     message: string;
-    stack_trace: [] Stack_Trace_Node;
+    stack_trace: [..] Stack_Trace_Node;
     error_code_type: *Type_Info = type_info(Error_Code);
+}
+
+copy_error_info :: (from: *Error_Info, to: *Error_Info) {
+    to.code = from.code;
+    to.error_code_type = from.error_code_type;
+    to.message = copy_string(from.message);
+    to.stack_trace.count = 0;
+    array_add(*to.stack_trace, ..from.stack_trace);
 }
 
 prepend_error_message :: (format: string, args: .. Any) {
@@ -40,29 +54,26 @@ set_last_error :: (code: $T, format: string, args: .. Any) -> bool {
     info.error_code_type = type_info(T);
     free(info.message);
     info.message = sprint(format, .. args);
-    info.stack_trace = get_stack_trace();
+    get_stack_trace(*info.stack_trace);
 
-    if LOG_WHEN_SETTING {
-        log_last_error(.WITH_STACK_TRACE);
+    #if LOG_ERRORS_ON_CREATION != .NONE {
+        log_last_error(LOG_ERRORS_ON_CREATION);
     }
 
     return false;
 } @PrintLike
 
 // Returns `false` for convenience so that you can do `return set_last_error(...);`
-set_last_error_from_system :: () -> bool {
+set_last_error_from_system :: (prepend: string = "") -> bool {
+    System :: #import "System";
     code, message := System.get_error_value_and_string();
-    return inline set_last_error(code, "%", message);
+    return inline set_last_error(code, "%1%2", prepend, message);
 }
 
-Error_Info_Log_Mode :: enum  {
-    ONLY_MESSAGE;
-    WITH_SOURCE_LOCATION;
-    WITH_STACK_TRACE;
-}
 print_last_error :: (builder: *String_Builder, mode := Error_Info_Log_Mode.WITH_SOURCE_LOCATION) {
     info := *context.last_error;
-    if mode == {
+    if #complete mode == {
+        case .NONE; #through;
         case .ONLY_MESSAGE;
             print_message_with_code(builder, info);
         case .WITH_SOURCE_LOCATION;
@@ -104,8 +115,13 @@ print_message_with_code :: inline (builder: *String_Builder, info: *Error_Info) 
     print(builder, "[#%] %", cast(s64) info.code, info.message);
 }
 
-get_stack_trace :: (skip := 1) -> [] Stack_Trace_Node {
+get_stack_trace :: inline (skip := 1) -> [] Stack_Trace_Node {
     result: [..] Stack_Trace_Node;
+    return get_stack_trace(*result, skip=skip);
+}
+
+get_stack_trace :: (result: *[..] Stack_Trace_Node, skip := 1) {
+    result.count = 0;
     head := context.stack_trace;
 
     skip_copy := skip;
@@ -121,20 +137,18 @@ get_stack_trace :: (skip := 1) -> [] Stack_Trace_Node {
         node = node.next;
     }
 
-    array_reserve(*result, node_count);
+    array_reserve(result, node_count);
     node = head;
     while node {
-        array_add(*result, << node);
+        array_add(result, << node);
         node = node.next;
     }
 
     // Fix up the 'next' pointers so you can use them normally.
-    for * result {
+    for * result.* {
         if it.next   // The one that was already null, at the end, leave it null. Otherwise:
         it.next = it + 1;  // Set 'next' to point at the subsequent element in the array.
     }
-
-    return result;
 }
 
 #scope_file

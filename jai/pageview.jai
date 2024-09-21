@@ -90,7 +90,7 @@ State :: struct {
     completion_menu: List_Menu;
 
     //
-    // status
+    // status lines
     //
     frame_time: float64;
     info_message_color: string;
@@ -100,6 +100,12 @@ State :: struct {
     next_status_scroll_time : float64 = -1.0;
     before_scroll_time_seconds : float64 = 2.0;
     current_command_string_scroll_offset := 0;
+
+    //
+    // http server
+    //
+    http_server_enabled := false;
+    http_server: Http_Server_State;
 
     //
     // logging
@@ -349,6 +355,24 @@ main :: () {
                 }
                 state.log_file_name = copy_string(args[cursor]);
 
+            case "--listen";
+                cursor += 1;
+                if cursor >= args.count {
+                    print("Expected a port number after '%'\n", arg);
+                    exit(1);
+                }
+                port, ok, remainder := string_to_int(args[cursor]);
+                if !ok || remainder != "" {
+                    print("Expected a port number after '%', got '%'\n", arg, args[cursor]);
+                    exit(1);
+                }
+                if port > U16_MAX {
+                    print("Port number % is out of range, must not be greater than %\n", port, U16_MAX);
+                    exit(1);
+                }
+                state.http_server.listen_port = xx port;
+                state.http_server_enabled = true;
+
             // TODO: a flag to just watch a file's contents, so I don't have to
             // do `cat filename`
 
@@ -554,6 +578,14 @@ main :: () {
         }
     }
 
+    // Initialize http server (must go after epoll, because we use the epoll_fd)
+    if state.http_server_enabled {
+        if !init_http_server() {
+            log_last_error(.WITH_STACK_TRACE);
+        }
+    }
+
+    // Initialize status lines
     status_line_init();
 
     // Initialize input
@@ -626,7 +658,10 @@ main :: () {
                 external_command_ready = true;
                 external_command_error_closed ||= xx it.events & EPOLLHUP;
             } else {
-                log("unknown fd %: %", it.data.fd, cast(Epoll_Events) it.events);
+                ok, handled := tcp_server_handle_epoll_event(*http_server, it);
+                if !ok  log_last_error(.WITH_STACK_TRACE);
+                if !handled
+                    log("unknown fd %: %", it.data.fd, cast(Epoll_Events) it.events);
             }
         }
 
@@ -2431,34 +2466,6 @@ scroll_string_with_control_codes :: (builder: *String_Builder, scrolling_text: s
 // io stuff
 //
 
-read_all_available_data :: (fd: s32, builder: *String_Builder) -> (success: bool, has_new_data: bool) {
-    has_new_data := false;
-    i := 0;
-    while true {
-        buffer := ensure_contiguous_space_and_return_available_range(builder);
-        i += 1;
-
-        read_count := read(fd, buffer.data, xx buffer.count);
-        if read_count < 0 {
-            code := System.get_error_value();
-            #assert EAGAIN == EWOULDBLOCK;
-            if code == EINTR continue;
-            if code == EWOULDBLOCK return true, has_new_data;
-
-            return false, has_new_data;
-        }
-
-        if read_count > 0 {
-            advance_through_ensured_space(builder, xx read_count);
-            has_new_data = true;
-
-            continue;
-        }
-
-        return true, has_new_data;
-    }
-}
-
 //
 // input handling
 //
@@ -4245,6 +4252,21 @@ test_get_subfield_by_path :: () {
 }
 
 //
+// http server
+//
+
+init_http_server :: () -> bool {
+    state := *context.state;
+    server := *context.state.http_server;
+    server.epoll_fd = *state.epoll_fd;
+
+    if !init_tcp_server(server) return false;
+    if !tcp_server_start_listenning(server) return false;
+
+    return true;
+}
+
+//
 // print utilities
 //
 
@@ -4523,26 +4545,6 @@ tcsetattr :: (fd: s32, optional_actions: s32, termios: *Termios) -> s32 #foreign
 
 SYS_pidfd_open :: 434;
 
-Epoll_Events :: enum_flags {
-    EPOLLIN          :: 0x0001;
-    EPOLLPRI         :: 0x0002;
-    EPOLLOUT         :: 0x0004;
-    EPOLLERR         :: 0x0008;
-    EPOLLHUP         :: 0x0010;
-    EPOLLNVAL        :: 0x0020;
-    EPOLLRDNORM      :: 0x0040;
-    EPOLLRDBAND      :: 0x0080;
-    EPOLLWRNORM      :: 0x0100;
-    EPOLLWRBAND      :: 0x0200;
-    EPOLLMSG         :: 0x0400;
-    EPOLLRDHUP       :: 0x2000;
-    EPOLL_URING_WAKE :: 1 << 27;
-    EPOLLEXCLUSIVE   :: 1 << 28;
-    EPOLLWAKEUP      :: 1 << 29;
-    EPOLLONESHOT     :: 1 << 30;
-    EPOLLET          :: 1 << 31;
-}
-
 profile_t0: f64 = 0.0;
 Profile :: (format: string = "", args: ..Any, loc := #caller_location) #expand {
     t1 := seconds_since_init();
@@ -4633,6 +4635,7 @@ fmt :: inline (v: s64, minimum_digits := 1, $padding := "0") -> FormatInt #expan
 #import "Unicode";
 #import "Random";
 #import "Error_Info";
+#import "Http";
 Meow_Hash :: #import "meow_hash";
 // #if OS == .LINUX #import "X11";
 // #import "Clipboard";
