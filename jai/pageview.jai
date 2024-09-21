@@ -87,7 +87,7 @@ State :: struct {
 
     f_repeat_count: s64;
 
-    completion_menu: List_Menu;
+    completion_menu: Completion_Menu;
 
     //
     // status lines
@@ -212,8 +212,6 @@ State :: struct {
     // miscellaneous internals
     //
     default_allocated_high_water_mark : s64;
-    saved_termios: Termios;
-    setup_control_codes: [..] string;
     tty_name: string;
 
     epoll_fd: s32;
@@ -265,10 +263,11 @@ Control_Code_Info :: struct {
     data: Ascii_Or_Hex; // points into `raw_text_and_control_codes`
 }
 
-List_Menu :: struct {
+Completion_Menu :: struct {
     items: [..] string;
     displayed_items: [..] string;
     builder_for_items: String_Builder;
+    common_item_prefix: string;
 
     selected_item: s64;
 
@@ -504,47 +503,8 @@ main :: () {
     // `- 2` for :2_status_lines
     state.main_window_height = state.terminal_size.rows - 2;
 
-    // Hide cursor, disable echo, etc.
-    {
-        context.assertion_failed = (loc: Source_Code_Location, message: string) -> bool {
-            restore_terminal_settings();
-            return runtime_support_assertion_failed(loc, message);
-        };
-
-        array_add(*state.setup_control_codes,
-            "\e[?1049h", // enable the alternative buffer
-            "\e[?25l", // hide cursor
-            "\e[?1002h", // enable mouse events: click, wheel + drag
-            "\e[?1006h", // alternate mouse input format
-        );
-        write_strings(..state.setup_control_codes);
-
-        rc := tcgetattr(STDIN_FILENO, *state.saved_termios);
-        assert(rc == 0);
-
-        new_termios := state.saved_termios;
-
-        // Copy-pasted from <https://github.com/antirez/kilo/blob/69c3ce609d1e8df3956cba6db3d296a7cf3af3de/kilo.c#L226-L239>
-        /* input modes: no break, no CR to NL, no parity check, no strip char,
-         * no start/stop output control. */
-        // new_termios.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-        /* output modes - disable post processing */
-        // new_termios.c_oflag &= ~(OPOST);
-        /* control modes - set 8 bit chars */
-        // new_termios.c_cflag |= (CS8);
-        /* local modes - choing off, canonical off, no extended functions,
-         * no signal chars (^Z,^C) */
-        // new_termios.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
-        // ~ECHO: don't display characters being typed
-        // ~ICANON: not sure what else but also disables input bufferring by line
-        new_termios.c_lflag &= ~(ECHO | ICANON);
-        /* control chars - set return condition: min number of bytes and timer. */
-        new_termios.c_cc[VMIN] = 0; /* Return each byte, or zero for timeout. */
-        new_termios.c_cc[VTIME] = 1; /* 100 ms timeout (unit is tens of second). */
-
-        rc = tcsetattr(STDIN_FILENO, TCSADRAIN, *new_termios);
-        assert(rc == 0);
-    }
+    // Setup terminal mode, after this exitting should be done via term_exit
+    init_terminal_settings();
 
     // Make stdin non blocking
     {
@@ -3406,14 +3366,7 @@ complete_console_command :: () {
         add_completion_menu_item_simple(it.name);
     }
 
-    if completion_menu.items.count == 1 {
-        replace_console_command_line_from_completion_menu(0);
-        return;
-    } else if completion_menu.items.count > 1 {
-        completion_menu.is_active = true;
-        completion_menu.selected_item = 0;
-        return;
-    }
+    if completion_menu_activate_or_pick_sole_item() return;
 
     // If it's a `> command ` insert the current external command for editting
     if command_line[command_line.count - 1] == #char " " && trim(xx command_line) == "command" {
@@ -3438,6 +3391,8 @@ complete_console_command :: () {
             case .STRUCT;
                 for (cast(*Type_Info_Struct) field.type).members {
                     if !starts_with(it.name, field_prefix) continue;
+                    if it.flags & .CONSTANT continue;
+
                     completion_menu.completion_insert_offset = command_line.count - field_prefix.count;
 
                     field_value: Any;
@@ -3473,21 +3428,43 @@ complete_console_command :: () {
                 return;
         }
 
-        if completion_menu.items.count == 1 {
-            replace_console_command_line_from_completion_menu(0);
-            return;
-        } else if completion_menu.items.count > 1 {
-            completion_menu.is_active = true;
-            completion_menu.selected_item = 0;
-            return;
-        }
+        if completion_menu_activate_or_pick_sole_item() return;
     }
 }
 
-replace_console_command_line_from_completion_menu :: (item_index: s64) {
+completion_menu_activate_or_pick_sole_item :: () -> bool {
     using context.state;
 
-    replacement := completion_menu.items[item_index];
+    if !completion_menu.items return false;
+
+    if completion_menu.items.count == 1 {
+        replace_console_command_line_from_completion_menu(0);
+        return true;
+    }
+
+    if completion_menu.items.count > 1 {
+        completion_menu.is_active = true;
+        completion_menu.selected_item = 0;
+
+        if completion_menu.common_item_prefix {
+            replace_console_command_line_from_completion_menu(completion_menu.common_item_prefix);
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+replace_console_command_line_from_completion_menu :: inline (item_index: s64) {
+    using context.state;
+
+    replace_console_command_line_from_completion_menu(completion_menu.items[item_index]);
+}
+
+replace_console_command_line_from_completion_menu :: (replacement: string) {
+    using context.state;
+
     command_line.count = completion_menu.completion_insert_offset;
     array_add(*command_line, ..cast([] u8) replacement);
     input_cursor = command_line.count;
@@ -3580,13 +3557,26 @@ reset_completion_menu :: () {
     completion_menu.displayed_items.count = 0;
     get_base_buffer(*completion_menu.builder_for_items).count = 0;
     completion_menu.width = xx (terminal_size.cols * 0.66);
+    completion_menu.common_item_prefix = "";
 }
 
-add_completion_menu_item_simple :: (item: string) {
-    using context.state;
+add_completion_menu_item_simple :: (item: string, displayed_item := "") {
+    using context.state.completion_menu;
 
-    array_add(*completion_menu.items, item);
-    array_add(*completion_menu.displayed_items, item);
+    if !items then common_item_prefix = item;
+
+    array_add(*items, item);
+    array_add(*displayed_items, ifx displayed_item then displayed_item else item);
+
+    if common_item_prefix {
+        common_length := 0;
+        max_prefix_length := min(item.count, common_item_prefix.count);
+        for 0..max_prefix_length-1 {
+            if item[it] != common_item_prefix[it] break;
+            common_length += 1;
+        }
+        common_item_prefix = slice(common_item_prefix, 0, common_length);
+    }
 }
 
 print_completion_menu_item :: (format: string, args: .. Any, actual_item: string = "", actual_item_is_prefix := -1) {
@@ -3594,10 +3584,10 @@ print_completion_menu_item :: (format: string, args: .. Any, actual_item: string
     add_completion_menu_item(temp_string, actual_item=actual_item, actual_item_is_prefix=actual_item_is_prefix);
 } @PrintLike
 
-add_completion_menu_item :: (displayed_item: string, actual_item: string, actual_item_is_prefix := -1) {
+add_completion_menu_item :: (displayed_item_: string, actual_item: string, actual_item_is_prefix := -1) {
     using context.state;
 
-    temp_string := displayed_item;
+    temp_string := displayed_item_;
     padding := 2; // 1 space on each side
     max_count := completion_menu.width - padding;
     if temp_string.count > max_count  temp_string.count = max_count;
@@ -3607,17 +3597,18 @@ add_completion_menu_item :: (displayed_item: string, actual_item: string, actual
     append(*completion_menu.builder_for_items, temp_string);
     assert(get_base_buffer(*completion_menu.builder_for_items) == buffer);
 
-    item: string;
-    item.data = get_buffer_data(buffer) + item_start;
-    item.count = buffer.count - item_start;
-    array_add(*completion_menu.displayed_items, item);
+    displayed_item: string;
+    displayed_item.data = get_buffer_data(buffer) + item_start;
+    displayed_item.count = buffer.count - item_start;
+
+    real_item := actual_item;
     if actual_item_is_prefix > 0 {
-        count := min(actual_item_is_prefix, item.count);
-        array_add(*completion_menu.items, slice(item, 0, actual_item_is_prefix));
-    } else {
-        assert(actual_item.count > 0);
-        array_add(*completion_menu.items, actual_item);
+        count := min(actual_item_is_prefix, displayed_item.count);
+        real_item = slice(displayed_item, 0, count);
     }
+    assert(real_item.count > 0);
+
+    add_completion_menu_item_simple(real_item, displayed_item);
 }
 
 maybe_render_completion_menu :: () {
@@ -4476,22 +4467,84 @@ strerror :: (code: u32) -> *u8 #foreign libc;
 // terminal settings
 //
 
-restore_terminal_settings :: () {
+// Hide cursor, disable echo, etc.
+init_terminal_settings :: () {
     using context.state;
-    // could copy the strings, but don't wanna
-    teardown_control_codes: [..] string;
-    for setup_control_codes array_add(*teardown_control_codes, copy_string(it));
-    for teardown_control_codes {
-        last_char := *it[it.count - 1];
+
+    context.assertion_failed = (loc: Source_Code_Location, message: string) -> bool {
+        restore_terminal_settings();
+        return runtime_support_assertion_failed(loc, message);
+    };
+
+    //
+    // special control codes
+    //
+    setup_control_codes: [..] string;
+    array_add(*setup_control_codes,
+        "\e[?1049h", // enable the alternative buffer
+        "\e[?25l", // hide cursor
+        "\e[?1002h", // enable mouse events: click, wheel + drag
+        "\e[?1006h", // alternate mouse input format
+    );
+    write_strings(..setup_control_codes);
+
+    for *setup_control_codes {
+        it.* = copy_string(it.*);
+        last_char := *it.*[it.count - 1];
         if last_char.* == {
             case #char "l"; last_char.* = #char "h";
             case #char "h"; last_char.* = #char "l";
-            case; assert(false, "%: %", it_index, it);
+            case; assert(false, "%: %", it_index, it.*);
         }
     }
-    write_strings(..teardown_control_codes);
+    global_teardown_control_codes = setup_control_codes;
 
-    tcsetattr(STDIN_FILENO, TCSADRAIN, *context.state.saved_termios);
+    //
+    // termios attributes
+    //
+    if tcgetattr(STDIN_FILENO, *global_saved_termios) {
+        set_last_error_from_system();
+        log_last_error(.WITH_SOURCE_LOCATION);
+        assert(false, "%", context.last_error.message);
+    }
+
+    new_termios := global_saved_termios;
+
+    // Copy-pasted from <https://github.com/antirez/kilo/blob/69c3ce609d1e8df3956cba6db3d296a7cf3af3de/kilo.c#L226-L239>
+    /* input modes: no break, no CR to NL, no parity check, no strip char,
+     * no start/stop output control. */
+    // new_termios.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+    /* output modes - disable post processing */
+    // new_termios.c_oflag &= ~(OPOST);
+    /* control modes - set 8 bit chars */
+    // new_termios.c_cflag |= (CS8);
+    /* local modes - choing off, canonical off, no extended functions,
+     * no signal chars (^Z,^C) */
+    // new_termios.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+    // ~ECHO: don't display characters being typed
+    // ~ICANON: not sure what else but also disables input bufferring by line
+    new_termios.c_lflag &= ~(ECHO | ICANON);
+    /* control chars - set return condition: min number of bytes and timer. */
+    new_termios.c_cc[VMIN] = 0; /* Return each byte, or zero for timeout. */
+    new_termios.c_cc[VTIME] = 1; /* 100 ms timeout (unit is tens of second). */
+
+    if tcsetattr(STDIN_FILENO, TCSADRAIN, *new_termios) {
+        set_last_error_from_system();
+        log_last_error(.WITH_SOURCE_LOCATION);
+        assert(false, "%", context.last_error.message);
+    }
+}
+
+global_teardown_control_codes: [] string;
+global_saved_termios: Termios;
+restore_terminal_settings :: () #c_call #no_context {
+    write_strings(..global_teardown_control_codes);
+    tcsetattr(STDIN_FILENO, TCSADRAIN, *global_saved_termios);
+}
+
+term_exit :: (status: s32) {
+    restore_terminal_settings();
+    exit(status);
 }
 
 //

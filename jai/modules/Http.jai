@@ -20,15 +20,9 @@ Http_Server_State :: struct {
 
     last_error: Error_Info;
 
-    // TODO: report a compiler bug: If this enum is here then type info for it
-    // is corrupted when accessing it from the show_state_field command
-    // Server_Flags :: enum_flags {
-    //     NON_BLOCKING;
-    // }
-}
-
-Server_Flags :: enum_flags {
-    NON_BLOCKING;
+    Server_Flags :: enum_flags {
+        NON_BLOCKING;
+    }
 }
 
 Http_Server_Connection :: struct {
