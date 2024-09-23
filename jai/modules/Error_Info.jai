@@ -65,8 +65,7 @@ set_last_error :: (code: $T, format: string, args: .. Any) -> bool {
 
 // Returns `false` for convenience so that you can do `return set_last_error(...);`
 set_last_error_from_system :: (prepend: string = "") -> bool {
-    System :: #import "System";
-    code, message := System.get_error_value_and_string();
+    code, message := my_get_error_value_and_string();
     return inline set_last_error(code, "%1%2", prepend, message);
 }
 
@@ -153,4 +152,41 @@ get_stack_trace :: (result: *[..] Stack_Trace_Node, skip := 1) {
 
 #scope_file
 
-#import "Basic";
+#if OS == .LINUX {
+    #import "POSIX";
+
+    my_get_error_string :: (error_code: OS_Error_Code) -> string {
+        error_buffer: [1024] u8;
+
+        libc :: #system_library "libc";
+        #if OS == .LINUX {
+            // GLIBC uses special preprocessor macros to switch to this so-called XSI-compliant implementation.
+            // The man pages say that this version of strerror_r is preferred for portable applications,
+            // and it works on both modern-ish glibc and musl.
+            strerror_r :: (errnum: s32, buf: *u8, buflen: s32) -> s32 #foreign libc "__xpg_strerror_r";
+        } else {
+            strerror_r :: (errnum: s32, buf: *u8, buflen: s32) -> int #foreign libc;
+        }
+
+        result := strerror_r(error_code, error_buffer.data, error_buffer.count);
+        if result != 0 {
+            // This also sets errno to a new error on Linux; ignore for now?
+            return Basic.sprint("OS did not return us a valid string for error %. Returned error was %", error_code, result);
+        }
+
+        s := to_string(error_buffer.data);
+        return Basic.copy_temporary_string(s);
+    }
+
+    my_get_error_value_and_string :: () -> (error_code: OS_Error_Code, description: string) { // 'description' is in temporary storage, or a static string.
+        error_code := errno();
+        description := my_get_error_string(error_code);
+        return error_code, description;
+    }
+} else {
+    my_get_error_string :: System.get_error_string;
+    my_get_error_value_and_string :: System.get_error_value_and_string;
+}
+
+using Basic :: #import "Basic";
+System :: #import "System";

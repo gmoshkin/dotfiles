@@ -1407,6 +1407,8 @@ maybe_spawn_external_command :: () {
     success := create_process(process, ..temp_command, capture_and_return_output=true);
     if !success {
         last_command_result.type = .FAILED_TO_LAUNCH;
+        // FIXME: now the error message keeps flashing and getting erased on next loop iteration...
+        time_next_command_run = time + external_command_run_period_seconds;
         return;
     }
 

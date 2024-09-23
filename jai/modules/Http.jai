@@ -8,6 +8,10 @@ Http_Server_State :: struct {
     max_listen_queue_size: s32 = 10;
     max_live_connections := -1;
 
+    // Actual HTTP part
+    http_request_handler: (request: *Http_Request, connection: *Http_Server_Connection) -> bool;
+    http_request_handler_data: *void;
+
     // Could abstract this away somehow, but don't need it yet, so no need to
     // overcomplicate things.
     epoll_fd: *s32;
@@ -39,9 +43,47 @@ Http_Server_Connection :: struct {
     sockaddr_len: u32;
 
     input_builder: String_Builder;
+    input_read_offset: s64;
+    parser: Http_Parser;
+    temp_request: Http_Request;
+
     output_builder: String_Builder;
 
     last_error: Error_Info;
+
+    http_request_handler: (request: *Http_Request, connection: *Http_Server_Connection) -> bool;
+    http_request_handler_data: *void;
+}
+
+Http_Request :: struct {
+    method: string;
+    uri: string;
+    protocol: string;
+    headers: string;
+    body: string;
+}
+
+Http_Parser :: struct {
+    state := State.METHOD;
+
+    uri_offset := -1;
+    protocol_offset := -1;
+    headers_offset := -1;
+    current_header_offset := -1;
+
+    content_length := 0;
+    body_offset := -1;
+
+    error_offset := -1;
+    error_message := "";
+
+    State :: enum {
+        METHOD;
+        URI;
+        PROTOCOL;
+        HEADERS;
+        BODY;
+    }
 }
 
 Http_Connection_Id :: s32;
@@ -133,6 +175,8 @@ accept_tcp_connection :: (using server: *Http_Server_State) -> bool, *Http_Serve
     conn.id = xx connections.count;
     conn.peer_port = conn.sockaddr.sin_port;
     conn.peer_host = to_string(conn.peer_host_storage.data);
+    conn.http_request_handler = server.http_request_handler;
+    conn.http_request_handler_data = server.http_request_handler_data;
 
     new_connection := New(Http_Server_Connection);
     new_connection.* = conn.*;
@@ -183,19 +227,228 @@ tcp_server_connection_on_input :: (using connection: *Http_Server_Connection) ->
         return false;
     }
 
+    should_close_connection := false;
     if has_new_data {
-        builder := String_Builder.{ allocator = temp };
-        print(*builder, "new data from connection #%: \"", id);
-        print_ascii_or_hex(*builder, builder_to_string(*input_builder,, temp));
-        print(*builder, "\"");
-        log("%", builder_to_string(*builder,, temp));
+        if !http_server_on_input(connection)
+            should_close_connection = true;
+    } else {
+        should_close_connection = true;
     }
 
-    if !has_new_data {
+    if should_close_connection {
+        // epoll doesn't report EPOLLHUP for sockets which closed on the other
+        // side for some reason. Maybe you need to write into it first? Idk I didn't check yet...
+        // Anyway, read returning 0 always means the fd is closed, however stupid this may sound
         if !tcp_server_connection_on_hang_up(connection) return false;
     }
 
     return true;
+}
+
+http_server_on_input :: (using connection: *Http_Server_Connection) -> bool {
+    // builder := String_Builder.{ allocator = temp };
+    // print(*builder, "new data from connection #%: \"", id);
+    // print_ascii_or_hex(*builder, builder_to_string(*input_builder,, temp), do_reset=false);
+    // print(*builder, "\"");
+    // log("%", builder_to_string(*builder,, temp));
+
+    while true {
+        if parser.state == {
+            case .METHOD;
+                offset_in_buffer, buffer_offset := find_offset_from_left(*input_builder, #char " ");
+                if offset_in_buffer == -1 return true;
+
+                parser.uri_offset = offset_in_buffer + buffer_offset + 1;
+                parser.state = .URI;
+
+            case .URI;
+                start_offset := parser.uri_offset;
+                offset_in_buffer, buffer_offset := find_offset_from_left(*input_builder, #char " ", start_offset);
+                if offset_in_buffer == -1 return true;
+
+                parser.protocol_offset = offset_in_buffer + buffer_offset + 1;
+                parser.state = .PROTOCOL;
+
+            case .PROTOCOL;
+                ok, offset := parse_past_cr_lf(connection, parser.protocol_offset);
+                if !ok return false;
+                if offset == -1 return true;
+
+                parser.headers_offset = offset;
+                parser.current_header_offset = parser.headers_offset;
+                parser.state = .HEADERS;
+
+            case .HEADERS;
+                start_offset := parser.current_header_offset;
+                ok, offset := parse_past_cr_lf(connection, start_offset);
+                if !ok return false;
+                if offset == -1 return true;
+
+                if offset == parser.current_header_offset + 2 {
+                    // CRLF CRLF
+                    parser.body_offset = offset;
+                    parser.state = .BODY;
+                    continue;
+                }
+                parser.current_header_offset = offset;
+
+                header_buffer: [64] u8;
+                count := copy_from_builder(*input_builder, start_offset, header_buffer);
+                assert(count > 0, "(%) already know there's data after this", count);
+
+                header := cast(string) array_view(header_buffer, 0, count);
+                if !starts_with(header, "Content-Length: ") continue;
+
+                key_length := "Content-Length: ".count;
+                value := advance(header, key_length);
+                content_length, ok= := string_to_int(value);
+                if !ok {
+                    parser.error_offset = start_offset + key_length;
+                    parser.error_message = "expected a number";
+                    return set_last_error("http protocol error: % at %", parser.error_message, parser.error_offset);
+                }
+
+                parser.content_length = content_length;
+
+            case .BODY;
+                offset_of_last_character_in_body := parser.body_offset + parser.content_length - 1;
+                buffer := get_buffer_at_offset(*input_builder, offset_of_last_character_in_body);
+                if !buffer return true;
+
+                break;
+        }
+    }
+
+    request_string_length := parser.body_offset + parser.content_length;
+
+    // String_Builder is sub optimal for input bufferring as it doesn't do a
+    // good job of allowing for reuse of already allocated buffers
+    input_buffer := builder_to_string(*input_builder, do_reset=true,, temp);
+
+    unparsed_count := input_buffer.count - request_string_length;
+    if unparsed_count > 0 {
+        append(*input_builder, advance(input_buffer, request_string_length));
+    }
+
+    method_length := parser.uri_offset - 1;
+    temp_request.method = slice(input_buffer, 0, method_length);
+
+    uri_length := parser.protocol_offset - parser.uri_offset - 1;
+    temp_request.uri = slice(input_buffer, parser.uri_offset, uri_length);
+
+    protocol_length := parser.headers_offset - parser.protocol_offset - 1;
+    temp_request.protocol = slice(input_buffer, parser.protocol_offset, protocol_length);
+
+    headers_length := parser.body_offset - parser.headers_offset - 1;
+    temp_request.headers = slice(input_buffer, parser.headers_offset, headers_length);
+
+    body_length := parser.content_length;
+    temp_request.body = slice(input_buffer, parser.body_offset, body_length);
+
+    request_line := slice(input_buffer, 0, parser.headers_offset - 2);
+    additional_info: string;
+    if parser.content_length
+        additional_info = tprint(" (content length: %)", parser.content_length);
+    log("#%1 request: %2%3", connection.id, request_line, additional_info);
+
+    if http_request_handler
+        if !http_request_handler(*temp_request, connection) return false;
+
+    return true;
+}
+
+// Return:
+// - `(true, offset_of_LF + 1)` if there's a CR LF somewhere in the `input_builder`.
+// - `(true, -1)` if there's no CR in the `input_builder` (probably want to read more from the socket).
+// - `(false, -1)` if there's a CR but it's not followed by LF (sets `connection.parser.error_*` fields).
+parse_past_cr_lf :: (using connection: *Http_Server_Connection, start_offset: s64) -> (no_error: bool, offset: s64) {
+    offset_in_buffer, buffer_offset, buffer := find_offset_from_left(*input_builder, #char "\r", start_offset);
+    if offset_in_buffer == -1 return true, -1;
+
+    found, lf := buffer_char_at(buffer, offset_in_buffer + 1);
+    if !found return true, -1;
+    if lf != #char "\n" {
+        parser.error_offset = offset_in_buffer + buffer_offset + 1;
+        parser.error_message = "expected a '\n' after '\r'";
+        return set_last_error("http protocol error: % at %", parser.error_message, parser.error_offset), -1;
+    }
+
+    return true, offset_in_buffer + buffer_offset + 2;
+}
+
+buffer_char_at :: (buffer: *String_Builder.Buffer, offset: s64) -> bool, u8 {
+    ofs := offset;
+    buf := buffer;
+    while buf {
+        if offset < buf.count return true, get_buffer_data(buf)[ofs];
+
+        ofs -= buf.count;
+        buf = buf.next;
+    }
+
+    return false, 0xff;
+}
+
+find_offset_from_left :: (builder: *String_Builder, byte: u8, start_offset := 0) -> (offset_in_buffer: s32, buffer_offset: s32, buffer: *String_Builder.Buffer) {
+    buffer, buffer_offset := get_buffer_at_offset(builder, start_offset);
+    offset_in_buffer := start_offset - buffer_offset;
+
+    while buffer {
+        slice := get_buffer_slice(buffer);
+
+        index := find_index_from_left(slice, byte, offset_in_buffer);
+        if index != -1 return xx index, buffer_offset, buffer;
+
+        // Offset in buffer only matters for the first builder,
+        // other buffers are by definition farther then start_offset.
+        offset_in_buffer = 0;
+
+        buffer_offset += xx buffer.count;
+        buffer = buffer.next;
+    }
+
+    return -1, -1, null;
+}
+
+copy_from_builder :: (builder: *String_Builder, offset: s64, destination: [] u8) -> s64 {
+    buffer, buffer_offset := get_buffer_at_offset(builder, offset);
+    if !buffer return -1;
+
+    slice := get_buffer_slice(buffer);
+    offset_in_buffer := offset - buffer_offset;
+    slice = advance(slice, offset_in_buffer);
+
+    copied_count := 0;
+    while true {
+        count := min(slice.count, destination.count - copied_count);
+        memcpy(destination.data + copied_count, slice.data, count);
+        copied_count += count;
+        if copied_count == destination.count return copied_count;
+
+        buffer = buffer.next;
+        if !buffer break;
+        slice = get_buffer_slice(buffer);
+    }
+
+    return copied_count;
+}
+
+get_buffer_at_offset :: (builder: *String_Builder, offset: s64) -> (buffer: *String_Builder.Buffer, buffer_offset: s32) {
+    buffer_offset: s32 = 0;
+    buffer := get_base_buffer(builder);
+    while buffer {
+        if buffer_offset + buffer.count > offset return buffer, buffer_offset;
+
+        buffer_offset += xx buffer.count;
+        buffer = buffer.next;
+    }
+
+    return null, -1;
+}
+
+get_buffer_slice :: inline (buffer: *String_Builder.Buffer) -> string {
+    data := get_buffer_data(buffer);
+    return string.{ data = data, count = buffer.count };
 }
 
 tcp_server_connection_on_output :: (using connection: *Http_Server_Connection) -> bool {
@@ -319,6 +572,7 @@ print_ascii_or_hex :: (builder: *String_Builder, s: string) {
 }
 
 #import "Basic";
+#import "String";
 #import "Error_Info";
 #import "Socket";
 #import "System";
