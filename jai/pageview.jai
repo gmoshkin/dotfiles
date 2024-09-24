@@ -414,7 +414,7 @@ main :: () {
             }
 
             args := NewArray(command.count, *u8);
-            for command args[it_index] = it.data;
+            for command args[it_index] = to_c_string(it);
             execvp(command[0].data, args.data);
             code, message := get_error_value_and_string();
             print("execvp(%) failed: [%] %\n", command, code, message);
