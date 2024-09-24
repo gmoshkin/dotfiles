@@ -4334,6 +4334,7 @@ count_occurences :: (text: string, byte: u8) -> s64 {
     while true {
         cursor = inline find_index_from_left(text, byte, cursor);
         if cursor < 0 break;
+        cursor += 1;
         count += 1;
     }
 
