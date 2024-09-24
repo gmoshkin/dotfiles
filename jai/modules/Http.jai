@@ -9,7 +9,7 @@ Http_Server_State :: struct {
     max_live_connections := -1;
 
     // Actual HTTP part
-    http_request_handler: (request: *Http_Request, connection: *Http_Server_Connection) -> bool;
+    http_request_handler: (request: *Http_Request, data: *void) -> bool;
     http_request_handler_data: *void;
 
     // Could abstract this away somehow, but don't need it yet, so no need to
@@ -48,14 +48,17 @@ Http_Server_Connection :: struct {
     temp_request: Http_Request;
 
     output_builder: String_Builder;
+    output_write_offset_in_buffer: s64;
 
     last_error: Error_Info;
 
-    http_request_handler: (request: *Http_Request, connection: *Http_Server_Connection) -> bool;
+    http_request_handler: (request: *Http_Request, data: *void) -> bool;
     http_request_handler_data: *void;
 }
 
 Http_Request :: struct {
+    connection: *Http_Server_Connection;
+
     method: string;
     uri: string;
     protocol: string;
@@ -195,7 +198,7 @@ tcp_server_cleanup_connections :: (using server: *Http_Server_State) {
     }
 }
 
-tcp_server_handle_epoll_event :: (using server: *Http_Server_State, event: epoll_event) -> ok: bool, handled: bool {
+tcp_server_handle_epoll_event :: (using server: *Http_Server_State, event: epoll_event) -> (ok: bool, handled: bool) {
     if event.data.fd == listen_fd {
         ok, connection := accept_tcp_connection(server);
         if !ok return false, false;
@@ -351,8 +354,10 @@ http_server_on_input :: (using connection: *Http_Server_Connection) -> bool {
         additional_info = tprint(" (content length: %)", parser.content_length);
     log("#%1 request: %2%3", connection.id, request_line, additional_info);
 
+    temp_request.connection = connection;
+
     if http_request_handler
-        if !http_request_handler(*temp_request, connection) return false;
+        if !http_request_handler(*temp_request, http_request_handler_data) return false;
 
     return true;
 }
@@ -451,10 +456,6 @@ get_buffer_slice :: inline (buffer: *String_Builder.Buffer) -> string {
     return string.{ data = data, count = buffer.count };
 }
 
-tcp_server_connection_on_output :: (using connection: *Http_Server_Connection) -> bool {
-    return true;
-}
-
 read_all_available_data :: (fd: s32, builder: *String_Builder) -> (success: bool, has_new_data: bool) {
     has_new_data := false;
     i := 0;
@@ -465,8 +466,8 @@ read_all_available_data :: (fd: s32, builder: *String_Builder) -> (success: bool
         read_count := read(fd, buffer.data, xx buffer.count);
         if read_count < 0 {
             code := get_error_value();
-            #assert EAGAIN == EWOULDBLOCK;
             if code == EINTR continue;
+            #assert EAGAIN == EWOULDBLOCK;
             if code == EWOULDBLOCK return true, has_new_data;
 
             return false, has_new_data;
@@ -483,6 +484,48 @@ read_all_available_data :: (fd: s32, builder: *String_Builder) -> (success: bool
     }
 }
 
+tcp_server_connection_on_output :: (using connection: *Http_Server_Connection) -> bool {
+    return true;
+}
+
+write_as_much_output_as_possible :: (using conenction: *Http_Server_Connection) -> bool {
+    base_buffer := get_base_buffer(*output_builder);
+    buffer := base_buffer;
+    assert(output_write_offset_in_buffer < buffer.count);
+    // FIXME: at some point I have to copy the contents of the remaining buffer
+    // into the base buffer so that the invariants hold...
+    while buffer {
+        remains_to_send := buffer.count - output_write_offset_in_buffer;
+        if !remains_to_send break;
+
+        rc := write(peer_fd, buffer.data + output_write_offset_in_buffer, remains_to_send);
+        if rc < 0 {
+            code := get_error_value();
+            if code == EINTR continue;
+            #assert EAGAIN == EWOULDBLOCK;
+            if code == EWOULDBLOCK return true;
+        }
+
+        // XXX: I don't know if this is actually correct...
+        if rc == 0 return true;
+
+        assert(rc <= remains_to_send);
+        output_write_offset_in_buffer += rc;
+        if output_write_offset_in_buffer != buffer.count continue;
+
+        // The current buffer is empty, free it (this is lame, I should come up
+        // with a buffer scheme that reuses the buffers, maybe just a simple
+        // free list?)
+        next_buffer := buffer.next;
+        if buffer != base_buffer then free(buffer,, output_builder.allocator);
+        base_buffer.next = next_buffer;
+
+        buffer = next_buffer;
+        output_write_offset_in_buffer = 0;
+    }
+}
+
+// TODO: rename
 tcp_server_connection_on_hang_up :: (using connection: *Http_Server_Connection) -> bool {
     log("connection #% closed", id);
     if !shutdown_fd_on_epoll(server.epoll_fd, *peer_fd) {

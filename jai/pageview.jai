@@ -4255,9 +4255,17 @@ init_http_server :: () -> bool {
     state := *context.state;
     server := *context.state.http_server;
     server.epoll_fd = *state.epoll_fd;
+    server.http_request_handler = http_request_handler;
 
     if !init_tcp_server(server) return false;
     if !tcp_server_start_listenning(server) return false;
+
+    return true;
+}
+
+http_request_handler :: (request: *Http_Request, data: *void) -> bool {
+    if !tcp_server_connection_on_hang_up(request.connection)
+        log_last_error(.WITH_STACK_TRACE);
 
     return true;
 }
