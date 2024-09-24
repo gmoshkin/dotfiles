@@ -4263,9 +4263,45 @@ init_http_server :: () -> bool {
     return true;
 }
 
-http_request_handler :: (request: *Http_Request, data: *void) -> bool {
-    if !tcp_server_connection_on_hang_up(request.connection)
+http_serve_resource :: (request: *Http_Request, data: *void) -> bool {
+    builder := get_response_body_builder(request);
+
+    file := request.uri;
+    if file == "/" then file = "/index.html";
+
+    resource_path := tprint("%1server%2", #filepath, file);
+    ok := read_entire_file_to_builder(builder, resource_path);
+    if !ok {
+        set_last_error_from_system();
+        prepend_error_message("failed reading file '%': ", resource_path);
         log_last_error(.WITH_STACK_TRACE);
+
+        request.response_code = 404;
+        return false;
+    }
+
+    return true;
+}
+
+http_request_handler :: (request: *Http_Request, data: *void) -> bool {
+    if !starts_with(request.uri, "/api") {
+        return http_serve_resource(request, data);
+    }
+
+    builder := get_response_body_builder(request);
+
+    print(builder, "Hello!\n");
+
+    print(builder, "Date/time: ");
+    date_time := to_calendar(current_time_consensus(), .LOCAL);
+    print_date_time_for_log(builder, date_time);
+    print(builder, "\n");
+
+    if request.parameters {
+        print(builder, "Parameters were: '%'\n", request.parameters);
+    }
+
+    print(builder, "Your address is %:%\n", request.connection.peer_host, request.connection.peer_port);
 
     return true;
 }

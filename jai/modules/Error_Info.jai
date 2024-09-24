@@ -91,13 +91,13 @@ print_last_error :: (builder: *String_Builder, mode := Error_Info_Log_Mode.WITH_
     }
 }
 
-log_last_error :: (mode := Error_Info_Log_Mode.WITH_SOURCE_LOCATION) {
+log_last_error :: (mode := Error_Info_Log_Mode.WITH_SOURCE_LOCATION, loc := #caller_location) {
     builder: String_Builder;
     builder.allocator = temp;
 
     print_last_error(*builder, mode);
 
-    log_error("%", builder_to_string(*builder,, temp));
+    log_error("%", builder_to_string(*builder,, temp), loc=loc);
 }
 
 print_message_with_code :: inline (builder: *String_Builder, info: *Error_Info) {

@@ -571,6 +571,58 @@ flat_pool_allocated :: (pool: *Flat_Pool) -> s64 {
 // file utilities
 //
 
+read_entire_file_to_builder :: inline (builder: *String_Builder, name: string) -> bool {
+    f, success := file_open(name, log_errors = false);
+    if !success return false;
+
+    defer file_close(*f);
+
+    return read_entire_file_to_builder(builder, f);
+}
+
+read_entire_file_to_builder :: (builder: *String_Builder, f: File) -> bool {
+    length, success := my_file_length(f);
+    if !success return false;
+
+    if !builder.initialized init_string_builder(builder);
+
+    saved := builder.subsequent_buffer_size;
+    defer builder.subsequent_buffer_size = saved;
+    if length > builder.subsequent_buffer_size {
+        builder.subsequent_buffer_size = length;
+    }
+
+    prev_buffer: *String_Builder.Buffer;
+    buffer := get_current_buffer(builder);
+    if buffer.allocated - buffer.count < length {
+        expand(builder);
+        prev_buffer = buffer;
+        buffer = get_current_buffer(builder);
+    }
+    buffer_data := get_buffer_data(buffer);
+    assert(buffer.allocated >= length);
+
+    total_read_count := 0;
+    while total_read_count != length {
+        remaining_to_read := length - total_read_count;
+        read_count := fread(buffer_data + total_read_count, 1, xx remaining_to_read, f.handle);
+        if read_count == 0 break;
+        if read_count < 0 {
+            if prev_buffer.next == buffer {
+                prev_buffer.next == null;
+                builder.current_buffer = prev_buffer;
+                free(buffer);
+            }
+            return false;
+        }
+        total_read_count += xx read_count;
+    }
+    assert(total_read_count == length);
+    buffer.count = length;
+
+    return true;
+}
+
 my_read_entire_file :: (name: string, log_errors := true) -> string, bool {
     s: string;
     f, success := file_open(name, log_errors = log_errors);

@@ -48,7 +48,15 @@ Http_Server_Connection :: struct {
     temp_request: Http_Request;
 
     output_builder: String_Builder;
+    // This is the offset from which data should be sent out in the first non
+    // empty buffer in the output_builder.
+    // This semantics is stupid because I'm using String_Builder as output
+    // buffer for non blocking IO, which it's not very good at.
     output_write_offset_in_buffer: s64;
+
+    // Uses temporary storage
+    response_body_builder: String_Builder;
+    response_code: u32;
 
     last_error: Error_Info;
 
@@ -57,10 +65,11 @@ Http_Server_Connection :: struct {
 }
 
 Http_Request :: struct {
-    connection: *Http_Server_Connection;
+    #as using connection: *Http_Server_Connection;
 
     method: string;
     uri: string;
+    parameters: string;
     protocol: string;
     headers: string;
     body: string;
@@ -96,6 +105,15 @@ init_tcp_server :: (using server: *Http_Server_State) -> bool {
     if listen_fd == INVALID_SOCKET {
         listen_fd = -1;
         set_last_error_from_system(prepend="Failed creating a socket: ");
+        copy_last_error_info(server);
+        return false;
+    }
+
+    // FIXME: close socket on error
+
+    option_value: s32 = 1;
+    if setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, xx *option_value, size_of(type_of(option_value))) {
+        set_last_error_from_system();
         copy_last_error_info(server);
         return false;
     }
@@ -242,7 +260,10 @@ tcp_server_connection_on_input :: (using connection: *Http_Server_Connection) ->
         // epoll doesn't report EPOLLHUP for sockets which closed on the other
         // side for some reason. Maybe you need to write into it first? Idk I didn't check yet...
         // Anyway, read returning 0 always means the fd is closed, however stupid this may sound
-        if !tcp_server_connection_on_hang_up(connection) return false;
+        if !tcp_server_connection_on_hang_up(connection) {
+            prepend_error_message("failed shutting down connection #%: ", id);
+            log_last_error(.WITH_STACK_TRACE);
+        }
     }
 
     return true;
@@ -339,6 +360,8 @@ http_server_on_input :: (using connection: *Http_Server_Connection) -> bool {
     uri_length := parser.protocol_offset - parser.uri_offset - 1;
     temp_request.uri = slice(input_buffer, parser.uri_offset, uri_length);
 
+    found:, temp_request.uri, temp_request.parameters = split_from_left(temp_request.uri, #char "?");
+
     protocol_length := parser.headers_offset - parser.protocol_offset - 1;
     temp_request.protocol = slice(input_buffer, parser.protocol_offset, protocol_length);
 
@@ -354,12 +377,27 @@ http_server_on_input :: (using connection: *Http_Server_Connection) -> bool {
         additional_info = tprint(" (content length: %)", parser.content_length);
     log("#%1 request: %2%3", connection.id, request_line, additional_info);
 
-    temp_request.connection = connection;
+    reset_http_parser(*parser);
 
-    if http_request_handler
-        if !http_request_handler(*temp_request, http_request_handler_data) return false;
+    temp_request.connection = connection;
+    connection.response_code = 0;
+
+    if http_request_handler {
+        ok := http_request_handler(*temp_request, http_request_handler_data);
+        if connection.response_code == 0 {
+            connection.response_code = xx ifx ok then 200 else 500;
+        }
+    } else {
+        connection.response_code = 404;
+    }
+    prepare_http_response(connection);
+    tcp_server_connection_on_output(connection);
 
     return true;
+}
+
+reset_http_parser :: (parser: *Http_Parser) {
+    parser.* = .{};
 }
 
 // Return:
@@ -485,29 +523,39 @@ read_all_available_data :: (fd: s32, builder: *String_Builder) -> (success: bool
 }
 
 tcp_server_connection_on_output :: (using connection: *Http_Server_Connection) -> bool {
+    if !write_as_much_output_as_possible(connection) {
+        if !tcp_server_connection_on_hang_up(connection) {
+            prepend_error_message("failed shutting down connection #%: ", id);
+            log_last_error(.WITH_STACK_TRACE);
+        }
+    }
     return true;
 }
 
 write_as_much_output_as_possible :: (using conenction: *Http_Server_Connection) -> bool {
     base_buffer := get_base_buffer(*output_builder);
+
     buffer := base_buffer;
-    assert(output_write_offset_in_buffer < buffer.count);
-    // FIXME: at some point I have to copy the contents of the remaining buffer
-    // into the base buffer so that the invariants hold...
+    while buffer && buffer.count == 0  buffer = buffer.next;
+
+    if buffer then assert(output_write_offset_in_buffer < buffer.count);
     while buffer {
         remains_to_send := buffer.count - output_write_offset_in_buffer;
         if !remains_to_send break;
 
-        rc := write(peer_fd, buffer.data + output_write_offset_in_buffer, remains_to_send);
+        buffer_data := get_buffer_data(buffer);
+        rc := write(peer_fd, buffer_data + output_write_offset_in_buffer, xx remains_to_send);
         if rc < 0 {
             code := get_error_value();
             if code == EINTR continue;
             #assert EAGAIN == EWOULDBLOCK;
-            if code == EWOULDBLOCK return true;
+            if code == EWOULDBLOCK break;
+
+            return set_last_error_from_system();
         }
 
         // XXX: I don't know if this is actually correct...
-        if rc == 0 return true;
+        if rc == 0 break;
 
         assert(rc <= remains_to_send);
         output_write_offset_in_buffer += rc;
@@ -523,17 +571,93 @@ write_as_much_output_as_possible :: (using conenction: *Http_Server_Connection) 
         buffer = next_buffer;
         output_write_offset_in_buffer = 0;
     }
+
+    if buffer != base_buffer {
+        base_buffer.count = 0;
+    }
+
+    return true;
 }
 
 // TODO: rename
 tcp_server_connection_on_hang_up :: (using connection: *Http_Server_Connection) -> bool {
-    log("connection #% closed", id);
     if !shutdown_fd_on_epoll(server.epoll_fd, *peer_fd) {
         copy_last_error_info(connection);
         return false;
     }
+    log("connection #% closed", id);
 
     return true;
+}
+
+get_response_body_builder :: (using connection: *Http_Server_Connection) -> *String_Builder {
+    return *connection.response_body_builder;
+}
+
+prepare_http_response :: (using connection: *Http_Server_Connection) {
+    builder := *output_builder;
+
+    code := response_code;
+    print(builder, "HTTP/1.1 % %\r\n", code, http_reason_phrase(code));
+
+    content_length := builder_string_length(*response_body_builder);
+    log("#% response: % % (Content-Length: %)", id, code, http_reason_phrase(code), content_length);
+
+    print(builder, "Content-Length: %\r\n", content_length);
+
+    // TODO: support other headers
+
+    print(builder, "\r\n");
+    if content_length {
+        my_append_and_steal_buffers(builder, *response_body_builder);
+    }
+}
+
+http_reason_phrase :: (code: u32) -> string {
+    if code == {
+        case 100; return "Continue";
+        case 101; return "Switching Protocols";
+        case 200; return "OK";
+        case 201; return "Created";
+        case 202; return "Accepted";
+        case 203; return "Non-Authoritative Information";
+        case 204; return "No Content";
+        case 205; return "Reset Content";
+        case 206; return "Partial Content";
+        case 300; return "Multiple Choices";
+        case 301; return "Moved Permanently";
+        case 302; return "Found";
+        case 303; return "See Other";
+        case 304; return "Not Modified";
+        case 305; return "Use Proxy";
+        case 307; return "Temporary Redirect";
+        case 400; return "Bad Request";
+        case 401; return "Unauthorized";
+        case 402; return "Payment Required";
+        case 403; return "Forbidden";
+        case 404; return "Not Found";
+        case 405; return "Method Not Allowed";
+        case 406; return "Not Acceptable";
+        case 407; return "Proxy Authentication Required";
+        case 408; return "Request Time-out";
+        case 409; return "Conflict";
+        case 410; return "Gone";
+        case 411; return "Length Required";
+        case 412; return "Precondition Failed";
+        case 413; return "Request Entity Too Large";
+        case 414; return "Request-URI Too Large";
+        case 415; return "Unsupported Media Type";
+        case 416; return "Requested range not satisfiable";
+        case 417; return "Expectation Failed";
+        case 500; return "Internal Server Error";
+        case 501; return "Not Implemented";
+        case 502; return "Bad Gateway";
+        case 503; return "Service Unavailable";
+        case 504; return "Gateway Time-out";
+        case 505; return "HTTP Version not supported";
+    }
+
+    return "UNKNOWN";
 }
 
 register_fd_on_epoll :: (epoll_fd: s32, fd: s32, events := Epoll_Events.EPOLLIN) -> bool {
@@ -611,6 +735,30 @@ print_ascii_or_hex :: (builder: *String_Builder, s: string) {
         } else {
             print_to_builder(builder, "\\x%", FormatInt.{ value = char, base = 16, minimum_digits = 2 });
         }
+    }
+}
+
+// Copy-pasted version of append_and_steal_buffers which doesn't ignore the rest
+// of the buffer if first buffer's count is 0.
+my_append_and_steal_buffers :: (builder: *String_Builder, steal_from: *String_Builder) {
+    buffer := get_base_buffer(steal_from);
+
+    // We need to copy the base buffer because it’s part of the other builder’s struct
+    // so we can’t take ownership of it:
+    append(builder, get_buffer_data(buffer), buffer.count);
+
+    assert(builder.allocator.proc == steal_from.allocator.proc);
+    assert(builder.allocator.data == steal_from.allocator.data);
+
+    // Take ownership of the rest of the buffer chain:
+    our_end := get_current_buffer(builder);
+    our_end.next = buffer.next;
+    // Reset the victim’s base buffer
+    buffer.count = 0;
+    buffer.next = null;
+    if steal_from.current_buffer {
+        builder.current_buffer = steal_from.current_buffer; // Use the victim’s final buffer as our current buffer.
+        steal_from.current_buffer = null; // Reset the victim to use the base buffer again
     }
 }
 
