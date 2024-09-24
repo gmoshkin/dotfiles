@@ -1160,6 +1160,7 @@ tag_to_type :: (tag: Code_Node.Kind) -> Type {
         case .BINARY_OPERATOR;             return Code_Binary_Operator;
         case .PROCEDURE_BODY;              return Code_Procedure_Body;
         case .PROCEDURE_CALL;              return Code_Procedure_Call;
+        case .RESOLVED_OVERLOAD;           return Code_Resolved_Overload;
         case .CONTEXT;                     return Code_Context;
         case .WHILE;                       return Code_While;
         case .IF;                          return Code_If;
