@@ -4280,6 +4280,16 @@ http_serve_resource :: (request: *Http_Request, data: *void) -> bool {
         return false;
     }
 
+    extension:, ok = path_extension(file);
+    if ok if extension == {
+        case "wasm"; // This one is mandatory, the others seem to be optional
+            print_response_header(request, "Content-Type", "application/wasm");
+        case "js";
+            print_response_header(request, "Content-Type", "text/javascript");
+        case "html";
+            print_response_header(request, "Content-Type", "text/html");
+    }
+
     return true;
 }
 

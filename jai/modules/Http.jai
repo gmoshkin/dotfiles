@@ -42,6 +42,8 @@ Http_Server_Connection :: struct {
     sockaddr: sockaddr_in;
     sockaddr_len: u32;
 
+    request_counter: s64;
+
     input_builder: String_Builder;
     input_read_offset: s64;
     parser: Http_Parser;
@@ -54,7 +56,7 @@ Http_Server_Connection :: struct {
     // buffer for non blocking IO, which it's not very good at.
     output_write_offset_in_buffer: s64;
 
-    // Uses temporary storage
+    response_headers_builder: String_Builder;
     response_body_builder: String_Builder;
     response_code: u32;
 
@@ -193,18 +195,29 @@ accept_tcp_connection :: (using server: *Http_Server_State) -> bool, *Http_Serve
 
     tcp_server_cleanup_connections(server);
 
-    conn.id = xx connections.count;
-    conn.peer_port = conn.sockaddr.sin_port;
-    conn.peer_host = to_string(conn.peer_host_storage.data);
-    conn.http_request_handler = server.http_request_handler;
-    conn.http_request_handler_data = server.http_request_handler_data;
+    init_tcp_server_connection(conn);
 
     new_connection := New(Http_Server_Connection);
     new_connection.* = conn.*;
     array_add(*connections, new_connection);
-    conn.peer_fd = -1;
+    temp_connection.peer_fd = -1;
 
     return true, new_connection;
+}
+
+// XXX: this function sucks, it has a bunch of non-obvious precodintions...
+init_tcp_server_connection :: (connection: *Http_Server_Connection) {
+    server := connection.server;
+
+    connection.id = xx server.connections.count;
+    connection.peer_port = connection.sockaddr.sin_port;
+    connection.peer_host = to_string(connection.peer_host_storage.data);
+
+    connection.http_request_handler = server.http_request_handler;
+    connection.http_request_handler_data = server.http_request_handler_data;
+    connection.request_counter = 0;
+    reset(*connection.input_builder);
+    reset(*connection.output_builder);
 }
 
 tcp_server_cleanup_connections :: (using server: *Http_Server_State) {
@@ -220,7 +233,8 @@ tcp_server_handle_epoll_event :: (using server: *Http_Server_State, event: epoll
     if event.data.fd == listen_fd {
         ok, connection := accept_tcp_connection(server);
         if !ok return false, false;
-        log("new tcp connection: #% from %:%", connection.id, connection.peer_host, connection.peer_port);
+        // log("YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY");
+        log("New tcp connection: #% from %:%", connection.id, connection.peer_host, connection.peer_port);
         return true, true;
     }
 
@@ -375,7 +389,12 @@ http_server_on_input :: (using connection: *Http_Server_Connection) -> bool {
     additional_info: string;
     if parser.content_length
         additional_info = tprint(" (content length: %)", parser.content_length);
-    log("#%1 request: %2%3", connection.id, request_line, additional_info);
+    #if true
+        log("Connection #%1 request #%2: %3%4", connection.id, connection.request_counter, request_line, additional_info);
+    else {
+        full_request := slice(input_buffer, 0, parser.body_offset + body_length);
+        log("Connection #%1 request #%2: %3", connection.id, connection.request_counter, full_request);
+    }
 
     reset_http_parser(*parser);
 
@@ -391,6 +410,7 @@ http_server_on_input :: (using connection: *Http_Server_Connection) -> bool {
         connection.response_code = 404;
     }
     prepare_http_response(connection);
+    connection.request_counter += 1;
     tcp_server_connection_on_output(connection);
 
     return true;
@@ -532,14 +552,19 @@ tcp_server_connection_on_output :: (using connection: *Http_Server_Connection) -
     return true;
 }
 
-write_as_much_output_as_possible :: (using conenction: *Http_Server_Connection) -> bool {
+write_as_much_output_as_possible :: (using connection: *Http_Server_Connection) -> bool {
     base_buffer := get_base_buffer(*output_builder);
 
     buffer := base_buffer;
     while buffer && buffer.count == 0  buffer = buffer.next;
 
+    wrote_bytes := 0;
+    write_attempts := 0;
+
     if buffer then assert(output_write_offset_in_buffer < buffer.count);
     while buffer {
+        write_attempts += 1;
+
         remains_to_send := buffer.count - output_write_offset_in_buffer;
         if !remains_to_send break;
 
@@ -558,6 +583,8 @@ write_as_much_output_as_possible :: (using conenction: *Http_Server_Connection) 
         if rc == 0 break;
 
         assert(rc <= remains_to_send);
+        // log("write attempt #%, count: %", write_attempts, rc);
+        wrote_bytes += rc;
         output_write_offset_in_buffer += rc;
         if output_write_offset_in_buffer != buffer.count continue;
 
@@ -566,6 +593,7 @@ write_as_much_output_as_possible :: (using conenction: *Http_Server_Connection) 
         // free list?)
         next_buffer := buffer.next;
         if buffer != base_buffer then free(buffer,, output_builder.allocator);
+        if buffer == output_builder.current_buffer then output_builder.current_buffer = null;
         base_buffer.next = next_buffer;
 
         buffer = next_buffer;
@@ -576,6 +604,17 @@ write_as_much_output_as_possible :: (using conenction: *Http_Server_Connection) 
         base_buffer.count = 0;
     }
 
+    if server.epoll_fd {
+        new_events := Epoll_Events.EPOLLIN;
+        // Still have data to send
+        if buffer then new_events |= .EPOLLOUT;
+        modify_fd_on_epoll(server.epoll_fd.*, peer_fd, new_events);
+    }
+
+    // log("wrote bytes: %", wrote_bytes);
+    // log("output_write_offset_in_buffer: %", output_write_offset_in_buffer);
+    // log("current_buffer: %", output_builder.current_buffer);
+
     return true;
 }
 
@@ -585,13 +624,18 @@ tcp_server_connection_on_hang_up :: (using connection: *Http_Server_Connection) 
         copy_last_error_info(connection);
         return false;
     }
-    log("connection #% closed", id);
+    log("Connection #% closed", id);
+    // log("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
 
     return true;
 }
 
 get_response_body_builder :: (using connection: *Http_Server_Connection) -> *String_Builder {
     return *connection.response_body_builder;
+}
+
+print_response_header :: (using connection: *Http_Server_Connection, name: string, value: Any) {
+    print(*response_headers_builder, "%: %\r\n", name, value);
 }
 
 prepare_http_response :: (using connection: *Http_Server_Connection) {
@@ -601,11 +645,14 @@ prepare_http_response :: (using connection: *Http_Server_Connection) {
     print(builder, "HTTP/1.1 % %\r\n", code, http_reason_phrase(code));
 
     content_length := builder_string_length(*response_body_builder);
-    log("#% response: % % (Content-Length: %)", id, code, http_reason_phrase(code), content_length);
+    log("Connection #% response #%: % % (Content-Length: %)", id, request_counter, code, http_reason_phrase(code), content_length);
 
     print(builder, "Content-Length: %\r\n", content_length);
 
-    // TODO: support other headers
+    if builder_string_length(*response_headers_builder)
+        my_append_and_steal_buffers(builder, *response_headers_builder);
+    else
+        print(builder, "Content-Type: text/plain\r\n");
 
     print(builder, "\r\n");
     if content_length {
@@ -665,6 +712,18 @@ register_fd_on_epoll :: (epoll_fd: s32, fd: s32, events := Epoll_Events.EPOLLIN)
     event.events = xx events;
     event.data.fd = fd;
     rc := epoll_ctl(epoll_fd, .ADD, fd, *event);
+    if rc {
+        return set_last_error_from_system(prepend="epoll_ctl failed: ");
+    }
+
+    return true;
+}
+
+modify_fd_on_epoll :: (epoll_fd: s32, fd: s32, events: Epoll_Events) -> bool {
+    event: epoll_event;
+    event.events = xx events;
+    event.data.fd = fd;
+    rc := epoll_ctl(epoll_fd, .MOD, fd, *event);
     if rc {
         return set_last_error_from_system(prepend="epoll_ctl failed: ");
     }
@@ -747,6 +806,9 @@ my_append_and_steal_buffers :: (builder: *String_Builder, steal_from: *String_Bu
     // so we can’t take ownership of it:
     append(builder, get_buffer_data(buffer), buffer.count);
 
+    buffer.count = 0;
+    if !buffer.next return;
+
     assert(builder.allocator.proc == steal_from.allocator.proc);
     assert(builder.allocator.data == steal_from.allocator.data);
 
@@ -754,7 +816,6 @@ my_append_and_steal_buffers :: (builder: *String_Builder, steal_from: *String_Bu
     our_end := get_current_buffer(builder);
     our_end.next = buffer.next;
     // Reset the victim’s base buffer
-    buffer.count = 0;
     buffer.next = null;
     if steal_from.current_buffer {
         builder.current_buffer = steal_from.current_buffer; // Use the victim’s final buffer as our current buffer.
