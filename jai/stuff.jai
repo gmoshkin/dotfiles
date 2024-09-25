@@ -350,6 +350,104 @@ stack_or_temporary_allocator :: () {
     // s2 := sprint("here's an array: %", u8.[1,2,3],, Stack_Or_Temporary_Allocator());
 }
 
+visit_macro :: () {
+    Visit :: (base: $T, $branches: .. Code) #expand {
+        base_type :: #run type_info(T);
+
+        #insert #run -> string {
+            builder: String_Builder;
+            defer reset(*builder);
+
+            target_tag := base_type.type;
+            print(*builder, #string JAI
+if get_tag_for_dispatch(base) == {
+                  JAI);
+
+            for branches {
+                base_code := compiler_get_nodes(it);
+
+                assert(base_code.kind == .PROCEDURE_HEADER);
+                code := cast(*Code_Procedure_Header) base_code;
+                assert(code.arguments.count == 1);
+                argument := code.arguments[0];
+                argument_type := argument.type_inst.result;
+
+                type_tag := get_tag_from_argument_type(argument_type);
+                type_string := type_to_string(argument_type);
+                print(*builder, #string JAI
+    case .%;
+        callback :: #insert branches[%];
+        callback(do_downcast(base, %));
+                                        JAI, type_tag, it_index, type_string);
+            }
+
+            print(*builder, #string JAI
+}
+                  JAI);
+            return builder_to_string(*builder);
+        };
+    }
+
+    captured_data := string.["here's", "some", "data"];
+
+    types := (*Type_Info).[
+        type_info(s64),
+        type_info(string),
+        type_info(float32),
+        type_info(u8),
+        type_info(*void),
+        type_info(*Type_Info),
+    ];
+    for types {
+        Visit(it,
+            (type: *Type_Info_Integer) {
+                print("got int: signed: %, size: %\n", type.signed, type.runtime_size);
+            },
+            (type: *Type_Info_String) #expand {
+                print("type info string is boring, here's some captured data instead: %\n", captured_data);
+            },
+            (type: *Type_Info_Float) {
+                print("got float%\n", ifx type.runtime_size == 4 then "32" else "64");
+            },
+            (type: *Type_Info_Pointer) {
+                print("got pointer\n");
+            },
+        );
+    }
+}
+
+//
+// Setup Visit for Type_Info
+//
+get_tag_for_dispatch :: (type: *Type_Info) -> Type_Info_Tag {
+    return type.type;
+}
+
+do_downcast :: (source: *Type_Info, $T: Type) -> T {
+    return cast(T) source;
+}
+
+get_tag_from_argument_type :: (base_type: *Type_Info) -> Type_Info_Tag {
+    assert(base_type.type == .POINTER);
+    type := cast(*Type_Info_Pointer) base_type;
+    assert(type.pointer_to.type == .STRUCT);
+    pointee := cast(*Type_Info_Struct) type.pointer_to;
+    if pointee.name == {
+        case "Type_Info_Integer";   return .INTEGER;
+        case "Type_Info_Float";     return .FLOAT;
+        case "Type_Info_String";    return .STRING;
+        case "Type_Info_Pointer";   return .POINTER;
+        case "Type_Info_Procedure"; return .PROCEDURE;
+        case "Type_Info_Struct";    return .STRUCT;
+        case "Type_Info_Array";     return .ARRAY;
+        case "Type_Info_Enum";      return .ENUM;
+        case "Type_Info_Variant";   return .VARIANT;
+    }
+
+    assert(false, "unknown struct '%'", pointee.name);
+    return xx,no_check -1;
+}
+
 main :: () {
     print("\n### type_of_null:\n\n");                   type_of_null();
     print("\n### bake_polymorph:\n\n");                 bake_polymorph();
@@ -364,6 +462,7 @@ main :: () {
     print("\n### no_reset_global_array:\n\n");          no_reset_global_array();
     print("\n### test_append_padding:\n\n");            test_append_padding();
     print("\n### stack_or_temporary_allocator:\n\n");   stack_or_temporary_allocator();
+    print("\n### visit_macro:\n\n");                    visit_macro();
 }
 
 #import "Basic";
