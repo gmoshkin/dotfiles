@@ -15,6 +15,10 @@ State :: struct {
     process_infos: Table(Pid, Extended_Process_Info);
 }
 
+Options :: struct {
+    for_fzf: bool;
+}
+
 Extended_Process_Info :: struct {
     #as using base: Process_Info;
 
@@ -33,6 +37,7 @@ main :: () {
     cursor := 1;
 
     state: State;
+    options: Options;
 
     while cursor < args.count {
         arg := args[cursor];
@@ -45,11 +50,14 @@ main :: () {
                     exit(1);
                 }
                 state.tty = args[cursor];
-                cursor += 1;
+
+            case "--for-fzf";
+                options.for_fzf = true;
 
             case;
                 break;
         }
+        cursor += 1;
     }
 
     using _SC_definitions;
@@ -275,7 +283,7 @@ main :: () {
 
         // COMMAND LINE
         builder: String_Builder; builder.allocator = temp;
-        if it.depth {
+        if !options.for_fzf && it.depth {
             for 0..it.depth-2 {
                 // TODO: add '|' as ps does when there's uncle processes
                 append(*builder, "    ");
@@ -285,7 +293,7 @@ main :: () {
         if !it.command_line {
             append(*builder, "?");
         } else for it.command_line {
-            if it_index == 0 {
+            if it_index == 0 /* && !options.for_fzf */ {
                 append(*builder, "\e[32m");
                 append(*builder, it);
                 append(*builder, "\e[0m");
@@ -304,18 +312,20 @@ main :: () {
 
     // Display table header
     builder: String_Builder; builder.allocator = temp;
-    for col: column_headers {
-        if column_headers[it_index] == "COMMAND" {
-            // Last column is left aligned, only needs a signle separator space
-            append(*builder, " ");
-        } else {
-            for 1..(column_widths[it_index] - col.count) append(*builder, " ");
+    if !options.for_fzf {
+        for col: column_headers {
+            if column_headers[it_index] == "COMMAND" {
+                // Last column is left aligned, only needs a signle separator space
+                append(*builder, " ");
+            } else {
+                for 1..(column_widths[it_index] - col.count) append(*builder, " ");
+            }
+            append(*builder, "\e[2;36m"); // color dark cyan
+            append(*builder, col);
+            append(*builder, "\e[0m");
         }
-        append(*builder, "\e[2;36m"); // color dark cyan
-        append(*builder, col);
-        append(*builder, "\e[0m");
+        append(*builder, "\n");
     }
-    append(*builder, "\n");
 
     // Display table rows
     for row: table {
