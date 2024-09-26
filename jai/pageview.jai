@@ -1509,7 +1509,9 @@ maybe_handle_external_command_output :: () {
         return;
 
     Profile();
-    separate_control_codes(*new_window_buffer, raw_text_and_control_codes);
+    init_window_buffer(*new_window_buffer, raw_text_and_control_codes);
+    Profile();
+    separate_control_codes(*new_window_buffer);
     Profile("length: %, lines: %, codes: %", raw_text_and_control_codes.count, line_offsets.count, control_codes.count);
 
     new_window_buffer.index_in_history = main_window_buffer_history.count;
@@ -1588,7 +1590,8 @@ read_some_from_piped_input :: () {
     free(window_buffer.raw_text_and_control_codes);
     window_buffer.raw_text_and_control_codes = builder_to_string(*piped_input_builder, do_reset=false);
     window_buffer.hash = Meow_Hash_Compute(xx window_buffer.raw_text_and_control_codes);
-    separate_control_codes(window_buffer, window_buffer.raw_text_and_control_codes);
+    init_window_buffer(window_buffer, window_buffer.raw_text_and_control_codes);
+    separate_control_codes(window_buffer);
 }
 
 handle_piped_input_end :: () {
@@ -2229,7 +2232,8 @@ test_get_next_control_code_in_range :: () {
     text := "foo\e[31mbar\e[32mbaz\e[33mboobies\e[0m";
 
     using window_buffer: Window_Buffer;
-    separate_control_codes(*window_buffer, text);
+    init_window_buffer(*window_buffer, text);
+    separate_control_codes(*window_buffer);
 
     print_vars(raw_text_and_control_codes, only_text, control_codes);
 
@@ -2266,27 +2270,43 @@ test_get_next_control_code_in_range :: () {
     do_test(4, 7);
 }
 
-separate_control_codes :: (window_buffer: *Window_Buffer, raw_text: string) {
-    using context.state;
-    using window_buffer;
-
+init_window_buffer :: (window_buffer: *Window_Buffer, raw_text: string) {
     // `only_text.count <= raw_text_and_control_codes.count` is always true
-    raw_text_and_control_codes = raw_text;
+    window_buffer.raw_text_and_control_codes = raw_text;
 
-    tab_count := count_occurences(raw_text_and_control_codes, #char "\t");
+    window_buffer.only_text_storage.count = 0;
+    window_buffer.line_offsets.count = 0;
+    window_buffer.control_codes.count = 0;
+
+    window_buffer.max_line_length = 0;
+}
+
+separate_control_codes :: (using window_buffer: *Window_Buffer) {
+    using context.state;
+
+    start_of_unparsed_text := 0;
+    if line_offsets {
+        start_of_unparsed_text = last(line_offsets);
+
+        while control_codes {
+            if last(control_codes).position_in_text < start_of_unparsed_text break;
+            control_codes.count -= 1;
+        }
+    }
+
+    unparsed_tail := advance(raw_text_and_control_codes, start_of_unparsed_text);
+
+    tab_count := count_occurences(unparsed_tail, #char "\t");
 
     // When doing :automatic_tab_expansion: every tab character is replaced with
     // 8 spaces, so we need to allocate additional memory for that.
     // Mutliply by 7, because each tab character is already counted once and need 7 more bytes.
     extra_space_for_tab_replacements := tab_count * 7;
-    array_reserve(*only_text_storage, raw_text_and_control_codes.count + extra_space_for_tab_replacements);
-    only_text_storage.count = 0;
-    line_offsets.count = 0;
-    control_codes.count = 0;
+    new_capacity := only_text_storage.count + unparsed_tail.count + extra_space_for_tab_replacements;
+    array_reserve(*only_text_storage, new_capacity);
 
-    max_line_length = 0;
     last_empty_lines_count := 0;
-    tail := raw_text_and_control_codes;
+    tail := unparsed_tail;
     while !should_exit {
         found:, line:, tail = split_from_left(tail, #char "\n");
 
@@ -2379,6 +2399,8 @@ separate_control_codes :: (window_buffer: *Window_Buffer, raw_text: string) {
     }
 
     only_text = xx only_text_storage;
+    // @Robustness: This is currently broken in a rare case when parsing a stream repeatedly
+    //              if the last piece is only empty lines after some empty lines
     line_offsets.count -= last_empty_lines_count;
 }
 
@@ -2759,6 +2781,7 @@ handle_input_event :: (_event: Input_Event) {
 
     if input_mode == {
         case .NAVIGATE;
+            if !main_window_buffer return;
             if event.kind == {
                 case .KEY_UP;   navigate_window_up(ifx event.modifiers & .SHIFT then .HALF_SCREEN else .ONE_ROW);
                 case .KEY_DOWN; navigate_window_down(ifx event.modifiers & .SHIFT then .HALF_SCREEN else .ONE_ROW);
@@ -4494,6 +4517,10 @@ advance :: inline (a: *[] $T, amount: s64 = 1) {
     a.data  += amount;
 }
 
+last :: inline (array: [] $T) -> T {
+    assert(array.count != 0);
+    return array[array.count - 1];
+}
 
 //
 // miscellaneous utilities
