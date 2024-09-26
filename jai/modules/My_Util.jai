@@ -270,6 +270,13 @@ only_visible_text :: (text_with_control_codes: string) -> string {
 // data & time utilities
 //
 
+print_date_time_for_humans :: (date_time: Calendar_Time) {
+    builder: String_Builder;
+    builder.allocator = temp;
+    print_date_time_for_humans(*builder, date_time);
+    write_builder(*builder);
+}
+
 print_date_time_for_humans :: (builder: *String_Builder, date_time: Calendar_Time) {
     using date_time;
     month_short :: string.["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

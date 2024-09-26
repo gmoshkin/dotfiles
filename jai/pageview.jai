@@ -235,17 +235,8 @@ Window_Buffer :: struct {
     time_generated: Apollo_Time;
     hash: U128;
 
-    chunk_count: s64;
-    using first_chunk: Window_Buffer_Chunk;
-}
-
-Window_Buffer_Chunk :: struct {
-    chunk_hash: U128;
-
-    next_chunk: *Window_Buffer_Chunk;
-    prev_chunk: *Window_Buffer_Chunk;
-
     raw_text_and_control_codes: string;
+    last_line_offset_in_raw_text: s64;
 
     only_text_storage: [..] u8; // allocated separately
     only_text: string; // points into `only_text_storage`
@@ -1503,7 +1494,6 @@ maybe_handle_external_command_output :: () {
     time_generated = current_time_consensus();
     raw_text_and_control_codes = prepare_raw_text_and_control_codes_from_external_command();
     hash = Meow_Hash_Compute(xx raw_text_and_control_codes);
-    chunk_hash = hash;
 
     if main_window_buffer_history && hash == main_window_buffer_history[main_window_buffer_history.count - 1].hash
         return;
@@ -1578,6 +1568,7 @@ prepare_raw_text_and_control_codes_from_external_command :: () -> string {
 
 read_some_from_piped_input :: () {
     using context.state;
+    first_time := (main_window_buffer_history.count == 0);
     if !main_window_buffer_history array_add(*main_window_buffer_history, .{});
 
     if piped_input_fd == -1 return;
@@ -1588,10 +1579,14 @@ read_some_from_piped_input :: () {
     window_buffer := *main_window_buffer_history[current_shown_buffer_index];
     window_buffer.time_generated = current_time_consensus();
     free(window_buffer.raw_text_and_control_codes);
+    Profile();
     window_buffer.raw_text_and_control_codes = builder_to_string(*piped_input_builder, do_reset=false);
+    Profile("raw_text_and_control_codes.count: %", window_buffer.raw_text_and_control_codes.count);
     window_buffer.hash = Meow_Hash_Compute(xx window_buffer.raw_text_and_control_codes);
-    init_window_buffer(window_buffer, window_buffer.raw_text_and_control_codes);
+    Profile("raw_text_and_control_codes.count: %", window_buffer.raw_text_and_control_codes.count);
+    if first_time then init_window_buffer(window_buffer, window_buffer.raw_text_and_control_codes);
     separate_control_codes(window_buffer);
+    Profile("raw_text_and_control_codes.count: %", window_buffer.raw_text_and_control_codes.count);
 }
 
 handle_piped_input_end :: () {
@@ -2273,6 +2268,7 @@ test_get_next_control_code_in_range :: () {
 init_window_buffer :: (window_buffer: *Window_Buffer, raw_text: string) {
     // `only_text.count <= raw_text_and_control_codes.count` is always true
     window_buffer.raw_text_and_control_codes = raw_text;
+    window_buffer.last_line_offset_in_raw_text = 0;
 
     window_buffer.only_text_storage.count = 0;
     window_buffer.line_offsets.count = 0;
@@ -2284,17 +2280,13 @@ init_window_buffer :: (window_buffer: *Window_Buffer, raw_text: string) {
 separate_control_codes :: (using window_buffer: *Window_Buffer) {
     using context.state;
 
-    start_of_unparsed_text := 0;
-    if line_offsets {
-        start_of_unparsed_text = last(line_offsets);
-
-        while control_codes {
-            if last(control_codes).position_in_text < start_of_unparsed_text break;
-            control_codes.count -= 1;
-        }
+    while control_codes {
+        if last(control_codes).position_in_text < last_line_offset_in_raw_text break;
+        control_codes.count -= 1;
     }
 
-    unparsed_tail := advance(raw_text_and_control_codes, start_of_unparsed_text);
+    // @Bug: this is still not working correctly, check on `gl -p` in picodata
+    unparsed_tail := advance(raw_text_and_control_codes, last_line_offset_in_raw_text);
 
     tab_count := count_occurences(unparsed_tail, #char "\t");
 
@@ -2308,13 +2300,20 @@ separate_control_codes :: (using window_buffer: *Window_Buffer) {
     last_empty_lines_count := 0;
     tail := unparsed_tail;
     while !should_exit {
+        // TODO: it should be pretty simple to stop this process once I know I'm
+        // not looking at this. Though search would need to call this function
+        // when it determines that there's unparsed text.
         found:, line:, tail = split_from_left(tail, #char "\n");
 
         max_line_length = max(max_line_length, line.count);
 
+        if found {
+            // At this point it would probably be cleaner to use find_index_from_left instead of split_from_left...
+            pointer_to_start_of_next_line := line.data + line.count + 1;
+            last_line_offset_in_raw_text = pointer_to_start_of_next_line - raw_text_and_control_codes.data;
+            array_add(*line_offsets, only_text_storage.count);
+        }
         if line.count == 0 then last_empty_lines_count += 1; else last_empty_lines_count = 0;
-
-        array_add(*line_offsets, only_text_storage.count);
 
         line_tail := line;
         while line_tail {
@@ -2401,7 +2400,7 @@ separate_control_codes :: (using window_buffer: *Window_Buffer) {
     only_text = xx only_text_storage;
     // @Robustness: This is currently broken in a rare case when parsing a stream repeatedly
     //              if the last piece is only empty lines after some empty lines
-    line_offsets.count -= last_empty_lines_count;
+    // line_offsets.count -= last_empty_lines_count;
 }
 
 scroll_string_with_control_codes :: (builder: *String_Builder, scrolling_text: string, offset: s64, max_width: s64) {
@@ -2781,6 +2780,9 @@ handle_input_event :: (_event: Input_Event) {
 
     if input_mode == {
         case .NAVIGATE;
+            if (event.kind == .CHARACTER) && (event.char == #char "q") {
+                should_exit = true;
+            }
             if !main_window_buffer return;
             if event.kind == {
                 case .KEY_UP;   navigate_window_up(ifx event.modifiers & .SHIFT then .HALF_SCREEN else .ONE_ROW);
@@ -2858,8 +2860,6 @@ handle_input_event :: (_event: Input_Event) {
                     case #char "N"; jump_to_previous_search_match();
 
                     case #char "c"; strip_control_codes = !strip_control_codes;
-
-                    case #char "q"; should_exit = true;
                 }
 
                 if event.char != #char "f" {
