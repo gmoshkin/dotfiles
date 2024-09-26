@@ -233,6 +233,7 @@ Cell_Position :: struct {
 Window_Buffer :: struct {
     index_in_history: s64;
     time_generated: Apollo_Time;
+    duration: f64;
     hash: U128;
 
     raw_text_and_control_codes: string;
@@ -1492,6 +1493,7 @@ maybe_handle_external_command_output :: () {
 
     using new_window_buffer: Window_Buffer;
     time_generated = current_time_consensus();
+    duration = last_command_duration;
     raw_text_and_control_codes = prepare_raw_text_and_control_codes_from_external_command();
     hash = Meow_Hash_Compute(xx raw_text_and_control_codes);
 
@@ -1744,11 +1746,20 @@ render_status_line_1 :: () {
             append(*builder, ")");
             append(*builder, "\e[0m");
 
+            duration := last_command_duration;
+            // TODO: support showing duration of streaming input & duration of
+            // partial input from external command
+            if main_window_source == .EXTERNAL_COMMAND
+                && main_window_buffer_history
+                && current_shown_buffer_index != main_window_buffer_history.count - 1
+            {
+                duration = main_window_buffer_history[current_shown_buffer_index].duration;
+            }
             // last command duration
-            if last_command_duration > 0
+            if duration > 0
             {
                 append(*builder, " \e[35m"); // color magenta
-                print(*builder, "%s", fmt(last_command_duration, digits_after_comma=3, keep_zero=true)); // color magenta
+                print(*builder, "%s", fmt(duration, digits_after_comma=3, keep_zero=true)); // color magenta
                 append(*builder, "\e[0m");
             }
 
