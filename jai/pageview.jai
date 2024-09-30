@@ -2339,9 +2339,12 @@ separate_control_codes :: (using window_buffer: *Window_Buffer) {
             } else {
                 // Expand any tab characters with spaces, because fuck tab characters,
                 // all my homies use spaces
-                t := head;
-                while t {
-                    found:, piece:, t = split_from_left(t, #char "\t");
+                visible_tail := head;
+                while visible_tail {
+                    found_tab:, piece:, visible_tail = split_from_left(visible_tail, #char "\t");
+
+                    index := find_index_from_left(piece, #char "\x08"); // '\b'
+                    found_backspace := (index != -1);
 
                     // XXX: this shit is crazy! man is doing some retarded shit where it outputs
                     // `N\bNA\bAM\bME\bE` to mean `\e[1mNAME\e[0m` (which means
@@ -2372,8 +2375,11 @@ separate_control_codes :: (using window_buffer: *Window_Buffer) {
                     underline_count := 0;
                     regular_count := 0;
                     cursor := 0;
-                    // FIXME: should take into account utf8, because some of man pages use utf8 characters...
-                    while cursor < piece.count {
+                    if !found_backspace {
+                        cursor = piece.count;
+                        regular_count = piece.count;
+                    } else while cursor < piece.count {
+                        // FIXME: should take into account utf8, because some of man pages use utf8 characters...
                         if cursor <= piece.count - 3 && piece[cursor + 1] == #char "\x08" // '\b'
                             && piece[cursor] == piece[cursor + 2]
                         {
@@ -2399,7 +2405,7 @@ separate_control_codes :: (using window_buffer: *Window_Buffer) {
                     Flush_Highlighted_Piece(*bold_count, "\e[1m", "\e[22m"); // bold mode
                     Flush_Highlighted_Piece(*underline_count, "\e[4m", "\e[24m"); // underline mode
 
-                    if found {
+                    if found_tab {
                         expanded_tab :: "        "; // :automatic_tab_expansion:
                         assert(only_text_storage.count + expanded_tab.count <= only_text_storage.allocated);
                         memcpy(only_text_storage.data + only_text_storage.count, expanded_tab.data, expanded_tab.count);
