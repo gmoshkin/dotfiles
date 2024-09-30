@@ -1605,6 +1605,7 @@ read_some_from_piped_input :: () {
     window_buffer.time_generated = current_time_consensus();
     free(window_buffer.raw_text_and_control_codes);
     Profile();
+    // inspect_builder(*piped_input_builder);
     window_buffer.raw_text_and_control_codes = builder_to_string(*piped_input_builder, do_reset=false);
     Profile("raw_text_and_control_codes.count: %", window_buffer.raw_text_and_control_codes.count);
     window_buffer.hash = Meow_Hash_Compute(xx window_buffer.raw_text_and_control_codes);
@@ -1612,6 +1613,18 @@ read_some_from_piped_input :: () {
     if first_time then init_window_buffer(window_buffer, window_buffer.raw_text_and_control_codes);
     separate_control_codes(window_buffer);
     Profile("raw_text_and_control_codes.count: %", window_buffer.raw_text_and_control_codes.count);
+}
+
+inspect_builder :: (builder: *String_Builder) {
+    b: String_Builder;
+    b.allocator = temp;
+
+    buffer := get_base_buffer(builder);
+    while buffer {
+        print(*b, "%, ", buffer.allocated);
+        buffer = buffer.next;
+    }
+    log("%", builder_to_string(*b,, temp));
 }
 
 handle_piped_input_end :: () {

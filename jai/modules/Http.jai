@@ -518,7 +518,7 @@ read_all_available_data :: (fd: s32, builder: *String_Builder) -> (success: bool
     has_new_data := false;
     i := 0;
     while true {
-        buffer := ensure_contiguous_space_and_return_available_range(builder);
+        buffer := my_ensure_contiguous_space_and_return_available_range(builder);
         i += 1;
 
         read_count := read(fd, buffer.data, xx buffer.count);
@@ -540,6 +540,42 @@ read_all_available_data :: (fd: s32, builder: *String_Builder) -> (success: bool
 
         return true, has_new_data;
     }
+}
+
+// Copy-pasted ensure_contiguous_space_and_return_available_range but capacity
+// is multiplied by 8 with each new allocated buffer
+my_ensure_contiguous_space_and_return_available_range :: (using builder: *String_Builder, minimum_bytes := 1) -> [] u8 {
+    if !initialized init_string_builder(builder);
+
+    buffer := get_current_buffer(builder);
+    available := buffer.allocated - buffer.count;
+
+    if available < minimum_bytes {
+
+        saved := builder.subsequent_buffer_size;
+        defer builder.subsequent_buffer_size = saved;
+        next_capacity := buffer.allocated * 8;
+        next_capacity = max(next_capacity, minimum_bytes);
+        next_capacity = max(next_capacity, saved);
+        builder.subsequent_buffer_size = next_capacity;
+
+        success := expand(builder);
+        if !success then return .[];
+        buffer = get_current_buffer(builder);
+    }
+
+    #if BUILDER_ENABLE_ASSERT buffer.ensured_count = buffer.allocated;
+
+    result: [] u8;
+    result.data = get_buffer_data(buffer) + buffer.count;
+    result.count = buffer.allocated - buffer.count;
+    return result;
+}
+
+BUILDER_ENABLE_ASSERT :: #run -> bool {
+    info := type_info(String_Builder.Buffer);
+    for info.members if it.name == "ensured_count" return true;
+    return false;
 }
 
 tcp_server_connection_on_output :: (using connection: *Http_Server_Connection) -> bool {
