@@ -252,7 +252,25 @@ Window_Buffer :: struct {
 
 Control_Code_Info :: struct {
     position_in_text: s64;
-    data: Ascii_Or_Hex; // points into `raw_text_and_control_codes`
+    data_count: u8;
+    escape: u8;
+    #place escape;
+    data: [15] u8;
+}
+#assert size_of(Control_Code_Info) == 24;
+
+control_code_string :: inline (using code: *Control_Code_Info) -> string {
+    return string.{ data_count, data.data };
+}
+
+make_control_code_info :: inline (position: s64, data: string) -> Control_Code_Info {
+    result: Control_Code_Info = ---;
+    assert(data.count <= result.data.count, "'%' (%)", cast(Ascii_Or_Hex) data, data.count);
+
+    result.position_in_text = position;
+    result.data_count = xx data.count;
+    memcpy(result.data.data, data.data, data.count);
+    return result;
 }
 
 Completion_Menu :: struct {
@@ -986,10 +1004,11 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
                 // add all control codes from the hidden part of the line
                 if !strip_control_codes {
                     codes := find_all_control_codes_in_range(window_buffer, hidden_slice);
-                    for < codes {
+                    for < *codes {
                         // ignore everything before the last mode reset
-                        if is_mode_reset_control_sequence(it.data) break;
-                        append(*builder, it.data);
+                        code := control_code_string(it);
+                        if is_mode_reset_control_sequence(code) break;
+                        append(*builder, code);
                     }
                 }
             } else if col_offset < 0 {
@@ -2086,7 +2105,7 @@ build_line_with_control_codes :: (builder: *String_Builder, window_buffer: *Wind
     end := start + text_slice.count;
 
     cursor := start;
-    for codes {
+    for *codes {
         position_clamped := clamp(it.position_in_text, start, end);
 
         piece := substring(only_text, cursor, position_clamped);
@@ -2095,8 +2114,9 @@ build_line_with_control_codes :: (builder: *String_Builder, window_buffer: *Wind
 
         if it.position_in_text > end return codes.count - it_index;
 
-        if context.state.visualize_control_codes then print(builder, "%", cast(Ascii_Or_Hex) it.data);
-        else                                          append(builder, it.data);
+        code := control_code_string(it);
+        if context.state.visualize_control_codes then print(builder, "%", cast(Ascii_Or_Hex) code);
+        else                                          append(builder, code);
 
         cursor = position_clamped;
     }
@@ -2129,18 +2149,18 @@ insert_control_code_range :: (codes: *[..] Control_Code_Info,
     assert(end_pointer <= only_text.data + only_text.count);
 
     start_position := start_pointer - only_text.data;
-    start := Control_Code_Info.{ start_position, xx start_code };
+    start := make_control_code_info(start_position, start_code);
     end_position := end_pointer - only_text.data;
-    end := Control_Code_Info.{ end_position, xx end_code };
+    end := make_control_code_info(end_position, end_code);
 
     index := 0;
     while index < codes.count {
-        it := codes.*[index];
+        it := *codes.*[index];
 
         if it.position_in_text > start.position_in_text break;
         if it.position_in_text == start.position_in_text {
             // Put new control code after the mode reset at the same position
-            if !is_mode_reset_control_sequence(it.data) break;
+            if !is_mode_reset_control_sequence(control_code_string(it)) break;
         }
 
         index += 1;
@@ -2150,13 +2170,14 @@ insert_control_code_range :: (codes: *[..] Control_Code_Info,
 
     index += 1;
     while index < codes.count {
-        it := codes.*[index];
+        it := *codes.*[index];
 
         if it.position_in_text > end.position_in_text break;
         // Found mode reset
-        if is_mode_reset_control_sequence(it.data) {
+        if is_mode_reset_control_sequence(control_code_string(it)) {
             // Insert another start after the mode reset, because it just reset our previous start
-            another_start := Control_Code_Info.{it.position_in_text, start.data};
+            another_start := start;
+            another_start.position_in_text = it.position_in_text;
             array_insert_at(codes, another_start, index + 1);
             // Don't need to check this newly inserted code
             index += 1;
@@ -2187,7 +2208,7 @@ find_first_control_code_in_range :: (window_buffer: *Window_Buffer, start: s64, 
         if control_codes_cursor == control_codes.count return "";
     }
 
-    return control_codes[control_codes_cursor].data;
+    return control_code_string(*control_codes[control_codes_cursor]);
 }
 
 find_all_control_codes_in_range :: (window_buffer: *Window_Buffer, start: s64, end: s64) -> ([] Control_Code_Info, total_string_length: s64) {
@@ -2205,7 +2226,7 @@ find_all_control_codes_in_range :: (window_buffer: *Window_Buffer, start: s64, e
     while true {
         code := current_control_code(window_buffer);
         if !control_code_is_in_range(code, start, end) break;
-        total_string_length += code.data.count;
+        total_string_length += code.data_count;
         control_codes_cursor += 1;
     }
 
@@ -2335,7 +2356,8 @@ separate_control_codes :: (using window_buffer: *Window_Buffer) {
             head:, visible_count:, line_tail = eat_visible_or_escape_sequence(line_tail);
 
             if visible_count == 0 {
-                array_add(*control_codes, .{ only_text_storage.count, xx head });
+                code := make_control_code_info(only_text_storage.count, head);
+                array_add(*control_codes, code);
             } else {
                 // Expand any tab characters with spaces, because fuck tab characters,
                 // all my homies use spaces
@@ -2352,14 +2374,16 @@ separate_control_codes :: (using window_buffer: *Window_Buffer) {
                     // And now I have too deal with this....
                     Flush_Highlighted_Piece :: (count: *s64, start_code: string, end_code: string) #expand {
                         if count.* == 0 return;
-                        array_add(*`control_codes, .{ `only_text_storage.count, xx start_code });
+                        code := make_control_code_info(`only_text_storage.count, start_code);
+                        array_add(*`control_codes, code);
                         start := `piece.data + `cursor - count.* * 3;
                         // @Robustness: here we append every 3rd character, because this
                         // works for both bold (B\bBO\bOL\bLD\bD) and underline
                         // (_\bU_\bN_\bD_\bE_\bR...) the way `man` is using
                         // them, but this may not be enough for some other weirdos
                         for 0..count.*-1 array_add(*`only_text_storage, start[it * 3 + 2]);
-                        array_add(*`control_codes, .{ `only_text_storage.count, xx end_code });
+                        code = make_control_code_info(`only_text_storage.count, end_code);
+                        array_add(*`control_codes, code);
                         count.* = 0;
                     }
                     Flush_Regular_Piece :: () #expand {
