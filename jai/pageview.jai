@@ -295,6 +295,8 @@ main :: () {
             state.log_file_name = copy_string(to_string(log_file_name));
     }
 
+    delayed_getchar := false;
+
     cursor := 1;
     while cursor < args.count {
         arg := args[cursor];
@@ -368,7 +370,7 @@ main :: () {
             // do `cat filename`
 
             case "--debug";
-                getchar();
+                delayed_getchar = true;
 
             case; break;
         }
@@ -484,6 +486,8 @@ main :: () {
         rc = dup2(new_stdin_fd, STDIN_FILENO);
         assert(rc >= 0);
     }
+
+    if delayed_getchar then getchar();
 
     // Get terminal size
     rc := ioctl(STDIN_FILENO, TIOCGWINSZ, *state.terminal_size);
