@@ -1020,7 +1020,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
                 }
             }
 
-            line_overflowed := utf8_count(visible_slice) > visible_columns_budget;
+            line_overflowed := utf8_count(visible_slice, false) > visible_columns_budget;
             if line_overflowed {
                 // Leave space for the :line_overflow_character
                 visible_slice = utf8_substring(visible_slice, 0, visible_columns_budget - 1);
@@ -4430,8 +4430,8 @@ to_string :: (builder: *String_Builder) -> string {
 }
 
 is_mode_reset_control_sequence :: inline (s: string) -> bool {
-    if substring(s, count=2) != "\e[" return false;
-    if substring(s, -1) != "m" return false;
+    if slice(s, 0, 2) != "\e[" return false;
+    if last(s) != #char "m" return false;
     if s.count == 3 return true;
 
     for 0..(s.count-1)-3
@@ -4565,6 +4565,10 @@ advance :: inline (a: *[] $T, amount: s64 = 1) {
 last :: inline (array: [] $T) -> T {
     assert(array.count != 0);
     return array[array.count - 1];
+}
+
+last :: inline (s: string) -> u8 {
+    return s[s.count - 1];
 }
 
 //
