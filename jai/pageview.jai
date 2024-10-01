@@ -134,6 +134,7 @@ State :: struct {
     piped_input_builder: String_Builder;
     piped_input_fd: s32 = -1;
     parent_process_command_line: [] string;
+    started_reading_piped_input: f64;
 
     //
     // source: EXTERNAL_COMMAND
@@ -235,6 +236,7 @@ Window_Buffer :: struct {
     time_generated: Apollo_Time;
     duration: f64;
     hash: U128;
+    source: type_of(State.main_window_source);
 
     raw_text_and_control_codes: string;
     last_line_offset_in_raw_text: s64;
@@ -1507,14 +1509,17 @@ read_some_from_external_command :: (output_closed: bool, error_closed: bool) {
 maybe_handle_external_command_output :: () {
     using context.state;
 
-    if external_command_last_handled_output_version != 0 &&
-        external_command_finished_count == external_command_last_handled_output_version
+    already_have_piped_input := false;
+    already_have_piped_input = (main_window_buffer_history.count > 0) && (main_window_buffer_history[0].source != .EXTERNAL_COMMAND);
+    if (already_have_piped_input || (external_command_last_handled_output_version != 0))
+        && (external_command_finished_count == external_command_last_handled_output_version)
     {
         return;
     }
     external_command_last_handled_output_version = external_command_finished_count;
 
     using new_window_buffer: Window_Buffer;
+    source = main_window_source;
     time_generated = current_time_consensus();
     duration = last_command_duration;
     raw_text_and_control_codes = prepare_raw_text_and_control_codes_from_external_command();
@@ -1594,7 +1599,10 @@ prepare_raw_text_and_control_codes_from_external_command :: () -> string {
 read_some_from_piped_input :: () {
     using context.state;
     first_time := (main_window_buffer_history.count == 0);
-    if !main_window_buffer_history array_add(*main_window_buffer_history, .{});
+    if !main_window_buffer_history {
+        array_add(*main_window_buffer_history, .{});
+        started_reading_piped_input = seconds_since_init();
+    }
 
     if piped_input_fd == -1 return;
 
@@ -1602,7 +1610,9 @@ read_some_from_piped_input :: () {
     if !has_new_data return;
 
     window_buffer := *main_window_buffer_history[current_shown_buffer_index];
+    window_buffer.source = main_window_source;
     window_buffer.time_generated = current_time_consensus();
+    window_buffer.duration = seconds_since_init() - started_reading_piped_input;
     free(window_buffer.raw_text_and_control_codes);
     Profile();
     // inspect_builder(*piped_input_builder);
@@ -1783,6 +1793,10 @@ render_status_line_1 :: () {
             append(*builder, "\e[0m");
 
             duration := last_command_duration;
+            // FIXME: this doesn't work >:c
+            if main_window_source == .PIPED_INPUT && main_window_buffer_history {
+                duration = main_window_buffer_history[current_shown_buffer_index].duration;
+            }
             // TODO: support showing duration of streaming input & duration of
             // partial input from external command
             if main_window_source == .EXTERNAL_COMMAND
