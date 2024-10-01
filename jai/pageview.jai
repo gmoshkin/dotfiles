@@ -314,6 +314,10 @@ main :: () {
         log_file_name := getenv("PAGEVIEW_LOG_FILENAME");
         if log_file_name
             state.log_file_name = copy_string(to_string(log_file_name));
+
+        if getenv("PAGEVIEW_DEBUG") {
+            state.debug = true;
+        }
     }
 
     cursor := 1;
@@ -2353,6 +2357,9 @@ separate_control_codes :: (using window_buffer: *Window_Buffer) {
             if last(control_codes).position_in_text < last_line_offset_in_only_text break;
             control_codes.count -= 1;
         }
+    } else {
+        // This is kinda retarded, but actually makes sense if you think about it
+        array_add(*line_offsets, 0);
     }
 
     unparsed_tail := advance(raw_text_and_control_codes, last_line_offset_in_raw_text);
@@ -2376,12 +2383,6 @@ separate_control_codes :: (using window_buffer: *Window_Buffer) {
 
         max_line_length = max(max_line_length, line.count);
 
-        if found {
-            // At this point it would probably be cleaner to use find_index_from_left instead of split_from_left...
-            pointer_to_start_of_next_line := line.data + line.count + 1;
-            last_line_offset_in_raw_text = pointer_to_start_of_next_line - raw_text_and_control_codes.data;
-            array_add(*line_offsets, only_text_storage.count);
-        }
         if line.count == 0 then last_empty_lines_count += 1; else last_empty_lines_count = 0;
 
         line_tail := line;
@@ -2472,7 +2473,14 @@ separate_control_codes :: (using window_buffer: *Window_Buffer) {
             }
         }
 
-        if !found break;
+        if found {
+            // At this point it would probably be cleaner to use find_index_from_left instead of split_from_left...
+            pointer_to_start_of_next_line := line.data + line.count + 1;
+            last_line_offset_in_raw_text = pointer_to_start_of_next_line - raw_text_and_control_codes.data;
+            array_add(*line_offsets, only_text_storage.count);
+        } else {
+            break;
+        }
     }
 
     only_text = xx only_text_storage;
