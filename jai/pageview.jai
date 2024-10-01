@@ -2236,7 +2236,7 @@ find_all_control_codes_in_range :: (window_buffer: *Window_Buffer, start: s64, e
 
     first := control_codes_cursor;
     total_string_length := 0;
-    while true {
+    while control_codes_cursor < control_codes.count {
         code := current_control_code(window_buffer);
         if !control_code_is_in_range(code, start, end) break;
         total_string_length += code.data_count;
