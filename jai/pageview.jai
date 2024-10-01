@@ -48,6 +48,7 @@ State :: struct {
     strip_control_codes := false;
     line_numberring := false;
     show_memory_usage := false;
+    debug := false;
     // FIXME: this mode doesn't 100% work right now, but may help somewhat
     // sometimes...
     visualize_control_codes := false;
@@ -315,8 +316,6 @@ main :: () {
             state.log_file_name = copy_string(to_string(log_file_name));
     }
 
-    delayed_getchar := false;
-
     cursor := 1;
     while cursor < args.count {
         arg := args[cursor];
@@ -390,7 +389,7 @@ main :: () {
             // do `cat filename`
 
             case "--debug";
-                delayed_getchar = true;
+                state.debug = true;
 
             case; break;
         }
@@ -507,7 +506,7 @@ main :: () {
         assert(rc >= 0);
     }
 
-    if delayed_getchar then getchar();
+    // if debug then getchar();
 
     // Get terminal size
     rc := ioctl(STDIN_FILENO, TIOCGWINSZ, *state.terminal_size);
@@ -1621,6 +1620,7 @@ read_some_from_piped_input :: () {
     window_buffer.hash = Meow_Hash_Compute(xx window_buffer.raw_text_and_control_codes);
     Profile("raw_text_and_control_codes.count: %", window_buffer.raw_text_and_control_codes.count);
     if first_time then init_window_buffer(window_buffer, window_buffer.raw_text_and_control_codes);
+    if debug { blocking_getchar(); debug = false; }
     separate_control_codes(window_buffer);
     Profile("raw_text_and_control_codes.count: %", window_buffer.raw_text_and_control_codes.count);
 }
@@ -2343,12 +2343,18 @@ init_window_buffer :: (window_buffer: *Window_Buffer, raw_text: string) {
 separate_control_codes :: (using window_buffer: *Window_Buffer) {
     using context.state;
 
-    while control_codes {
-        if last(control_codes).position_in_text < last_line_offset_in_raw_text break;
-        control_codes.count -= 1;
+    // @Bug: there's an off-by-one somewhere here? git diff sometimes triggers
+    // the bug
+    if line_offsets {
+        last_line_offset_in_only_text := last(line_offsets);
+        only_text_storage.count = last_line_offset_in_only_text;
+
+        while control_codes {
+            if last(control_codes).position_in_text < last_line_offset_in_only_text break;
+            control_codes.count -= 1;
+        }
     }
 
-    // @Bug: this is still not working correctly, check on `gl -p` in picodata
     unparsed_tail := advance(raw_text_and_control_codes, last_line_offset_in_raw_text);
 
     tab_count := count_occurences(unparsed_tail, #char "\t");
@@ -4784,6 +4790,13 @@ get_error_value_and_string :: () -> u32, string {
     code := System.get_error_value();
     message := to_string(strerror(xx code));
     return xx code, copy_temporary_string(message);
+}
+
+blocking_getchar :: () {
+    while getchar() == -1 {
+        if errno() != EWOULDBLOCK return;
+        sleep_milliseconds(1);
+    }
 }
 
 //
