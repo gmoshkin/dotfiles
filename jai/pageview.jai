@@ -1422,9 +1422,14 @@ maybe_spawn_external_command :: () {
         temp_command = .["/bin/sh", "-c", command[0]];
     }
 
+    Profile();
+
     t0 := time;
     process := *external_command_process;
     success := create_process(process, ..temp_command, capture_and_return_output=true);
+
+    Profile();
+
     if !success {
         last_command_result.type = .FAILED_TO_LAUNCH;
         // FIXME: now the error message keeps flashing and getting erased on next loop iteration...
@@ -1441,10 +1446,14 @@ maybe_spawn_external_command :: () {
     event: epoll_event;
     rc: s32;
 
+    Profile();
+
     event.events = EPOLLIN;
     event.data.fd = process.output.handle;
     rc = epoll_ctl(epoll_fd, .ADD, process.output.handle, *event);
     assert(rc == 0);
+
+    Profile();
 
     event.events = EPOLLIN;
     event.data.fd = process.error.handle;
