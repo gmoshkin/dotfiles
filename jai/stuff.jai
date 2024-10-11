@@ -448,6 +448,65 @@ get_tag_from_argument_type :: (base_type: *Type_Info) -> Type_Info_Tag {
     return xx,no_check -1;
 }
 
+//
+//
+//
+
+stack_trace_and_inline :: () {
+    print("stack trace #1:\n");
+    trace := inline pack_stack_trace();
+    print_stack_trace(trace);
+
+    inner :: (number: int) {
+        print("stack trace #%:\n", number);
+        trace := inline pack_stack_trace();
+        print_stack_trace(trace);
+    }
+    inner(2);
+
+    inline inner(3);
+
+    inner_inline :: inline (number: int) {
+        print("stack trace #%:\n", number);
+        trace := inline pack_stack_trace();
+        print_stack_trace(trace);
+    }
+    inner_inline(4);
+    inline inner_inline(5);
+
+    inner_macro :: (number: int) #expand {
+        print("stack trace #%:\n", number);
+        trace := inline pack_stack_trace();
+        print_stack_trace(trace);
+    }
+    inner_macro(6);
+    inline inner_macro(7);
+
+    inner_inline_macro :: inline (number: int) #expand {
+        print("stack trace #%:\n", number);
+        trace := inline pack_stack_trace();
+        print_stack_trace(trace);
+    }
+    inner_inline_macro(8);
+    inline inner_inline_macro(9);
+}
+
+print_stack_trace :: (stack_trace: [] Stack_Trace_Node) {
+    builder: String_Builder;
+    builder.allocator = temp;
+    print_stack_trace(*builder, stack_trace);
+    write_builder(*builder);
+}
+
+print_stack_trace :: (builder: *String_Builder, stack_trace: [] Stack_Trace_Node) {
+    for node: stack_trace {
+        if node.info
+            print(builder, "    %:%: in '%'\n", node.info.location.fully_pathed_filename, node.line_number, node.info.name);
+        else
+            print(builder, "    ?:%: in ?\n", node.line_number);
+    }
+}
+
 main :: () {
     print("\n### type_of_null:\n\n");                   type_of_null();
     print("\n### bake_polymorph:\n\n");                 bake_polymorph();
@@ -463,6 +522,7 @@ main :: () {
     print("\n### test_append_padding:\n\n");            test_append_padding();
     print("\n### stack_or_temporary_allocator:\n\n");   stack_or_temporary_allocator();
     print("\n### visit_macro:\n\n");                    visit_macro();
+    print("\n### stack_trace_and_inline:\n\n");         stack_trace_and_inline();
 }
 
 #import "Basic";
