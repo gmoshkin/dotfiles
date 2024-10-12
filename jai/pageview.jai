@@ -91,6 +91,11 @@ State :: struct {
     completion_menu: Completion_Menu;
 
     //
+    // command line history
+    //
+    history_filepath: string;
+
+    //
     // status lines
     //
     frame_time: float64;
@@ -441,6 +446,9 @@ main :: () {
         print("Why would you redirect the output whithout even specifying a command?\n");
         exit(1);
     }
+
+    // Read history file
+    read_history_file();
 
     // Choose input source
     if !isatty(STDIN_FILENO) {
@@ -3035,10 +3043,7 @@ handle_input_event_in_input_command_mode :: (event: Input_Event) {
                 replace_console_command_line_from_completion_menu(completion_menu.selected_item);
                 deactivate_completion_menu();
             } else {
-                history := get_history_for_input_mode();
-                if command_line && (!history.count || cast(string) command_line != history.*[history.count - 1]) {
-                    array_add(history, copy_string(xx command_line));
-                }
+                maybe_append_command_line_to_history();
                 if input_mode == .INPUT_COMMAND {
                     execute_console_command(xx command_line);
                     command_line.count = 0;
@@ -3242,14 +3247,14 @@ delete_word_before_command_line_cursor :: () {
 // command line key handling procs
 //
 
-get_history_for_input_mode :: () -> *[..] string {
+get_history_for_input_mode :: () -> *[..] string, History_File_Entry_Type {
     using context.state;
 
     if input_mode == {
-        case .INPUT_COMMAND;        return *command_line_history;
-        case .INPUT_SEARCH_STRING;  return *search_string_history;
+        case .INPUT_COMMAND;        return *command_line_history, .COMMAND;
+        case .INPUT_SEARCH_STRING;  return *search_string_history, .SEARCH;
     }
-    return null;
+    return null, .INVALID;
 }
 
 history_previous :: () {
@@ -4432,6 +4437,78 @@ http_request_handler :: (request: *Http_Request, data: *void) -> bool {
     print(builder, "Your address is %:%\n", request.connection.peer_host, request.connection.peer_port);
 
     return true;
+}
+
+//
+// history file
+//
+
+HISTORY_FILE_NAME :: ".pageview_command_line_history";
+
+read_history_file :: () {
+    using context.state;
+
+    exe_path := System.get_path_of_running_executable();
+    exe_dir := path_strip_filename(exe_path);
+    assert(last(exe_dir) == #char "/");
+
+    history_filepath = sprint("%1%2", exe_dir, HISTORY_FILE_NAME);
+
+    data, ok := my_read_entire_file(history_filepath, log_errors=true);
+    if !ok return;
+
+    tail := data;
+    while tail {
+        found:, line:, tail = split_from_left(tail, #char "\n");
+        if !line continue;
+
+        first := line[0];
+        command_line := advance(line);
+
+        if first == {
+            case #char ":"; array_add(*command_line_history,  command_line);
+            case #char "/"; array_add(*search_string_history, command_line);
+            case; log_error("garbage in history file: '%'", line);
+        }
+    }
+}
+
+History_File_Entry_Type :: enum {
+    INVALID;
+    SEARCH;
+    COMMAND;
+}
+
+maybe_append_command_line_to_history :: () {
+    using context.state;
+
+    history, kind := get_history_for_input_mode();
+    if command_line && (!history.count || cast(string) command_line != history.*[history.count - 1]) {
+        array_add(history, copy_string(xx command_line));
+        append_line_to_history_file(kind, xx command_line);
+    }
+}
+
+append_line_to_history_file :: (kind: History_File_Entry_Type, text: string) {
+    using context.state;
+
+    file, ok := file_open(history_filepath, for_writing=true, keep_existing_content=true);
+    if !ok return;
+    defer file_close(*file);
+
+    builder: String_Builder;
+    builder.allocator = temp;
+
+    if #complete kind == {
+        case .SEARCH;  append(*builder, "/");
+        case .COMMAND; append(*builder, ":");
+        case .INVALID; append(*builder, "<INVALID>");
+    }
+    append(*builder, text);
+    append(*builder, "\n");
+
+    data := builder_to_string(*builder,, temp);
+    file_write(*file, data.data, data.count);
 }
 
 //
