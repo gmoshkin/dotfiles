@@ -42,5 +42,6 @@
 	default = simple
 [diff]
 	algorithm = patience
+	submodule = log
 [rebase]
 	updateRefs = true
