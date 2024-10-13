@@ -255,29 +255,23 @@ Window_Buffer :: struct {
 
     control_codes: [..] Control_Code_Info; // offsets into `only_text`, data into `raw_text_and_control_codes`
     control_codes_cursor: s64;
-    first_unfinished_control_code: s64;
+    unique_control_codes: [..] Small_Bytes;
 }
 
 Control_Code_Info :: struct {
     position_in_text: s64;
-    data_count: u8;
-    escape: u8;
-    #place escape;
-    data: [15] u8;
+    using bytes: Small_Bytes;
 }
 #assert size_of(Control_Code_Info) == 24;
 
 control_code_string :: inline (using code: *Control_Code_Info) -> string {
-    return string.{ data_count, data.data };
+    return to_string(code.bytes);
 }
 
 make_control_code_info :: inline (position: s64, data: string) -> Control_Code_Info {
     result: Control_Code_Info = ---;
-    assert(data.count <= result.data.count, "'%' (%)", cast(Ascii_Or_Hex) data, data.count);
-
     result.position_in_text = position;
-    result.data_count = xx data.count;
-    memcpy(result.data.data, data.data, data.count);
+    result.bytes = make_small_bytes(data);
     return result;
 }
 
@@ -288,6 +282,7 @@ Completion_Menu :: struct {
     common_item_prefix: string;
 
     selected_item: s64;
+    // TODO: add the fucking scrollbar already
 
     is_active: bool;
     completion_insert_offset: s64;
@@ -304,6 +299,7 @@ main :: () {
     array_add(*my_struct_printer_data.variant_printers, .{ type_info(Ascii_Or_Hex), ascii_or_hex_printer });
     array_add(*my_struct_printer_data.variant_printers, .{ type_info(Human_Readable_Memory), human_readable_memory_printer });
     array_add(*my_struct_printer_data.variant_printers, .{ type_info(Mem_Dump), mem_dump_printer });
+    array_add(*my_struct_printer_data.variant_printers, .{ type_info(Small_Bytes), small_bytes_printer });
 
     context.print_style.struct_printer = my_struct_printer;
     context.print_style.struct_printer_data = my_struct_printer_data;
@@ -2274,7 +2270,7 @@ find_all_control_codes_in_range :: (window_buffer: *Window_Buffer, start: s64, e
     while control_codes_cursor < control_codes.count {
         code := current_control_code(window_buffer);
         if !control_code_is_in_range(code, start, end) break;
-        total_string_length += code.data_count;
+        total_string_length += code.count;
         control_codes_cursor += 1;
     }
 
@@ -2407,8 +2403,7 @@ separate_control_codes :: (using window_buffer: *Window_Buffer) {
             head:, visible_count:, line_tail = eat_visible_or_escape_sequence(line_tail);
 
             if visible_count == 0 {
-                code := make_control_code_info(only_text_storage.count, head);
-                array_add(*control_codes, code);
+                add_control_code(window_buffer, only_text_storage.count, head);
             } else {
                 // Expand any tab characters with spaces, because fuck tab characters,
                 // all my homies use spaces
@@ -2425,16 +2420,14 @@ separate_control_codes :: (using window_buffer: *Window_Buffer) {
                     // And now I have too deal with this....
                     Flush_Highlighted_Piece :: (count: *s64, start_code: string, end_code: string) #expand {
                         if count.* == 0 return;
-                        code := make_control_code_info(`only_text_storage.count, start_code);
-                        array_add(*`control_codes, code);
+                        add_control_code(window_buffer, `only_text_storage.count, start_code);
                         start := `piece.data + `cursor - count.* * 3;
                         // @Robustness: here we append every 3rd character, because this
                         // works for both bold (B\bBO\bOL\bLD\bD) and underline
                         // (_\bU_\bN_\bD_\bE_\bR...) the way `man` is using
                         // them, but this may not be enough for some other weirdos
                         for 0..count.*-1 array_add(*`only_text_storage, start[it * 3 + 2]);
-                        code = make_control_code_info(`only_text_storage.count, end_code);
-                        array_add(*`control_codes, code);
+                        add_control_code(window_buffer, `only_text_storage.count, end_code);
                         count.* = 0;
                     }
                     Flush_Regular_Piece :: () #expand {
@@ -2504,6 +2497,14 @@ separate_control_codes :: (using window_buffer: *Window_Buffer) {
     // @Robustness: This is currently broken in a rare case when parsing a stream repeatedly
     //              if the last piece is only empty lines after some empty lines
     // line_offsets.count -= last_empty_lines_count;
+}
+
+add_control_code :: (using window_buffer: *Window_Buffer, position_in_only_text: s64, control_code: string) {
+    code := make_control_code_info(position_in_only_text, control_code);
+    array_add(*control_codes, code);
+
+    for unique_control_codes if to_string(it) == control_code return;
+    array_add(*unique_control_codes, code.bytes);
 }
 
 scroll_string_with_control_codes :: (builder: *String_Builder, scrolling_text: string, offset: s64, max_width: s64) {
@@ -4533,6 +4534,46 @@ my_struct_printer :: (builder: *String_Builder, any: Any, struct_printer_data: *
     }
 
     return false;
+}
+
+//
+// small bytes
+//
+
+Small_Bytes :: struct {
+    count: u8;
+    first: u8;
+    #place first;
+    data: [15] u8;
+}
+#assert size_of(Small_Bytes) == 16;
+
+to_string :: inline (using bytes: Small_Bytes) -> string {
+    return string.{ count, data.data };
+}
+
+make_small_bytes :: inline (data: string) -> Small_Bytes {
+    result: Small_Bytes = ---;
+    assert(data.count <= result.data.count, "'%' (%)", cast(Ascii_Or_Hex) data, data.count);
+
+    result.count = xx data.count;
+    memcpy(result.data.data, data.data, data.count);
+    return result;
+}
+
+small_bytes_printer :: (builder: *String_Builder, any: Any, struct_printer_data: *void) -> bool {
+    if any.type != type_info(Small_Bytes) return false;
+
+    s := << cast(*Small_Bytes) any.value_pointer;
+    print_small_bytes(builder, s);
+
+    return true;
+}
+
+print_small_bytes :: inline (builder: *String_Builder, bytes: Small_Bytes) {
+    append(builder, #char "\"");
+    print_ascii_or_hex(builder, to_string(bytes));
+    append(builder, #char "\"");
 }
 
 //
