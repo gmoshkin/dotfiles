@@ -2360,8 +2360,6 @@ init_window_buffer :: (window_buffer: *Window_Buffer, raw_text: string) {
 separate_control_codes :: (using window_buffer: *Window_Buffer) {
     using context.state;
 
-    // @Bug: there's an off-by-one somewhere here? git diff sometimes triggers
-    // the bug
     if line_offsets {
         last_line_offset_in_only_text := last(line_offsets);
         only_text_storage.count = last_line_offset_in_only_text;
@@ -3832,7 +3830,7 @@ set_log_file :: (new_log_file: string) -> (ok: bool, error_message: string) {
     if log_file_name == new_log_file return false, "nothing changed";
 
     free(log_file_name);
-    log_file_name = new_log_file;
+    log_file_name = copy_string(new_log_file);
 
     if log_file.handle file_close(*log_file);
 
@@ -3841,7 +3839,7 @@ set_log_file :: (new_log_file: string) -> (ok: bool, error_message: string) {
         code, message := get_error_value_and_string();
         return false, tprint("open('%'): (%) %", new_log_file, code, message);
     }
-    log_file = log_file;
+    log("start logging");
     return true, "";
 }
 
