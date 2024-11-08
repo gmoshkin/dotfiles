@@ -6,6 +6,8 @@
 State :: struct {
     tty: string;
 
+    go_up: bool;
+
     tty_drivers: Table(u8, string);
 
     tty_number_to_name: Table(s64, string);
@@ -42,6 +44,30 @@ main :: () {
     while cursor < args.count {
         arg := args[cursor];
         if arg == {
+            case "-p"; #through;
+            case "--pid";
+                cursor += 1;
+                if cursor >= args.count {
+                    print("Expected a pid after '%'\n", arg);
+                    exit(1);
+                }
+                pid_string := args[cursor];
+                pid, ok, tail := string_to_int(pid_string, base=10, T=s64);
+                if !ok || tail.count != 0 {
+                    print("Expected a pid number, got '%'\n", pid_string);
+                    exit(1);
+                }
+                table_set(*state.maybe_roots, xx pid, Void);
+                state.go_up = true;
+
+            case "-f"; #through;
+            case "--full";
+                state.go_up = true;
+
+            case "-F"; #through;
+            case "--not-full";
+                state.go_up = false;
+
             case "-t"; #through;
             case "--tty";
                 cursor += 1;
@@ -153,6 +179,17 @@ main :: () {
         array_add(*parent_info.children, pid);
     }
 
+    if state.go_up {
+        t: [..] Pid;
+        t.allocator = temp;
+        for state.maybe_roots {
+            array_add(*t, it_index);
+        }
+
+        for pid: t {
+        }
+    }
+
     roots := get_only_roots(*state);
     if !roots {
         print("nothing found\n");
@@ -161,8 +198,30 @@ main :: () {
 
     flattened_tree: [..] *Extended_Process_Info;
     flattened_tree.allocator = temp;
+
+    // This is confusing because I'm lazy and don't want to do a correct thing,
+    // which would be to mark all the nodes in the tree whether I'm printing
+    // them or not. Instead I just go over the list of roots I found and add all
+    // of their parents (if state.go_up is true) before adding the subtree
+    // starting from the chosen roots. I do this, because I want to know the
+    // (grand-)parents of the target process but not any of it's
+    // siblings/cousings. But I do want to know all of the descendants...
+    max_backwards_depth := 0;
+    if state.go_up {
+        for roots {
+            info := table_find_pointer(*state.process_infos, it);
+            if !info continue;
+
+            info = table_find_pointer(*state.process_infos, info.parent_pid);
+            add_parents(*state.process_infos, info, *flattened_tree);
+            if info {
+                max_backwards_depth = max(info.depth + 1, max_backwards_depth);
+            }
+        }
+    }
+
     for roots {
-        depth_first_children(*state.process_infos, it, *flattened_tree);
+        depth_first_children(*state.process_infos, it, *flattened_tree, max_backwards_depth);
     }
 
     // Get physical memory capacity
@@ -395,6 +454,19 @@ depth_first_children :: (tree: *Table(Pid, Extended_Process_Info), root: Pid, re
     for info.children {
         depth_first_children(tree, it, result, depth + 1);
     }
+}
+
+add_parents :: (tree: *Table(Pid, Extended_Process_Info), info: *Extended_Process_Info, result: *[..] *Extended_Process_Info) -> depth: s64 {
+    if !info return -1;
+    // There's no process 0
+    if info.pid == 0 return -1;
+
+    parent_info := table_find_pointer(tree, info.parent_pid);
+    parent_depth := add_parents(tree, parent_info, result);
+    info.depth = parent_depth + 1;
+
+    array_add(result, info);
+    return info.depth;
 }
 
 //
