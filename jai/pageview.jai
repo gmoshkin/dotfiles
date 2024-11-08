@@ -1541,8 +1541,10 @@ maybe_handle_external_command_output :: () {
     raw_text_and_control_codes = prepare_raw_text_and_control_codes_from_external_command();
     hash = Meow_Hash_Compute(xx raw_text_and_control_codes);
 
-    if main_window_buffer_history && hash == main_window_buffer_history[main_window_buffer_history.count - 1].hash
+    if main_window_buffer_history && hash == main_window_buffer_history[main_window_buffer_history.count - 1].hash {
+        free(raw_text_and_control_codes);
         return;
+    }
 
     Profile();
     init_window_buffer(*new_window_buffer, raw_text_and_control_codes);
