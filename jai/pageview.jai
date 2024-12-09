@@ -191,6 +191,8 @@ State :: struct {
     // Stores pointers into `last_shown_line_buffer_flat_pool`.
     last_shown_line_buffer: [..] string;
     last_shown_line_buffer_version: s64;
+    target_fps: s32 = 60;
+    time_last_shown: float64;
     memory_pool_for_last_shown_line_buffer: Flat_Pool;
     memory_pool_for_last_shown_line_buffer_high_water_mark: s64;
 
@@ -583,7 +585,7 @@ main :: () {
         reset(*error_log_builder);
 
         // Wait for events
-        timeout: s32 = 1000 / 10;
+        timeout: s32 = 1000 / target_fps;
         if first_time then timeout = 0;
 
         Profile();
@@ -609,12 +611,10 @@ main :: () {
         Profile();
 
         frame_time = seconds_since_init();
-        target_fps := 60;
-        min_period := 1000.0 / target_fps;
         elapsed_ms := 1000 * (frame_time - last_frame_time);
-        if elapsed_ms < min_period {
-            sleep_milliseconds(xx (min_period - elapsed_ms));
-        }
+        // if elapsed_ms < min_period {
+        //     sleep_milliseconds(xx (min_period - elapsed_ms));
+        // }
         last_frame_time = frame_time;
 
         Profile();
@@ -731,7 +731,13 @@ main :: () {
                 }
             }
         }
-        if changed || redraw_once {
+
+        now := seconds_since_init();
+        min_period := 1.0 / target_fps;
+        its_time := now - time_last_shown > min_period;
+
+        if its_time && changed || redraw_once {
+            time_last_shown = now;
             redraw_once = false;
             write_string("\e[0J");
             if line_buffer.count > 0 {
