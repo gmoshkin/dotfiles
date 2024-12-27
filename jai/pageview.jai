@@ -208,6 +208,8 @@ State :: struct {
     // stupid sexy particles
     //
     party_time: bool;
+    party_time_update_period := 0.1;
+    party_time_next_update_time: float64;
     Particle_Info :: struct {
         using position: Vector2;
         ansi_color: string;
@@ -3804,6 +3806,7 @@ init_commands :: () {
         array_add(*console_commands, make_command("anti_flicker_period", set_anti_flicker_period));
         array_add(*console_commands, make_command("show_state_field", show_state_field));
         array_add(*console_commands, make_command("debug_break", do_debug_break));
+        array_add(*console_commands, make_command("party_time_update_period", set_party_time_update_period));
     }
 }
 
@@ -3869,6 +3872,14 @@ set_anti_flicker_period :: (number: float64) -> (ok: bool, error_message: string
     using context.state;
 
     anti_flicker_period = number;
+
+    return true, "";
+}
+
+set_party_time_update_period :: (number: float64) -> (ok: bool, error_message: string) {
+    using context.state;
+
+    party_time_update_period = xx number;
 
     return true, "";
 }
@@ -3976,6 +3987,10 @@ proc :: () -> (bool, string) {
 
 do_party_mode :: () {
     using context.state;
+
+    now := seconds_since_init();
+    if party_time_next_update_time > now then return;
+    party_time_next_update_time = now + party_time_update_period;
 
     width  := cast(float) terminal_size.cols;
     height := cast(float) terminal_size.rows;
