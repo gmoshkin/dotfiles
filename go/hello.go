@@ -28,6 +28,7 @@ func inspect_type(v any) {
     for i := range typeOf.NumMethod() {
         method := typeOf.Method(i)
         fmt.Printf("method(%d): %v\n", i, method)
+        fmt.Println("method name:", method.Name)
         res := method.Func.Call([]reflect.Value{reflect.ValueOf(v), reflect.ValueOf(-40)})
         for i, res := range res {
             fmt.Printf("result %d: %v\n", i, res)
