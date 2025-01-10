@@ -507,6 +507,53 @@ print_stack_trace :: (builder: *String_Builder, stack_trace: [] Stack_Trace_Node
     }
 }
 
+for_reverse_range :: () {
+    print("for   1..3\n");
+    for   1..3 print("#%\n", it);
+    print("for < 1..3\n");
+    for < 1..3 print("#%\n", it);
+    print("for   3..1\n");
+    for   3..1 print("#%\n", it);
+    print("for < 3..1\n");
+    for < 3..1 print("#%\n", it);
+
+    print("for #v2   1..3\n");
+    for #v2   1..3 print("#%\n", it);
+    print("for #v2 < 1..3\n");
+    for #v2 < 1..3 print("#%\n", it);
+    print("for #v2   3..1\n");
+    for #v2   3..1 print("#%\n", it);
+    print("for #v2 < 3..1\n");
+    for #v2 < 3..1 print("#%\n", it);
+}
+
+#no_reset polymorph_compilation_count := 0;
+
+polymorph_deduplication :: () {
+    polymorph :: (v: $T) {
+        #run print("[polymorph_deduplication] T: %\n", T);
+        #run polymorph_compilation_count += 1;
+    }
+
+    polymorph(1);
+    polymorph(2);
+    polymorph("string");
+    polymorph("another string");
+    polymorph(3.14);
+    polymorph(float);
+
+    print_vars(polymorph_compilation_count);
+    assert(polymorph_compilation_count == 4);
+}
+
+distinct_type_newtype :: () {
+    My_Int :: #type,distinct int;
+    The_Original_Int :: int;
+
+    #assert My_Int != int;
+    #assert The_Original_Int == int;
+}
+
 main :: () {
     print("\n### type_of_null:\n\n");                   type_of_null();
     print("\n### bake_polymorph:\n\n");                 bake_polymorph();
@@ -523,6 +570,9 @@ main :: () {
     print("\n### stack_or_temporary_allocator:\n\n");   stack_or_temporary_allocator();
     print("\n### visit_macro:\n\n");                    visit_macro();
     print("\n### stack_trace_and_inline:\n\n");         stack_trace_and_inline();
+    print("\n### for_reverse_range:\n\n");              for_reverse_range();
+    print("\n### polymorph_deduplication:\n\n");        polymorph_deduplication();
+    print("\n### distinct_type_newtype:\n\n");          distinct_type_newtype();
 }
 
 #import "Basic";
