@@ -45,3 +45,5 @@
 	submodule = log
 [rebase]
 	updateRefs = true
+[submodule]
+    fetchJobs = 8
