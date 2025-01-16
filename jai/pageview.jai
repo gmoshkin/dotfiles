@@ -3810,12 +3810,16 @@ init_commands :: () {
     }
 }
 
-change_external_command_rerun_period :: (time: float32) -> (ok: bool, error_msg: string) {
+change_external_command_rerun_period :: (new_period: float32) -> (ok: bool, error_msg: string) {
     using context.state;
 
-    if time <= 0.0001 return false, "value must not be less than 0.0001";
+    if new_period <= 0.0001 return false, "value must not be less than 0.0001";
 
-    external_command_run_period_seconds = time;
+    old_period := external_command_run_period_seconds;
+    external_command_run_period_seconds = new_period;
+
+    time_next_command_run += new_period - old_period;
+
     return true, "";
 }
 
