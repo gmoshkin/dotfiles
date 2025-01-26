@@ -228,7 +228,7 @@ State :: struct {
     epoll_fd: s32;
     epoll_events: [..] epoll_event;
 }
-#add_context state: State;
+#add_context state: *State;
 
 Delayed_Action :: struct {
     type: enum {
@@ -313,7 +313,9 @@ main :: () {
 
     args := get_command_line_arguments();
 
-    state := *context.state;
+    state_instance: State;
+    context.state = *state_instance;
+    state := *state_instance;
 
     {
         log_file_name := getenv("PAGEVIEW_LOG_FILENAME");
@@ -4401,7 +4403,7 @@ test_get_subfield_by_path :: () {
 //
 
 init_http_server :: () -> bool {
-    state := *context.state;
+    state := context.state;
     server := *context.state.http_server;
     server.epoll_fd = *state.epoll_fd;
     server.http_request_handler = http_request_handler;
