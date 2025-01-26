@@ -1186,6 +1186,7 @@ tag_to_type :: (tag: Code_Node.Kind) -> Type {
         case .DIRECTIVE_RUN;               return Code_Directive_Run;
         case .DIRECTIVE_CODE;              return Code_Directive_Code;
         case .DIRECTIVE_POKE_NAME;         return Code_Directive_Poke_Name;
+        case .DIRECTIVE_CONTEXT_TYPE;      return Code_Directive_Context_Type;
         case .ASM;                         return Code_Asm;
         case .DIRECTIVE_BAKE;              return Code_Directive_Bake;
         case .DIRECTIVE_MODIFY;            return Code_Directive_Modify;
