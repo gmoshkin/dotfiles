@@ -102,7 +102,7 @@ git_branch :: () -> string, Attr {
     ok, out := command("git", "rev-parse", "--abbrev-ref", "HEAD", cwd = pane_current_path);
     if !ok return "", .{}; // Probably not a git directory
 
-    if out != "HEAD" return tprint(" %", trim(out)), .{"colour15", "colour4"};
+    if out != "HEAD" return tprint("⎇ %", trim(out)), .{"colour15", "colour4"};
 
     ok, out = command("git", "rev-parse", "--short", "HEAD", cwd = pane_current_path);
     Check_Ok(ok);
