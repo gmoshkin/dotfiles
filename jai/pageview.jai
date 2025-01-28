@@ -4854,7 +4854,8 @@ init_terminal_settings :: () {
     // new_termios.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
     // ~ECHO: don't display characters being typed
     // ~ICANON: not sure what else but also disables input bufferring by line
-    new_termios.c_lflag &= ~(ECHO | ICANON);
+    // ~ISIG: disable special characters generating signals (cltr+c, ctrl+\, and others?)
+    new_termios.c_lflag &= ~(ECHO | ICANON | ISIG);
     /* control chars - set return condition: min number of bytes and timer. */
     new_termios.c_cc[VMIN] = 0; /* Return each byte, or zero for timeout. */
     new_termios.c_cc[VTIME] = 1; /* 100 ms timeout (unit is tens of second). */
