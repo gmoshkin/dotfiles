@@ -1,0 +1,57 @@
+# On windows this goes in %APPDATA%/alacritty/alacritty.toml
+# On linux this goes in ~/.alacritty.toml
+
+[[keyboard.bindings]]
+mods = "Control"
+key = "Space"
+chars = "\u0000"
+
+[[keyboard.bindings]]
+mods = "Control|Alt"
+key = "H"
+chars = "\u001b\u0008"
+
+[[keyboard.bindings]]
+mods = "Control"
+key = "1"
+chars = "1"
+
+[[keyboard.bindings]]
+mods = "Control"
+key = "2"
+chars = "\u0000"
+
+[[keyboard.bindings]]
+mods = "Control"
+key = "3"
+chars = "\u001b"
+
+[[keyboard.bindings]]
+mods = "Control"
+key = "4"
+chars = "\u001c"
+
+[[keyboard.bindings]]
+mods = "Control"
+key = "5"
+chars = "\u001d"
+
+[[keyboard.bindings]]
+mods = "Control"
+key = "6"
+chars = "\u001e"
+
+[[keyboard.bindings]]
+mods = "Control"
+key = "7"
+chars = "\u001f"
+
+[[keyboard.bindings]]
+mods = "Control"
+key = "8"
+chars = "\u007f"
+
+[[keyboard.bindings]]
+mods = "Control"
+key = "9"
+chars = "9"
