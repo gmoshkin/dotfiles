@@ -269,7 +269,7 @@ Control_Code_Info :: struct {
 #assert size_of(Control_Code_Info) == 24;
 
 control_code_string :: inline (using code: *Control_Code_Info) -> string {
-    return to_string(code.bytes);
+    return to_string(*code.bytes);
 }
 
 make_control_code_info :: inline (position: s64, data: string) -> Control_Code_Info {
@@ -2513,7 +2513,7 @@ add_control_code :: (using window_buffer: *Window_Buffer, position_in_only_text:
     code := make_control_code_info(position_in_only_text, control_code);
     array_add(*control_codes, code);
 
-    for unique_control_codes if to_string(it) == control_code return;
+    for *unique_control_codes if to_string(it) == control_code return;
     array_add(*unique_control_codes, code.bytes);
 }
 
@@ -4575,7 +4575,7 @@ Small_Bytes :: struct {
 }
 #assert size_of(Small_Bytes) == 16;
 
-to_string :: inline (using bytes: Small_Bytes) -> string {
+to_string :: inline (using bytes: *Small_Bytes) -> string {
     return string.{ count, data.data };
 }
 
@@ -4599,7 +4599,7 @@ small_bytes_printer :: (builder: *String_Builder, any: Any, struct_printer_data:
 
 print_small_bytes :: inline (builder: *String_Builder, bytes: Small_Bytes) {
     append(builder, #char "\"");
-    print_ascii_or_hex(builder, to_string(bytes));
+    print_ascii_or_hex(builder, to_string(*bytes));
     append(builder, #char "\"");
 }
 
