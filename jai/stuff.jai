@@ -511,11 +511,13 @@ for_reverse_range :: () {
     print("for   1..3\n");
     for   1..3 print("#%\n", it);
     print("for < 1..3\n");
-    for < 1..3 print("#%\n", it);
+    // no longer compiles
+    // for < 1..3 print("#%\n", it);
     print("for   3..1\n");
     for   3..1 print("#%\n", it);
     print("for < 3..1\n");
-    for < 3..1 print("#%\n", it);
+    // no longer compiles
+    // for < 3..1 print("#%\n", it);
 
     print("for #v2   1..3\n");
     for #v2   1..3 print("#%\n", it);
@@ -552,6 +554,38 @@ distinct_type_newtype :: () {
 
     #assert My_Int != int;
     #assert The_Original_Int == int;
+}
+weird_polymorphism :: () {
+    My_Enum :: enum {
+        Dog;
+        Cat;
+        Hot_Dog;
+    }
+
+    Dog_Struct :: struct {};
+    Cat_Struct :: struct {};
+    Hot_Dog_Struct :: struct {};
+
+    struct_type_for_enum :: (e: My_Enum) -> Type, bool {
+        if e == {
+            case .Dog; return Dog_Struct, false;
+            case .Cat; return Cat_Struct, true;
+            case .Hot_Dog; return Hot_Dog_Struct, true;
+        }
+        return void, false;
+    }
+
+    foo :: ($e: My_Enum, s: $T)
+    #modify {
+        type, ok := struct_type_for_enum(e);
+        if ok T = type;
+        return ok;
+    }
+    {}
+
+    // Doesn't work :(
+    // foo(.Dog, .{});
+    // foo(.Cat, .{});
 }
 
 main :: () {
