@@ -7,11 +7,6 @@ key = "Space"
 chars = "\u0000"
 
 [[keyboard.bindings]]
-mods = "Control|Alt"
-key = "H"
-chars = "\u001b\u0008"
-
-[[keyboard.bindings]]
 mods = "Control"
 key = "1"
 chars = "1"
@@ -55,3 +50,46 @@ chars = "\u007f"
 mods = "Control"
 key = "9"
 chars = "9"
+
+[[keyboard.bindings]]
+mods = "Control"
+key = ";"
+chars = ";"
+
+[[keyboard.bindings]]
+mods = "Control|Shift"
+key = ":"
+chars = ":"
+
+[[keyboard.bindings]]
+mods = "Control"
+key = "."
+chars = "."
+
+[[keyboard.bindings]]
+# Doesn't fucking work
+mods = "Control|Shift"
+key = "."
+chars = ">"
+
+[[keyboard.bindings]]
+mods = "Control"
+key = ","
+chars = ","
+
+[[keyboard.bindings]]
+# Doesn't fucking work
+mods = "Control|Shift"
+key = ","
+chars = "<"
+
+[[keyboard.bindings]]
+mods = "Control"
+key = "/"
+chars = "\u001f"
+
+[[keyboard.bindings]]
+# Doesn't fucking work
+mods = "Control|Shift"
+key = "/"
+chars = "\u007f"
