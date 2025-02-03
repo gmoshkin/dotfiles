@@ -137,11 +137,6 @@ get_program_info :: (program: Program) -> (exe_name: string, exe_path: string, s
 build_program :: (program: Program, parameters: Compile_Parameters) {
     using parameters;
 
-    compiler_path := get_path_of_running_executable();
-    compiler_directory := path_strip_filename(compiler_path);
-    compiler_directory = trim_right(compiler_directory, "/");
-    linker_path := sprint("%/lld-linux", compiler_directory);
-
     exe_name, exe_path, source := get_program_info(program);
 
     if debug_build {
@@ -207,35 +202,12 @@ build_program :: (program: Program, parameters: Compile_Parameters) {
             }
 
             if phase == .READY_FOR_CUSTOM_LINK_COMMAND {
-                command: [..] string;
-                array_add(*command, linker_path);
+                #if OS == .LINUX {
+                    run_link_command_on_linux_with_musl(message);
+                }
 
-                // This determines the flags parsing
-                array_add(*command, "-flavor", "Gnu");
-
-                output_executable_path := sprint("%/%", options.output_path, options.output_executable_name);
-                array_add(*command, "-o", output_executable_path);
-
-                // Frame pointer related?
-                array_add(*command, "--eh-frame-hdr");
-                // I've seen this one before!
-                array_add(*command, "-export-dynamic");
-
-                array_add(*command, ..compiler_generated_object_files);
-
-                // Dynamic libraries are looked up in the directory of running executable
-                array_add(*command, "-rpath=$ORIGIN");
-
-                // wget https://git.musl-libc.org/cgit/musl/snapshot/musl-1.2.5.tar.gz & configure --prefix=... & make install
-                array_add(*command, sprint("%/modules/crt1.o", directory_of_this_file));
-                array_add(*command, sprint("%/modules/libc.a", directory_of_this_file));
-                array_add(*command, sprint("%/modules/libexecinfo.a", directory_of_this_file));
-
-                print("Running linker: %\n", get_quoted_command_string(command));
-                process_result := run_command(..command);
-
-                if process_result.exit_code != 0 {
-                    print("Error: Link step failed! (Exit code %)\n", process_result.exit_code);
+                #if OS == .WINDOWS {
+                    run_link_command_on_windows(message);
                 }
 
                 Compiler.compiler_custom_link_command_is_complete(workspace);
@@ -244,6 +216,58 @@ build_program :: (program: Program, parameters: Compile_Parameters) {
     }
 
     compiler_end_intercept(workspace);
+}
+
+run_link_command_on_linux_with_musl :: (using message: *Message_Phase) {
+    assert(phase == .READY_FOR_CUSTOM_LINK_COMMAND, "%", phase);
+
+    compiler_path := get_path_of_running_executable();
+    compiler_directory := path_strip_filename(compiler_path);
+    compiler_directory = trim_right(compiler_directory, "/");
+    linker_path := sprint("%/lld-linux", compiler_directory);
+
+    options := get_build_options(workspace);
+
+    command: [..] string;
+    array_add(*command, linker_path);
+
+    // This determines the flags parsing
+    array_add(*command, "-flavor", "Gnu");
+
+    output_executable_path := sprint("%/%", options.output_path, options.output_executable_name);
+    array_add(*command, "-o", output_executable_path);
+
+    // Frame pointer related?
+    array_add(*command, "--eh-frame-hdr");
+    // I've seen this one before!
+    array_add(*command, "-export-dynamic");
+
+    array_add(*command, ..compiler_generated_object_files);
+
+    // Dynamic libraries are looked up in the directory of running executable
+    array_add(*command, "-rpath=$ORIGIN");
+
+    // wget https://git.musl-libc.org/cgit/musl/snapshot/musl-1.2.5.tar.gz & configure --prefix=... & make install
+    array_add(*command, sprint("%/modules/crt1.o", directory_of_this_file));
+    array_add(*command, sprint("%/modules/libc.a", directory_of_this_file));
+    array_add(*command, sprint("%/modules/libexecinfo.a", directory_of_this_file));
+
+    print("Running linker: %\n", get_quoted_command_string(command));
+    process_result := run_command(..command);
+
+    if process_result.exit_code != 0 {
+        print("Error: Link step failed! (Exit code %)\n", process_result.exit_code);
+    }
+}
+
+run_link_command_on_windows :: (using message: *Message_Phase) {
+    assert(phase == .READY_FOR_CUSTOM_LINK_COMMAND, "%", phase);
+
+    // Unfortunately there's no way to get the linker path from the compiler
+    // currently, so I would have to reimplement the logic of looking for the
+    // link.exe which I currently don't want to do...
+
+    assert(false);
 }
 
 db_file_path :: () -> string {
