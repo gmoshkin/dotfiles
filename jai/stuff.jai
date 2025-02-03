@@ -588,6 +588,41 @@ weird_polymorphism :: () {
     // foo(.Cat, .{});
 }
 
+constant_proc_parameter :: () {
+    takes_constant_proc :: (value: *$T, $proc: (T) -> T) -> T {
+        return inline proc(value.*);
+    }
+
+    my_number := 13;
+    new_value := takes_constant_proc(
+        *my_number,
+        x => x + 1,
+    );
+
+    print("%\n", new_value);
+}
+
+macro_as_lambda :: () {
+    takes_code_as_lambda :: (value: *$T, $code: Code) -> T #expand {
+        `old := value.*;
+        new := #insert code;
+        return new;
+    }
+
+    my_number := 13;
+    new_value := takes_code_as_lambda(
+        *my_number,
+        #code old + 1,
+    );
+
+    print("%\n", new_value);
+}
+
+mod_negative :: () {
+    v := -10 % 3;
+    print("%\n", v);
+}
+
 main :: () {
     print("\n### type_of_null:\n\n");                   type_of_null();
     print("\n### bake_polymorph:\n\n");                 bake_polymorph();
@@ -607,6 +642,9 @@ main :: () {
     print("\n### for_reverse_range:\n\n");              for_reverse_range();
     print("\n### polymorph_deduplication:\n\n");        polymorph_deduplication();
     print("\n### distinct_type_newtype:\n\n");          distinct_type_newtype();
+    print("\n### constant_proc_parameter:\n\n");        constant_proc_parameter();
+    print("\n### macro_as_lambda:\n\n");                macro_as_lambda();
+    print("\n### mod_negative:\n\n");                   mod_negative();
 }
 
 #import "Basic";
