@@ -54,10 +54,11 @@ directory_of_this_file :: #run trim_right(path_strip_filename(#file), "/");
                 }
 
 
-            case "pageview";    program = .PAGEVIEW;
-            case "ps";          program = .PS;
-            case "status-line"; program = .STATUS_LINE;
-            case "all";         program = .ALL;
+            case "pageview";              program = .PAGEVIEW;
+            case "ps";                    program = .PS;
+            case "status-line";           program = .STATUS_LINE;
+            case "convert_wsl_paths";     program = .CONVERT_WSL_PATHS;
+            case "all";                   program = .ALL;
 
             case;
                 die("unknown argument '%'", arg);
@@ -88,6 +89,7 @@ Program :: enum {
     PAGEVIEW;
     PS;
     STATUS_LINE;
+    CONVERT_WSL_PATHS;
 }
 
 Mode :: enum {
@@ -128,6 +130,10 @@ get_program_info :: (program: Program) -> (exe_name: string, exe_path: string, s
             exe_name = "status-line-linux";
             exe_path = sprint("%/../tmux/", directory_of_this_file);
             source = sprint("%/../tmux/status-line.jai", directory_of_this_file);
+        case .CONVERT_WSL_PATHS;
+            exe_name = "convert_wsl_paths";
+            exe_path = directory_of_this_file;
+            source = "convert_wsl_paths.jai";
         case .ALL;
             assert(false, "unreachable");
     }
