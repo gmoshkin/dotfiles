@@ -481,7 +481,11 @@ flat_pool_allocated :: (pool: *Flat_Pool) -> s64 {
         if !ok return false;
 
         if clock_ticks_per_second == -1 {
-            clock_ticks_per_second = xx sysconf(_SC_CLK_TCK);
+            #if OS == .LINUX {
+                clock_ticks_per_second = xx sysconf(_SC_CLK_TCK);
+            } else {
+                assert(false, "only linux for now");
+            }
         }
 
         info.pid = pid;
@@ -746,8 +750,10 @@ rgb_to_hsv :: (r: float, g: float, b: float) -> (h: float, s: float, v: float) {
 
 #scope_module
 
-libc :: #system_library "libc";
-sysconf :: (name: s32) -> s64 #foreign libc;
+#if OS == .LINUX {
+    libc :: #system_library "libc";
+    sysconf :: (name: s32) -> s64 #foreign libc;
+}
 
 #import "Basic";
 #import "String";

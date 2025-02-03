@@ -7707,4 +7707,10 @@ fts5_api :: struct {
 
 #scope_file
 
-libsqlite3 :: #library "./libsqlite3";
+#if OS == .LINUX {
+    libsqlite3 :: #library "./libsqlite3";
+} else #if OS == .WINDOWS {
+    libsqlite3 :: #library "./sqlite3";
+} else {
+    #assert false, "OS not supported";
+}

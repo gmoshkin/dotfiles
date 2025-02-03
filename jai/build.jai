@@ -58,6 +58,7 @@ directory_of_this_file :: #run trim_right(path_strip_filename(#file), "/");
             case "ps";                    program = .PS;
             case "status-line";           program = .STATUS_LINE;
             case "convert_wsl_paths";     program = .CONVERT_WSL_PATHS;
+            case "windows_get_env";       program = .WINDOWS_GET_ENV;
             case "all";                   program = .ALL;
 
             case;
@@ -90,6 +91,7 @@ Program :: enum {
     PS;
     STATUS_LINE;
     CONVERT_WSL_PATHS;
+    WINDOWS_GET_ENV;
 }
 
 Mode :: enum {
@@ -134,6 +136,10 @@ get_program_info :: (program: Program) -> (exe_name: string, exe_path: string, s
             exe_name = "convert_wsl_paths";
             exe_path = directory_of_this_file;
             source = "convert_wsl_paths.jai";
+        case .WINDOWS_GET_ENV;
+            exe_name = "windows_get_env";
+            exe_path = directory_of_this_file;
+            source = "windows_get_env.jai";
         case .ALL;
             assert(false, "unreachable");
     }
@@ -266,6 +272,7 @@ run_link_command_on_linux_with_musl :: (using message: *Message_Phase) {
     }
 }
 
+#if OS == .WINDOWS
 run_link_command_on_windows :: (using message: *Message_Phase) {
     assert(phase == .READY_FOR_CUSTOM_LINK_COMMAND, "%", phase);
 
@@ -273,7 +280,83 @@ run_link_command_on_windows :: (using message: *Message_Phase) {
     // currently, so I would have to reimplement the logic of looking for the
     // link.exe which I currently don't want to do...
 
-    assert(false);
+    vs_library_path, vs_linker_path := find_visual_studio_in_a_ridiculous_garbage_way();
+    link_exe := tprint("%\\link.exe", vs_linker_path);
+
+    windows_kit_root, windows_kit_version := find_windows_kit_root();
+
+    /*
+    jai generates this link command line:
+
+"C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC\14.29.30133\bin\Hostx64\x64\link.exe"
+    /nologo
+    //wsl.localhost/Ubuntu-20.04/home/gmoshkin/dotfiles/jai/.build/windows_get_env_0_w2.obj
+    //wsl.localhost/Ubuntu-20.04/home/gmoshkin/dotfiles/jai/.build/windows_get_env_1_w2.obj
+    //wsl.localhost/Ubuntu-20.04/home/gmoshkin/dotfiles/jai/.build/windows_get_env_2_w2.obj
+    //wsl.localhost/Ubuntu-20.04/home/gmoshkin/dotfiles/jai/.build/windows_get_env_3_w2.obj
+    /OUT://wsl.localhost/Ubuntu-20.04/home/gmoshkin/dotfiles/jai/windows_get_env.exe
+    /MACHINE:AMD64 /INCREMENTAL:NO
+    /DEBUG
+    /IMPLIB://wsl.localhost/Ubuntu-20.04/home/gmoshkin/dotfiles/jai/.build/windows_get_env.lib
+    /libpath:"C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC\14.29.30133\lib\x64"
+    /libpath:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.19041.0\um\x64"
+    /libpath:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.19041.0\ucrt\x64"
+    -nodefaultlib libcmt.lib vcruntime.lib ucrt.lib kernel32.lib DbgHelp.lib msvcrt.lib kernel32.lib
+
+    */
+    options := get_build_options(workspace);
+
+    command: [..] string;
+    array_add(*command, link_exe);
+
+    // No idea
+    array_add(*command, "/nologo");
+
+    for compiler_generated_object_files {
+        array_add(*command, replace(it, "/", "\\"));
+    }
+
+    output_executable_path := tprint("%/%", options.output_path, options.output_executable_name);
+    output_executable_path = replace(output_executable_path, "/", "\\");
+    // NOTE: there's some retarded WSL behavior where the resulting file will
+    // not have execution permissions. AFAIU the problem is that windows doesn't
+    // have a concept of permission to execute, so when you run an .exe file
+    // located in windows file system from WSL, the windows rules are used
+    // (based on the file extension). And even if you copy the file from windows
+    // file system to WSL, the permission will be automatically set. But if you
+    // create an executable directly in WSL file system (for example like I do
+    // it here via link.exe) then the execution permission is not being set. So
+    // you have to manually call `chmod +x` on that windows executable in WSL
+    // after it first gets created, but at least on recompilation it stays
+    // executable... I could explicitly run `wsl.exe -e /bin/sh/ -c chmod +x <exe-path>`
+    // after the binary is generated... I guess this is a TODO
+    array_add(*command, tprint("/OUT:%.exe", output_executable_path));
+
+    // x64 mode
+    array_add(*command, "/MACHINE:AMD64");
+
+    // ?
+    array_add(*command, "/INCREMENTAL:NO");
+
+    if options.emit_debug_info
+        array_add(*command, "/DEBUG");
+
+    // System library paths
+    array_add(*command, tprint("/libpath:%", vs_library_path));
+    array_add(*command, tprint("/libpath:%\\um\\x64", windows_kit_root));
+    array_add(*command, tprint("/libpath:%\\ucrt\\x64", windows_kit_root));
+
+    // No idea
+    array_add(*command, "-nodefaultlib");
+
+    array_add(*command, ..system_libraries);
+
+    print("Running linker: %\n", get_quoted_command_string(command));
+    process_result := run_command(..command);
+
+    if process_result.exit_code != 0 {
+        print("Error: Link step failed! (Exit code %)\n", process_result.exit_code);
+    }
 }
 
 db_file_path :: () -> string {
@@ -1318,3 +1401,6 @@ Void: void;
 #import "Program_Print";
 #import "Program_Print";
 #import "My_Util";
+#if OS == .WINDOWS {
+    #import "Windows_Resources";
+}

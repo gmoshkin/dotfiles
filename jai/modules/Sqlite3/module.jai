@@ -1,7 +1,7 @@
-#if OS == .LINUX {
-    #load "bindings.jai";
-} else {
-    #assert false, "not implemented yet";
+#load "bindings.jai";
+#if OS != .LINUX {
+    #import "Compiler";
+    #run compiler_report(tprint("sqlite module doesn't support OS % yet", OS), mode=.WARNING);
 }
 
 sqlite_prepare :: (db: *sqlite3, query: string, args: .. Any) -> *sqlite3_stmt {

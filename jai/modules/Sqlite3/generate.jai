@@ -1,3 +1,4 @@
+// **WARNING** bindings.jai file is dirty!
 AT_COMPILE_TIME :: true;
 
 ENABLE_GNU_SOURCE :: true; // Enable this and re-run the generator to get Linux’ _GNU_SOURCE extensions to POSIX.
