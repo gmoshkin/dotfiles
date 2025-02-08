@@ -84,6 +84,7 @@ prependToPath "$HOME/.cargo-target/release"
 prependToPath "$HOME/.cargo-target/debug"
 prependToPath "$DOTFILES/jai"
 [ -d "/mnt/d/jai/bin" ] && prependToPath "/mnt/d/jai/bin"
+[ -d "/mnt/d/tools/raddbg_0.9.14b" ] && prependToPath "/mnt/d/tools/raddbg_0.9.14b"
 
 # too slow
 # source "$DOTFILES/rakubrew_init.zsh"
