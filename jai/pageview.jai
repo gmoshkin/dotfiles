@@ -3049,6 +3049,10 @@ handle_input_event_in_input_command_mode :: (event: Input_Event) {
                 switch_to_navigate_mode();
             }
 
+        case #char "\r"; #through; /* CTRL+M or ENTER when terminal setup is broken */
+                                   // FIXME: should probably figure out the
+                                   // terminal setting so that this shit doesn't
+                                   // get broken unexpectedly
         case #char "\n"; /* ENTER */
             if completion_menu.is_active {
                 replace_console_command_line_from_completion_menu(completion_menu.selected_item);
