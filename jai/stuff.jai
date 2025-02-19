@@ -623,6 +623,27 @@ mod_negative :: () {
     print("%\n", v);
 }
 
+temp_array :: (array: [] $T) -> [..] T {
+    result: [..] T;
+    result.allocator = temp;
+    array_add(*result, ..array);
+    return result;
+}
+
+Some_Struct :: struct {
+    global_number: int;
+    global_point: struct { x, y: float; };
+    global_values: [..] string;
+}
+using global_struct: Some_Struct;
+
+global_struct_using :: () {
+    global_struct = .{ 69105, .{ 13, 37 }, temp_array(string.[ "hello", "world" ]) };
+    print("global_number: %\n", global_number);
+    print("global_point: %\n", global_point);
+    print("global_values: %\n", global_values);
+}
+
 main :: () {
     print("\n### type_of_null:\n\n");                   type_of_null();
     print("\n### bake_polymorph:\n\n");                 bake_polymorph();
@@ -645,6 +666,7 @@ main :: () {
     print("\n### constant_proc_parameter:\n\n");        constant_proc_parameter();
     print("\n### macro_as_lambda:\n\n");                macro_as_lambda();
     print("\n### mod_negative:\n\n");                   mod_negative();
+    print("\n### global_struct_using:\n\n");            global_struct_using();
 }
 
 #import "Basic";
