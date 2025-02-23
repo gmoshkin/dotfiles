@@ -644,6 +644,22 @@ global_struct_using :: () {
     print("global_values: %\n", global_values);
 }
 
+enum_flags_auto_values :: () {
+    Enum       :: enum       { A; B; C; }
+    Enum_Flags :: enum_flags { A; B; C; }
+
+    log("Enum:       %", type_info(Enum).values);
+    assert(array_equals(type_info(Enum).values, .[0, 1, 2]));
+    log("Enum_Flags: %", type_info(Enum_Flags).values);
+    assert(array_equals(type_info(Enum_Flags).values, .[1, 2, 4]));
+}
+
+array_equals :: (a: [] $T, b: [] T) -> bool {
+    if a.count != b.count return false;
+    for a if it != b[it_index] return false;
+    return true;
+}
+
 main :: () {
     print("\n### type_of_null:\n\n");                   type_of_null();
     print("\n### bake_polymorph:\n\n");                 bake_polymorph();
@@ -667,6 +683,7 @@ main :: () {
     print("\n### macro_as_lambda:\n\n");                macro_as_lambda();
     print("\n### mod_negative:\n\n");                   mod_negative();
     print("\n### global_struct_using:\n\n");            global_struct_using();
+    print("\n### enum_flags_auto_values:\n\n");         enum_flags_auto_values();
 }
 
 #import "Basic";
