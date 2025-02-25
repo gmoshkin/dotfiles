@@ -180,6 +180,57 @@ print_ascii_or_hex :: inline (builder: *String_Builder, char: u8) {
     print_ascii_or_hex(builder, cast(string) s);
 }
 
+parse_ascii_or_hex :: (input: string) -> string, ok: bool {
+    result: string;
+    result.data = alloc(input.count);
+    result.count = input.count;
+
+    success := false;
+    defer if !success free(result);
+
+    write_cursor := 0;
+    defer result.count = write_cursor;
+
+    read_cursor := 0;
+    while read_cursor < input.count {
+        back_slash := find_index_from_left(input, #char "\\", read_cursor);
+        if back_slash == -1 then back_slash = input.count;
+
+        n_to_copy := back_slash - read_cursor;
+        memcpy(result.data + write_cursor, input.data + read_cursor, n_to_copy);
+        write_cursor += n_to_copy;
+
+        if back_slash == input.count break;
+
+        read_cursor = back_slash + 1;
+        if read_cursor >= input.count { return "", false; }
+
+        c := input[read_cursor]; read_cursor += 1;
+        if c == #char "\\" || c == #char "\"" {
+            result[write_cursor] = c; write_cursor += 1; continue;
+        }
+
+        if c == {
+            case #char "e"; result[write_cursor] = #char "\e"; write_cursor += 1; continue;
+            case #char "n"; result[write_cursor] = #char "\n"; write_cursor += 1; continue;
+            case #char "r"; result[write_cursor] = #char "\r"; write_cursor += 1; continue;
+            case #char "t"; result[write_cursor] = #char "\t"; write_cursor += 1; continue;
+        }
+
+        if c == #char "x" {
+            if read_cursor > input.count - 2 { return "", false; }
+            l := input[read_cursor]; read_cursor += 1;
+            h := input[read_cursor]; read_cursor += 1;
+
+            result[write_cursor] = l << 4 + h; write_cursor += 1; continue;
+        }
+
+    }
+
+    success = true;
+    return result, true;
+}
+
 //
 // ascii escape sequence handling
 //
@@ -212,7 +263,7 @@ eat_visible_or_escape_sequence :: (text: string) -> head: string, visible_count:
                 char = text[count];
                 count += 1;
 
-                if char == #char "m" break;
+                if inline is_alpha(char) break;
             }
         } else {
             // TODO: don't care about other escape codes for now
@@ -377,6 +428,7 @@ pretty_assert :: (code: Code, loc := #caller_location) #expand {
     // We provide 'loc' in case _STACK_TRACE is turned off, but assertion_failed may well
     // look at the stack trace if it is available.
     context.assertion_failed(loc, message);
+    debug_break();
     context.handling_assertion_failure = false;
 
 } @NoProfile

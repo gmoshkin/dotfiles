@@ -199,6 +199,10 @@ State :: struct {
     temporary_storage_memory_pool: Flat_Pool;
     temporary_storage_high_water_mark: s64;
 
+    // Value is how many times control code was seen this run.
+    // So if it's 0 than it was loaded from the history file.
+    all_unique_control_codes: Table(Small_Bytes, int, get_hash, small_bytes_equals);
+
     //
     // copy to clipboard (tmux currently)
     //
@@ -266,7 +270,7 @@ Control_Code_Info :: struct {
     position_in_text: s64;
     using bytes: Small_Bytes;
 }
-#assert size_of(Control_Code_Info) == 24;
+#assert size_of(Control_Code_Info) == 32;
 
 control_code_string :: inline (using code: *Control_Code_Info) -> string {
     return to_string(*code.bytes);
@@ -2513,6 +2517,12 @@ add_control_code :: (using window_buffer: *Window_Buffer, position_in_only_text:
     code := make_control_code_info(position_in_only_text, control_code);
     array_add(*control_codes, code);
 
+    count, new := find_or_add(*context.state.all_unique_control_codes, code.bytes);
+    count.* += 1;
+    if new {
+        append_line_to_history_file(.SEEN_CONTROL_CODE, control_code);
+    }
+
     for *unique_control_codes if to_string(it) == control_code return;
     array_add(*unique_control_codes, code.bytes);
 }
@@ -4490,7 +4500,9 @@ read_history_file :: () {
     if !ok return;
 
     tail := data;
+    line_no := 1;
     while tail {
+        defer line_no += 1;
         found:, line:, tail = split_from_left(tail, #char "\n");
         if !line continue;
 
@@ -4500,6 +4512,10 @@ read_history_file :: () {
         if first == {
             case #char ":"; array_add(*command_line_history,  command_line);
             case #char "/"; array_add(*search_string_history, command_line);
+            case #char "\\";
+                control_code, ok := parse_ascii_or_hex(command_line);
+                assert(ok, "%: '%' is not a valid escape sequence", line_no, command_line);
+                table_add(*all_unique_control_codes, make_small_bytes(control_code), 0);
             case; log_error("garbage in history file: '%'", line);
         }
     }
@@ -4508,6 +4524,7 @@ read_history_file :: () {
 History_File_Entry_Type :: enum {
     INVALID;
     SEARCH;
+    SEEN_CONTROL_CODE;
     COMMAND;
 }
 
@@ -4532,11 +4549,13 @@ append_line_to_history_file :: (kind: History_File_Entry_Type, text: string) {
     builder.allocator = temp;
 
     if #complete kind == {
-        case .SEARCH;  append(*builder, "/");
-        case .COMMAND; append(*builder, ":");
-        case .INVALID; append(*builder, "<INVALID>");
+        case .SEARCH;            append(*builder, "/");         append(*builder, text);
+        case .COMMAND;           append(*builder, ":");         append(*builder, text);
+        case .INVALID;           append(*builder, "<INVALID>"); append(*builder, text);
+        case .SEEN_CONTROL_CODE;
+            print_ascii_or_hex(*builder, text);
+            assert(to_string(*builder)[0] == #char "\\");
     }
-    append(*builder, text);
     append(*builder, "\n");
 
     data := builder_to_string(*builder,, temp);
@@ -4575,9 +4594,19 @@ Small_Bytes :: struct {
     count: u8;
     first: u8;
     #place first;
-    data: [15] u8;
+    data: [23] u8;
 }
-#assert size_of(Small_Bytes) == 16;
+#assert size_of(Small_Bytes) == 24;
+
+operator == :: inline (a: Small_Bytes, b: Small_Bytes) -> bool {
+    if a.count != b.count return false;
+    return memcmp(a.data.data, b.data.data, a.count) == 0;
+}
+small_bytes_equals :: #procedure_of_call operator == (Small_Bytes.{}, Small_Bytes.{});
+
+get_hash :: inline (b: Small_Bytes) -> u32 {
+    return Hash.get_hash(to_string(*b));
+}
 
 to_string :: inline (using bytes: *Small_Bytes) -> string {
     return string.{ count, data.data };
@@ -5036,3 +5065,4 @@ Meow_Hash :: #import "meow_hash";
 // #if OS == .LINUX #import "X11";
 // #import "Clipboard";
 System :: #import "System";
+Hash :: #import "Hash";
