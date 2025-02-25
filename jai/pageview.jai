@@ -3534,6 +3534,7 @@ complete_console_command :: () {
         return;
     }
 
+    // @BROKEN this is broken for some reason!!!
     if starts_with(xx command_line, "show_state_field ") {
         found, _, path := split_from_left(xx command_line, " ");
         assert(found);
