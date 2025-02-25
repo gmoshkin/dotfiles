@@ -660,6 +660,29 @@ array_equals :: (a: [] $T, b: [] T) -> bool {
     return true;
 }
 
+static_if_case :: () {
+    E :: enum { A; B; C; }
+
+    e :: E.A;
+    #if #complete e == {
+        case .A; log("A");
+        case .B; log("B");
+        case .C; log("C");
+    }
+}
+
+memcpy_overlapping :: () {
+    s := copy_string("abcd  efgh",, temp);
+    log("was:    '%'", s);
+    memcpy(s.data + 4, s.data + 6, 4);
+    log("became: '%'", s);
+
+    s = copy_string("abcd  efgh",, temp);
+    log("was:    '%'", s);
+    memcpy(s.data + 2, s.data, 4);
+    log("became: '%'", s);
+}
+
 main :: () {
     print("\n### type_of_null:\n\n");                   type_of_null();
     print("\n### bake_polymorph:\n\n");                 bake_polymorph();
@@ -684,6 +707,8 @@ main :: () {
     print("\n### mod_negative:\n\n");                   mod_negative();
     print("\n### global_struct_using:\n\n");            global_struct_using();
     print("\n### enum_flags_auto_values:\n\n");         enum_flags_auto_values();
+    print("\n### static_if_case:\n\n");                 static_if_case();
+    print("\n### memcpy_overlapping:\n\n");             memcpy_overlapping();
 }
 
 #import "Basic";
