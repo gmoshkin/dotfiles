@@ -431,7 +431,7 @@ main :: () {
         state.log_file = log_file;
     }
     context.logger = my_logger;
-    context.logger_data = *context.state;
+    context.logger_data = context.state;
 
     if !isatty(STDOUT_FILENO) {
         using state;
