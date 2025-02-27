@@ -146,6 +146,7 @@ State :: struct {
     // source: EXTERNAL_COMMAND
     //
     command: [..] string;
+    command_version: int; // number of times command changed
 
     external_command_process: Process;
     external_command_started: float64;
@@ -916,6 +917,14 @@ main :: () {
     if signalled_with_signal != -1 {
         print("got signal %\n", signalled_with_signal);
     }
+
+    if state.command_version != 0 {
+        print("last external command was:\n");
+        builder: String_Builder;
+        display_external_command(*builder, state.command);
+        print(*builder, "\n");
+        write_builder(*builder);
+    }
 }
 
 //
@@ -1624,6 +1633,26 @@ prepare_raw_text_and_control_codes_from_external_command :: () -> string {
     return normal_output;
 }
 
+display_external_command :: (builder: *String_Builder, command: [] string) {
+    append(builder, "\e[32m");
+    if path_filename(command[0]) == "git" then append(builder, "git");
+                                          else append(builder, command[0]);
+    append(builder, "\e[0m");
+
+    for 1..command.count-1 {
+        append(builder, " ");
+        if find_index_from_left(command[it], #char " ") != -1 {
+            append(builder, "\e[33m"); // color yellow
+            append(builder, "\"");
+            print_ascii_or_hex(builder, command[it]);
+            append(builder, "\"");
+            append(builder, "\e[0m");
+        } else {
+            append(builder, command[it]);
+        }
+    }
+}
+
 //
 // text source: PIPED_INPUT
 //
@@ -1780,24 +1809,7 @@ render_status_line_1 :: () {
 
             {
                 temp_builder := String_Builder.{ allocator = temp };
-                append(*temp_builder, "\e[32m");
-                if path_filename(command[0]) == "git" then append(*temp_builder, "git");
-                else                                       append(*temp_builder, command[0]);
-                append(*temp_builder, "\e[0m");
-
-                for 1..command.count-1 {
-                    append(*temp_builder, " ");
-                    if find_index_from_left(command[it], #char " ") != -1 {
-                        append(*temp_builder, "\e[33m"); // color yellow
-                        append(*temp_builder, "\"");
-                        print_ascii_or_hex(*temp_builder, command[it]);
-                        append(*temp_builder, "\"");
-                        append(*temp_builder, "\e[0m");
-                    } else {
-                        append(*temp_builder, command[it]);
-                    }
-                }
-
+                display_external_command(*temp_builder, command);
                 command_string := to_string(*temp_builder);
 
                 command_string_overflow := count_visible_characters(command_string) - max_command_string_length;
@@ -3843,12 +3855,18 @@ change_external_command_rerun_period :: (new_period: float32) -> (ok: bool, erro
 set_external_command :: (new_command: string) -> (ok: bool, error_message: string) {
     using context.state;
 
+    if command.count == 1 && command[0] == new_command return true, "";
+
     for command free(it);
     command.count = 0;
     // FIXME: probably want to split the command and do some special character escaping
     array_add(*command, copy_string(new_command));
     time_next_command_run = frame_time;
     main_window_source = .EXTERNAL_COMMAND;
+
+    command_version += 1;
+    log("external command changed to '%'", new_command);
+
     return true, "";
 }
 
@@ -4425,6 +4443,7 @@ init_http_server :: () -> bool {
 
     if !init_tcp_server(server) return false;
     if !tcp_server_start_listenning(server) return false;
+    log("http server is listenning on 0.0.0.0:%", server.listen_port);
 
     return true;
 }
@@ -4465,6 +4484,13 @@ http_request_handler :: (request: *Http_Request, data: *void) -> bool {
     }
 
     builder := get_response_body_builder(request);
+
+    if starts_with(request.uri, "/api/text") {
+        using context.state;
+        main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
+        append(builder, main_window_buffer.raw_text_and_control_codes);
+        return true;
+    }
 
     print(builder, "Hello!\n");
 
