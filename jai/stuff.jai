@@ -683,7 +683,36 @@ memcpy_overlapping :: () {
     log("became: '%'", s);
 }
 
+parse_elf_file :: () {
+    #import "executable_formats";
+    #import "debug_info";
+
+    log("%", get_working_directory());
+    ok, elf := parse_elf_file("pageview");
+    assert(ok);
+    log("header: %", elf.header.*);
+    // log("sections: %", elf.sections);
+    // log("section_names: %", elf.section_names);
+
+    log("num symbols: %", elf.symbols.count);
+    // log("symbol_names: %", elf.symbol_names);
+
+    log("num dynamic_symbols: %", elf.dynamic_symbols.count);
+    // log("dynamic_symbol_names: %", elf.dynamic_symbol_names);
+
+    info := get_section_data(elf, elf.debug_info_section);
+    ok &= apply_relocations(elf, elf.debug_info_section_index, info); // @Stability: apply_relocations modifies the original data, so any subsequent call to get_section_data will get the relocated data
+    abbrev := get_section_data(elf, elf.debug_abbrev_section);
+    line := get_section_data(elf, elf.debug_line_section);
+    ok &= apply_relocations(elf, elf.debug_line_section_index, line); // @Stability: apply_relocations modifies the original data, so any subsequent call to get_section_data will get the relocated data
+    str := get_section_data(elf, elf.debug_str_section);
+    debug_info:, ok = parse_dwarf_debug_info(info, abbrev, line, str, verbose = true);
+    assert(ok);
+    log("debug_info: %", debug_info);
+}
+
 main :: () {
+    context.print_style.default_format_struct.use_newlines_if_long_form = true;
     print("\n### type_of_null:\n\n");                   type_of_null();
     print("\n### bake_polymorph:\n\n");                 bake_polymorph();
     print("\n### check_return_big_struct:\n\n");        check_return_big_struct();
@@ -709,6 +738,7 @@ main :: () {
     print("\n### enum_flags_auto_values:\n\n");         enum_flags_auto_values();
     print("\n### static_if_case:\n\n");                 static_if_case();
     print("\n### memcpy_overlapping:\n\n");             memcpy_overlapping();
+    print("\n### parse_elf_file:\n\n");                 parse_elf_file();
 }
 
 #import "Basic";
