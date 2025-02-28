@@ -68,7 +68,26 @@ directory_of_this_file :: #run trim_right(path_strip_filename(#file), "/");
 
     Strategy_Pattern_My_Ass :: (program: Program) #expand {
         if `mode == {
-            case .COMPILE;              build_program(program, compile_parameters);
+            case .COMPILE;
+                if program == .PAGEVIEW && !compile_parameters.debug_build {
+                    debug_parameters := compile_parameters;
+                    debug_parameters.debug_build = true;
+
+                    print("Compiling a debug version...\n");
+                    build_program(program, debug_parameters);
+                    exe_name, exe_path := get_program_info(program, debug=true);
+
+                    print("\n");
+                    command := string.[tprint("%/%", exe_path, exe_name), "--run-tests"];
+                    process_result := run_command(..command);
+
+                    if process_result.exit_code != 0 {
+                        print("Error: Command % failed (Exit code %)\n", command, process_result.exit_code);
+                    }
+                    print("\n");
+
+                }
+                build_program(program, compile_parameters);
             case .GENERATE_SOURCE_INFO; generate_source_info(program);
             case .INSPECT_SOURCE_INFO;  inspect_source_info(program, inspect_parameters);
         }
@@ -115,7 +134,7 @@ Inspect_Parameters :: struct {
     column: int;
 }
 
-get_program_info :: (program: Program) -> (exe_name: string, exe_path: string, source: string) {
+get_program_info :: (program: Program, debug := false) -> (exe_name: string, exe_path: string, source: string) {
     exe_name: string;
     exe_path: string;
     source: string;
@@ -143,17 +162,15 @@ get_program_info :: (program: Program) -> (exe_name: string, exe_path: string, s
         case .ALL;
             assert(false, "unreachable");
     }
+
+    if debug exe_name = tprint("%-debug", exe_name);
     return exe_name, exe_path, source;
 }
 
 build_program :: (program: Program, parameters: Compile_Parameters) {
     using parameters;
 
-    exe_name, exe_path, source := get_program_info(program);
-
-    if debug_build {
-        exe_name = sprint("%-debug", exe_name);
-    }
+    exe_name, exe_path, source := get_program_info(program, debug_build);
 
     print("Compiling %\n", exe_name);
 

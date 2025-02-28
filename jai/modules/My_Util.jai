@@ -222,13 +222,28 @@ parse_ascii_or_hex :: (input: string) -> string, ok: bool {
             l := input[read_cursor]; read_cursor += 1;
             h := input[read_cursor]; read_cursor += 1;
 
-            result[write_cursor] = l << 4 + h; write_cursor += 1; continue;
+            l = inline hex_digit(l); if l > 0xf return "", false;
+            h = inline hex_digit(h); if h > 0xf return "", false;
+
+            result[write_cursor] = (l << 4) + h;
+            write_cursor += 1;
+            continue;
         }
+
+        return "", false;
 
     }
 
+    result.count = write_cursor;
     success = true;
     return result, true;
+}
+
+hex_digit :: inline (c: u8) -> u8 {
+    if c >= #char "0" && c <= #char "9" return c - #char "0";
+    if c >= #char "a" && c <= #char "f" return c - #char "a" + 10;
+    if c >= #char "A" && c <= #char "F" return c - #char "A" + 10;
+    return 0xff;
 }
 
 //

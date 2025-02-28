@@ -49,6 +49,7 @@ State :: struct {
     line_numberring := false;
     show_memory_usage := false;
     debug := false;
+    run_tests := false;
     // FIXME: this mode doesn't 100% work right now, but may help somewhat
     // sometimes...
     visualize_control_codes := false;
@@ -407,9 +408,17 @@ main :: () {
             case "--debug";
                 state.debug = true;
 
+            case "--run-tests";
+                state.run_tests = true;
+
             case; break;
         }
         cursor += 1;
+    }
+
+    if state.run_tests {
+        run_tests();
+        return;
     }
 
     command_size := args.count - cursor;
@@ -525,7 +534,7 @@ main :: () {
         assert(rc >= 0);
     }
 
-    // if debug then getchar();
+    if state.debug then getchar();
 
     // Get terminal size
     rc := ioctl(STDIN_FILENO, TIOCGWINSZ, *state.terminal_size);
@@ -2532,6 +2541,7 @@ add_control_code :: (using window_buffer: *Window_Buffer, position_in_only_text:
     count, new := find_or_add(*context.state.all_unique_control_codes, code.bytes);
     count.* += 1;
     if new {
+        log("new control code '%'", code.bytes);
         append_line_to_history_file(.SEEN_CONTROL_CODE, control_code);
     }
 
@@ -4534,15 +4544,16 @@ read_history_file :: () {
         if !line continue;
 
         first := line[0];
-        command_line := advance(line);
 
         if first == {
-            case #char ":"; array_add(*command_line_history,  command_line);
-            case #char "/"; array_add(*search_string_history, command_line);
+            case #char ":"; array_add(*command_line_history,  advance(line));
+            case #char "/"; array_add(*search_string_history, advance(line));
             case #char "\\";
-                control_code, ok := parse_ascii_or_hex(command_line);
-                assert(ok, "%: '%' is not a valid escape sequence", line_no, command_line);
-                table_add(*all_unique_control_codes, make_small_bytes(control_code), 0);
+                control_code, ok := parse_ascii_or_hex(line);
+                assert(ok, "%: '%' is not a valid escape sequence", line_no, line);
+                bytes := make_small_bytes(control_code);
+                table_add(*all_unique_control_codes, bytes, 0);
+
             case; log_error("garbage in history file: '%'", line);
         }
     }
@@ -5069,6 +5080,41 @@ fmt :: inline (v: float64, digits_after_comma := -1, keep_zero := false) -> Form
 fmt :: inline (v: s64, minimum_digits := 1, $padding := "0") -> FormatInt #expand {
     #assert(padding.count == 1);
     return FormatInt.{ value = v, minimum_digits = minimum_digits, padding = padding[0] };
+}
+
+//
+// footer
+//
+
+test_parse_ascii_or_hex :: () {
+    in, out: string;
+    ok: bool;
+
+    in = "\\x00";
+    out, ok = parse_ascii_or_hex(in); assert(ok, "%", in);
+    assert(out == "\x00", "%", cast(Ascii_Or_Hex) out);
+
+    in = "\\x1b[1;31m";
+    out, ok = parse_ascii_or_hex(in); assert(ok, "%", in);
+    assert(out == "\e[1;31m", "%", cast(Ascii_Or_Hex) out);
+
+    in = "[\\e\\n\\r\\t\\\\\\x00\\x13\\\"\\xbA]";
+    out, ok = parse_ascii_or_hex(in); assert(ok, "%", in);
+    assert(out == "[\e\n\r\t\\\x00\x13\"\xbA]", "%", cast(Ascii_Or_Hex) out);
+
+}
+
+run_tests :: () {
+    t0 := seconds_since_init();
+    log("running tests...");
+
+    log("test_get_next_control_code_in_range");     test_get_next_control_code_in_range();
+    log("test_get_subfield_by_path");               test_get_subfield_by_path();
+    log("test_array_ordered_remove_range");         test_array_ordered_remove_range();
+    log("test_parse_ascii_or_hex");                 test_parse_ascii_or_hex();
+
+    elapsed := seconds_since_init() - t0;
+    log("\e[32mall tests passed!\e[0m elapsed: %", fmt(elapsed, 6));
 }
 
 #import "Basic"()(MEMORY_DEBUGGER=true);
