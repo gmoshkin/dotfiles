@@ -711,6 +711,39 @@ parse_elf_file :: () {
     log("debug_info: %", debug_info);
 }
 
+multi_map :: () {
+    table: Table(string, int);
+
+    table_add(*table, "foo", 1);
+    table_add(*table, "foo", 2);
+    table_add(*table, "bar", 3);
+    table_add(*table, "foo", 4);
+    table_add(*table, "baz", 5);
+    table_add(*table, "bar", 6);
+
+    for table {
+        log("%: %", it_index, it);
+    }
+
+    {
+        key := "foo";
+        values := table_find_multiple(*table, key);
+        log("%: %", key, values);
+    }
+
+    {
+        key := "bar";
+        values := table_find_multiple(*table, key);
+        log("%: %", key, values);
+    }
+
+    {
+        key := "baz";
+        values := table_find_multiple(*table, key);
+        log("%: %", key, values);
+    }
+}
+
 main :: () {
     context.print_style.default_format_struct.use_newlines_if_long_form = true;
     print("\n### type_of_null:\n\n");                   type_of_null();
@@ -739,8 +772,10 @@ main :: () {
     print("\n### static_if_case:\n\n");                 static_if_case();
     print("\n### memcpy_overlapping:\n\n");             memcpy_overlapping();
     print("\n### parse_elf_file:\n\n");                 parse_elf_file();
+    print("\n### multi_map:\n\n");                      multi_map();
 }
 
 #import "Basic";
 #import "Print_Vars";
 #import "My_Util";
+#import "Hash_Table";
