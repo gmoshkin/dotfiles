@@ -1,4 +1,6 @@
 # On windows this goes in %APPDATA%/alacritty/alacritty.toml
+# Also on windows make a shortcut with these options:
+# `-e wsl.exe --user gmoshkin --cd /home/gmoshkin`
 # On linux this goes in ~/.alacritty.toml
 
 [[keyboard.bindings]]
