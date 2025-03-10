@@ -1,5 +1,3 @@
-directory_of_this_file :: #run trim_right(path_strip_filename(#file), "/");
-
 #run {
     set_build_options_dc(.{do_output = false});
 
@@ -59,10 +57,22 @@ directory_of_this_file :: #run trim_right(path_strip_filename(#file), "/");
             case "status-line";           program = .STATUS_LINE;
             case "convert_wsl_paths";     program = .CONVERT_WSL_PATHS;
             case "windows_get_env";       program = .WINDOWS_GET_ENV;
+            case "clipboard";             program = .CLIPBOARD;
             case "all";                   program = .ALL;
 
             case;
                 die("unknown argument '%'", arg);
+        }
+    }
+
+    #if OS == .WINDOWS {
+        for string.["D:/tools", "C:/tools"] {
+            if !file_exists(it) continue;
+            windows_tools_directory = it;
+            break;
+        }
+        if !windows_tools_directory {
+            windows_tools_directory = #filepath;
         }
     }
 
@@ -111,6 +121,7 @@ Program :: enum {
     STATUS_LINE;
     CONVERT_WSL_PATHS;
     WINDOWS_GET_ENV;
+    CLIPBOARD;
 }
 
 Mode :: enum {
@@ -134,6 +145,8 @@ Inspect_Parameters :: struct {
     column: int;
 }
 
+windows_tools_directory: string;
+
 get_program_info :: (program: Program, debug := false) -> (exe_name: string, exe_path: string, source: string) {
     exe_name: string;
     exe_path: string;
@@ -141,24 +154,28 @@ get_program_info :: (program: Program, debug := false) -> (exe_name: string, exe
     if #complete program == {
         case .PAGEVIEW;
             exe_name = "pageview";
-            exe_path = directory_of_this_file;
+            exe_path = #filepath;
             source = "pageview.jai";
         case .PS;
             exe_name = "myps";
-            exe_path = directory_of_this_file;
+            exe_path = #filepath;
             source = "ps.jai";
         case .STATUS_LINE;
             exe_name = "status-line-linux";
-            exe_path = sprint("%/../tmux/", directory_of_this_file);
-            source = sprint("%/../tmux/status-line.jai", directory_of_this_file);
+            exe_path = sprint("%/../tmux/", #filepath);
+            source = sprint("%/../tmux/status-line.jai", #filepath);
         case .CONVERT_WSL_PATHS;
             exe_name = "convert_wsl_paths";
-            exe_path = directory_of_this_file;
+            exe_path = #filepath;
             source = "convert_wsl_paths.jai";
         case .WINDOWS_GET_ENV;
             exe_name = "windows_get_env";
-            exe_path = directory_of_this_file;
+            exe_path = windows_tools_directory;
             source = "windows_get_env.jai";
+        case .CLIPBOARD;
+            exe_name = "clipboard";
+            exe_path = windows_tools_directory;
+            source = "clipboard.jai";
         case .ALL;
             assert(false, "unreachable");
     }
@@ -200,6 +217,9 @@ build_program :: (program: Program, parameters: Compile_Parameters) {
     compiler_begin_intercept(workspace);
     add_build_file(source, workspace);
 
+    original_print_integer: *Code_Procedure_Body;
+    replacement_print_integer: *Code_Procedure_Body;
+
     while true {
         base_message := compiler_wait_for_message();
         do_error_checking(null, base_message);
@@ -208,9 +228,39 @@ build_program :: (program: Program, parameters: Compile_Parameters) {
 
         if base_message.kind == .TYPECHECKED {
             using message := cast(*Message_Typechecked) base_message;
-            for body: procedure_bodies {
-                if has_note(body.expression.header, "DumpAst")
-                    dump_proc_ast(body.expression);
+            for code: procedure_bodies {
+                body := code.expression;
+                if has_note(body.header, "DumpAst")
+                    dump_proc_ast(body);
+
+                /* This doesn't work T_T
+                filename := body.location.enclosing_load.fully_pathed_filename;
+                modified := (body.body_flags & .ALREADY_MODIFIED);
+                if body.header.name == "print_integer" && !modified && ends_with(filename, "Basic/Print.jai") {
+                    if original_print_integer {
+                        compiler_report(body.header, "duplicate Basic.print_integer", .WARNING);
+                        compiler_report(original_print_integer.header, "conflicts with this one", .WARNING);
+                    }
+                    original_print_integer = body;
+                    log("found Basic.print_integer %", get_location(original_print_integer.header));
+                }
+                }
+                if has_note(body.header, "Replace:Basic.print_integer") {
+                    if replacement_print_integer {
+                        compiler_report(body.header, "duplicate replacement for Basic.print_integer", .WARNING);
+                        compiler_report(replacement_print_integer.header, "conflicts with this one", .WARNING);
+                    }
+                    replacement_print_integer = body;
+                    log("found % replacement for Basic.print_integer at %", replacement_print_integer.header.name, get_location(replacement_print_integer.header));
+                }
+                // if original_print_integer && replacement_print_integer {
+                //     original_print_integer.block = replacement_print_integer.block;
+                //     log("replacing Basic.print_integer at % with % at %", get_location(original_print_integer.header),
+                //                                                           replacement_print_integer.header.name,
+                //                                                           get_location(replacement_print_integer.header));
+                //     compiler_modify_procedure(workspace, original_print_integer);
+                // }
+                */
             }
             for all if has_note(it.expression, "DumpAst") {
                 dump_ast(it.expression);
@@ -277,9 +327,9 @@ run_link_command_on_linux_with_musl :: (using message: *Message_Phase) {
     array_add(*command, "-rpath=$ORIGIN");
 
     // wget https://git.musl-libc.org/cgit/musl/snapshot/musl-1.2.5.tar.gz & configure --prefix=... & make install
-    array_add(*command, sprint("%/modules/crt1.o", directory_of_this_file));
-    array_add(*command, sprint("%/modules/libc.a", directory_of_this_file));
-    array_add(*command, sprint("%/modules/libexecinfo.a", directory_of_this_file));
+    array_add(*command, sprint("%/modules/crt1.o", #filepath));
+    array_add(*command, sprint("%/modules/libc.a", #filepath));
+    array_add(*command, sprint("%/modules/libexecinfo.a", #filepath));
 
     print("Running linker: %\n", get_quoted_command_string(command));
     process_result := run_command(..command);
@@ -377,10 +427,7 @@ run_link_command_on_windows :: (using message: *Message_Phase) {
 }
 
 db_file_path :: () -> string {
-    directory_of_this_file := path_strip_filename(#file);
-    directory_of_this_file = trim_right(directory_of_this_file, "/");
-
-    return sprint("%/source_info.db", directory_of_this_file);
+    return sprint("%/source_info.db", #filepath);
 }
 
 generate_source_info :: (program: Program) {
@@ -794,6 +841,21 @@ Unwrap :: (ok: bool) #expand {
     }
 }
 
+show_procedure_type :: (base_type: *Type_Info) {
+    assert(base_type.type == .PROCEDURE);
+    type := cast(*Type_Info_Procedure) base_type;
+
+    print("procedure %\n", type);
+    print("    arguments:\n");
+    for type.argument_types {
+        print("        %: %\n", it, it.*);
+    }
+
+    for type.return_types {
+        print("        %: %\n", it, it.*);
+    }
+}
+
 get_type_or_value_of_declaration :: (decl: *Code_Declaration) -> string {
     logger_saved := context.logger;
     defer context.logger = logger_saved;
@@ -813,6 +875,13 @@ get_type_or_value_of_declaration :: (decl: *Code_Declaration) -> string {
         print(*builder, "?");
     }
     return builder_to_string(*builder);
+}
+
+compiler_report :: inline (code: *Code_Node, message: string, mode := Report.ERROR) #compiler {
+    filename := code.enclosing_load.fully_pathed_filename;
+    line := code.l0;
+    column := code.c0;
+    compiler_report(filename, line, column, message, mode);
 }
 
 get_location :: (code: *Code_Node) -> string {
@@ -921,9 +990,11 @@ dump_proc_ast :: (proc: *Code_Procedure_Body) {
     format_struct.use_long_form_if_more_than_this_many_members = -1;
     format_struct.use_newlines_if_long_form = true;
     data: My_Struct_Printer_Data;
-    context.print_style.struct_printer = code_struct_printer;
-    context.print_style.struct_printer_data = *data;
-    defer context.print_style.struct_printer_data = null;
+
+    new_context := context;
+    new_context.print_style.struct_printer = code_struct_printer;
+    new_context.print_style.struct_printer_data = *data;
+    push_context,defer_pop new_context;
 
     print("@DumpAst on procedure %\n", proc.header.name);
     // print("%\n", proc.block.*);
@@ -1355,7 +1426,7 @@ take_file_line_column_from_arguments :: (args: [] string, cursor: *int, file: *s
     if !take_argument(args, cursor, file) return false;
     found, f, line_column := split_from_left(<<file, #char ":");
     if found  file.* = f;
-    if file.*[0] != #char "/" then file.* = tprint("%/%", directory_of_this_file, file.*);
+    if file.*[0] != #char "/" then file.* = tprint("%/%", #filepath, file.*);
 
     if !found {
         if !take_argument(args, cursor, line) return false;
@@ -1421,3 +1492,4 @@ Void: void;
 #if OS == .WINDOWS {
     #import "Windows_Resources";
 }
+#import "My_Print";

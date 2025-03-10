@@ -84,6 +84,7 @@ prependToPath "$HOME/.cargo-target/release"
 prependToPath "$HOME/.cargo-target/debug"
 prependToPath "$DOTFILES/jai"
 for drive in {c..d}; [ -d "/mnt/$drive/jai/bin" ] && prependToPath "/mnt/$drive/jai/bin"
+for drive in {c..d}; [ -d "/mnt/$drive/tools" ] && prependToPath "/mnt/$drive/tools"
 for drive in {c..d}; [ -d "/mnt/$drive/tools/raddbg_0.9.14b" ] && prependToPath "/mnt/$drive/tools/raddbg_0.9.14b"
 
 # too slow

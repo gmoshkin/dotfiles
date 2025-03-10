@@ -1,21 +1,41 @@
 main :: () {
-    args := get_command_line_arguments();
+    #if OS == .WINDOWS {
+        Crt :: #system_library "msvcrt";
+        _isatty :: (fd: s32) -> s32 #foreign Crt;
+
+        piped_input := !_isatty(0);
+    } else {
+        #import "POSIX";
+
+        #assert STDIN_FILENO == 0;
+        piped_input := !isatty(STDIN_FILENO);
+    }
 
     command : enum {
+        NONE;
         COPY_ARGUMENTS;
         COPY_STDIN;
         PASTE;
-    } = ---;
+    }
 
-    if args.count < 2 {
-        log("usage: % [%]", args[0], join(..enum_lower_kebab_value_names(type_of(command)), separator="|"));
+    if piped_input {
+        command = .COPY_STDIN;
+    }
+
+    args := get_command_line_arguments();
+
+    if !piped_input && args.count < 2 {
+        log("usage: % [copy-arguments | copy-stdin | paste] or pipe something on stdin", args[0]);
         exit(1);
     }
 
-    ok:, command = enum_from_lower_kebab_string(args[1], type_of(command));
-    if !ok {
-        log("usage: % [%]", args[0], join(..enum_lower_kebab_value_names(type_of(command)), separator="|"));
-        exit(1);
+    if args.count > 1 if args[1] == {
+        case "copy-arguments"; command = .COPY_ARGUMENTS;
+        case "copy-stdin";     command = .COPY_STDIN;
+        case "paste";          command = .PASTE;
+        case;
+            log("usage: % [copy-arguments | copy-stdin | paste] or pipe something on stdin", args[0]);
+            exit(1);
     }
 
     if command == {
@@ -65,45 +85,6 @@ file_stdin :: () -> File {
 
         return File.{ handle };
     }
-}
-
-enum_from_lower_kebab_string :: (s: string, $T: Type) -> ok: bool, res: T {
-    ti := type_info(T);
-    assert(ti.type == .ENUM);
-
-    res : T = ---;
-    for ti.names {
-        if s == to_lower_kebab(it) {
-            res = xx ti.values[it_index];
-            return true, res;
-        }
-    }
-    return false, res;
-}
-
-enum_lower_kebab_value_names :: (T: Type, allocator := temporary_allocator) -> [..] string {
-    ti := cast(*Type_Info_Enum) T;
-    assert(ti.type == .ENUM);
-
-    res : [..] string;
-    res.allocator = allocator;
-    array_reserve(*res, ti.names.count);
-
-    for ti.names {
-        array_add(*res, to_lower_kebab(it, allocator));
-    }
-
-    return res;
-}
-
-to_lower_kebab :: (s: string, allocator := temporary_allocator) -> string {
-    t := alloc_string(s.count, allocator);
-    for 0..t.count-1 {
-        c := to_lower(s[it]);
-        if c == #char "_" then c = #char "-";
-        t[it] = c;
-    }
-    return t;
 }
 
 #import "Basic";
