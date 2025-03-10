@@ -253,6 +253,7 @@ Window_Buffer :: struct {
     duration: f64;
     hash: U128;
     source: type_of(State.main_window_source);
+    flags: enum_flags { DIFF_MARKERS; }
 
     raw_text_and_control_codes: string;
     last_line_offset_in_raw_text: s64;
@@ -266,7 +267,11 @@ Window_Buffer :: struct {
     control_codes: [..] Control_Code_Info; // offsets into `only_text`, data into `raw_text_and_control_codes`
     control_codes_cursor: s64;
     unique_control_codes: [..] Small_Bytes;
+
+    diff_markers: [..] Range;
 }
+
+Range :: struct { start, count: s32; }
 
 Control_Code_Info :: struct {
     position_in_text: s64;
@@ -966,6 +971,34 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
         current_screen_row += -row_offset;
     }
 
+    //
+    // find closest diff markers
+    //
+    last_diff, last_hunk: Range;
+    second_to_last_diff: Range;
+    if line_index < line_offsets.count {
+        first_seen_line_start := line_offsets[line_index];
+        second_seen_line_start := ifx line_index + 1 < line_offsets.count then line_offsets[line_index + 1]
+                                                                          else only_text.count;
+        for diff_markers {
+            if it.start > second_seen_line_start break;
+            marker_text := slice(only_text, it.start, it.count);
+            if starts_with(marker_text, "diff") {
+                second_to_last_diff = last_diff;
+                last_diff = it;
+            }
+            else if starts_with(marker_text, "@@")   then last_hunk = it;
+        }
+
+        if last_hunk.start < last_diff.start       then last_hunk = .{};
+        if last_diff.start > first_seen_line_start {
+            last_diff = .{};
+            if second_to_last_diff.start < first_seen_line_start {
+                last_diff = second_to_last_diff;
+            }
+        }
+    }
+
     line_number_max_digits := tprint("%", line_offsets.count).count;
     main_window_left_offset := 0;
     if line_numberring then main_window_left_offset = line_number_max_digits + 1;
@@ -983,8 +1016,27 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
     while line_buffer.count < main_window_height || (line_wrapping && stick_to_the_bottom) {
         if line_index > line_offsets.count - 1 break;
         line_start := line_offsets[line_index];
-        line_end := ifx line_index < line_offsets.count - 1 then line_offsets[line_index + 1] else only_text.count;
+        line_end := ifx line_index < line_offsets.count - 1 then line_offsets[line_index + 1] - 1 else only_text.count;
         current_line_number = line_index + 1;
+
+        Setup_Line :: (range: *Range, line_index: int) -> (start: int, count: int, line_number: int) #expand {
+            line_start := range.start;
+            line_end   := range.start + range.count;
+
+            cursor := line_index;
+            while (cursor >= 0) && (`line_offsets[cursor] > line_start) cursor -= 1;
+            line_number := cursor + 1;
+
+            range.count = 0;
+            return line_start, line_end, line_number;
+        }
+
+        if last_diff.count {
+            line_start, line_end, current_line_number = Setup_Line(*last_diff, row_offset);
+        } else if last_hunk.count {
+            line_start, line_end, current_line_number = Setup_Line(*last_hunk, row_offset);
+        }
+
         defer line_index += 1;
         line := substring(xx only_text, line_start, line_end);
 
@@ -1581,7 +1633,7 @@ maybe_handle_external_command_output :: () {
     Profile();
     init_window_buffer(*new_window_buffer, raw_text_and_control_codes);
     Profile();
-    separate_control_codes(*new_window_buffer);
+    parse_raw_text_and_control_codes(*new_window_buffer);
     Profile("length: %, lines: %, codes: %", raw_text_and_control_codes.count, line_offsets.count, control_codes.count);
 
     new_window_buffer.index_in_history = main_window_buffer_history.count;
@@ -1692,7 +1744,7 @@ read_some_from_piped_input :: () {
     Profile("raw_text_and_control_codes.count: %", window_buffer.raw_text_and_control_codes.count);
     if first_time then init_window_buffer(window_buffer, window_buffer.raw_text_and_control_codes);
     if debug { blocking_getchar(); debug = false; }
-    separate_control_codes(window_buffer);
+    parse_raw_text_and_control_codes(window_buffer);
     Profile("raw_text_and_control_codes.count: %", window_buffer.raw_text_and_control_codes.count);
 }
 
@@ -2345,7 +2397,7 @@ test_get_next_control_code_in_range :: () {
 
     using window_buffer: Window_Buffer;
     init_window_buffer(*window_buffer, text);
-    separate_control_codes(*window_buffer);
+    parse_raw_text_and_control_codes(*window_buffer);
 
     print_vars(raw_text_and_control_codes, only_text, control_codes);
 
@@ -2392,9 +2444,11 @@ init_window_buffer :: (window_buffer: *Window_Buffer, raw_text: string) {
     window_buffer.control_codes.count = 0;
 
     window_buffer.max_line_length = 0;
+
+    window_buffer.diff_markers.count = 0;
 }
 
-separate_control_codes :: (using window_buffer: *Window_Buffer) {
+parse_raw_text_and_control_codes :: (using window_buffer: *Window_Buffer) {
     using context.state;
 
     if line_offsets {
@@ -2518,11 +2572,23 @@ separate_control_codes :: (using window_buffer: *Window_Buffer) {
             }
         }
 
+        inline array_add(*only_text_storage, #char "\n");
+
         if found {
             // At this point it would probably be cleaner to use find_index_from_left instead of split_from_left...
             pointer_to_start_of_next_line := line.data + line.count + 1;
             last_line_offset_in_raw_text = pointer_to_start_of_next_line - raw_text_and_control_codes.data;
+
+            line_start := last(line_offsets);
             array_add(*line_offsets, only_text_storage.count);
+
+            line_length := only_text_storage.count - line_start - 1;
+            only_text_line := array_view(only_text_storage, line_start, line_length);
+            diff_marker := starts_with(xx only_text_line, "diff --git");
+            if diff_marker { flags |= .DIFF_MARKERS; }
+            if diff_marker || (flags & .DIFF_MARKERS && starts_with(xx only_text_line, "@@ ")) {
+                array_add(*diff_markers, .{xx line_start, xx line_length});
+            }
         } else {
             break;
         }
