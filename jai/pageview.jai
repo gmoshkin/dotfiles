@@ -990,13 +990,15 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
             else if starts_with(marker_text, "@@")   then last_hunk = it;
         }
 
-        if last_hunk.start < last_diff.start       then last_hunk = .{};
-        if last_diff.start > first_seen_line_start {
+        if last_hunk.start < last_diff.start         then last_hunk = .{};
+        if second_seen_line_start == only_text.count then last_hunk = .{};
+        if last_diff.start > first_seen_line_start || line_index == line_offsets.count {
             last_diff = .{};
             if second_to_last_diff.start < first_seen_line_start {
                 last_diff = second_to_last_diff;
             }
         }
+        if !last_diff.count then last_hunk = .{};
     }
 
     line_number_max_digits := tprint("%", line_offsets.count).count;
@@ -2572,9 +2574,9 @@ parse_raw_text_and_control_codes :: (using window_buffer: *Window_Buffer) {
             }
         }
 
-        inline array_add(*only_text_storage, #char "\n");
-
         if found {
+            inline array_add(*only_text_storage, #char "\n");
+
             // At this point it would probably be cleaner to use find_index_from_left instead of split_from_left...
             pointer_to_start_of_next_line := line.data + line.count + 1;
             last_line_offset_in_raw_text = pointer_to_start_of_next_line - raw_text_and_control_codes.data;

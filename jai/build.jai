@@ -14,6 +14,7 @@
         take_argument(args, *cursor, *arg);
         if arg == {
             case "debug";       compile_parameters.debug_build = true;
+            case "release";     compile_parameters.debug_build = false;
             case "dynamic";     compile_parameters.dynamic_binary = true;
 
             case "source-info-generate";
