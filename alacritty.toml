@@ -3,6 +3,9 @@
 # `-e wsl.exe --user gmoshkin --cd /home/gmoshkin`
 # On linux this goes in ~/.alacritty.toml
 
+[font]
+size = 10
+
 [[keyboard.bindings]]
 mods = "Control"
 key = "Space"
