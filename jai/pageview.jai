@@ -3414,7 +3414,8 @@ jump_to_next_search_match :: () {
 
     if row_offset == line_offsets.count - 1 return; // no next match possible
 
-    start_offset := ifx row_offset >= 0 then row_offset + 1 else 0;
+    // @HACK: doing this -------------------------------------V because of the diff headers stuff I recently added
+    start_offset := ifx row_offset >= 0 then min(row_offset + 3, line_offsets.count - 1) else 0;
     search_start := line_offsets[start_offset];
 
     index := find_index_from_left(only_text, search_string, search_start);
@@ -3423,7 +3424,8 @@ jump_to_next_search_match :: () {
     if row_offset < 0 then row_offset = 0;
     while row_offset < line_offsets.count {
         if line_offsets[row_offset] > index { // overshot by 1 line
-            if row_offset > 0 row_offset -= 1;
+            // @HACK: doing this ---------V because of the diff headers stuff I recently added
+            row_offset = max(row_offset - 3, 0);
             return;
         }
 
@@ -3437,7 +3439,9 @@ jump_to_previous_search_match :: () {
 
     if row_offset == 0 return; // no previous match possible
 
-    search_end := line_offsets[ifx row_offset >= 0 then row_offset];
+    // @HACK: doing this ----------V  because of the diff headers stuff I recently added
+    end_offset := max(row_offset - 2, 0);
+    search_end := line_offsets[end_offset];
 
     search_region := substring(only_text, 0, search_end);
     index := find_index_from_right(search_region, search_string);
@@ -3448,6 +3452,8 @@ jump_to_previous_search_match :: () {
 
     while row_offset >= 0 {
         if line_offsets[row_offset] < index {
+            // @HACK: doing this because of the diff headers stuff I recently added
+            row_offset = max(row_offset - 2, 0);
             return;
         }
 
