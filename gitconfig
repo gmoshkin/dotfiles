@@ -47,3 +47,5 @@
 	updateRefs = true
 [submodule]
     fetchJobs = 8
+[fetch]
+	parallel = 16
