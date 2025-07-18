@@ -166,7 +166,7 @@ State :: struct {
         SMART :: 0x2;
         CHECKING :: 0x4; // in smart mode but not decided yet
     } = .SMART | .CHECKING;
-    SMART_BACKOFF_THRESHOLD :: 5; // DEBUG :: 10;
+    SMART_BACKOFF_THRESHOLD :: 10;
     time_next_command_run : float64 = -1.0;
     last_command_result: Process_Result;
     last_command_result.exit_code = 0; // by default that would be -1, but I don't want that
@@ -2358,17 +2358,10 @@ render_status_line_2 :: () {
                     append(*builder, "input: ");
 
                     print_to_builder(*builder, "%", cast(Ascii_Or_Hex) input_buffer);
-
-                    // print(*builder, " mouse %, %", mouse_position.column, mouse_position.row);
-                    // print(*builder, "  control codes count %", main_window_buffer.control_codes.count);
                 }
 
                 {
                     // status line debug stuff section
-                    print(*builder, "% ", external_command_backoff_mode);
-                    print(*builder, "% ", smart_backoff_run_counter);
-                    print(*builder, "% ", smart_backoff_change_counter);
-                    print(*builder, "% ", smart_backoff_no_change_counter);
                 }
 
                 text_length := buffer.count - text_start;
