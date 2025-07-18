@@ -253,7 +253,9 @@ Window_Buffer :: struct {
     duration: f64;
     hash: U128;
     source: type_of(State.main_window_source);
-    flags: enum_flags { DIFF_MARKERS; }
+    flags: enum_flags {
+        DIFF_MARKERS; // @diff_headers
+    }
 
     raw_text_and_control_codes: string;
     last_line_offset_in_raw_text: s64;
@@ -972,7 +974,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
     }
 
     //
-    // find closest diff markers
+    // find closest diff markers (feature @diff_headers)
     //
     last_commit, last_diff, last_hunk: Range;
     second_to_last_diff: Range;
@@ -1039,6 +1041,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
             return line_start, line_end, line_number;
         }
 
+        // @diff_headers
         // FIXME: this doesn't work because the previous hunk overwrites the
         // next diff. Gotta figure out the `second_to_last_diff` thing, i.e.
         // make it work in the generic case??...
@@ -2598,7 +2601,7 @@ parse_raw_text_and_control_codes :: (using window_buffer: *Window_Buffer) {
 
             line_length := only_text_storage.count - line_start - 1;
             only_text_line := array_view(only_text_storage, line_start, line_length);
-            if starts_with(xx only_text_line, "commit ") {
+            if starts_with(xx only_text_line, "commit ") { // @diff_headers
                 array_add(*diff_markers, .{xx line_start, xx line_length});
             }
             diff_marker := starts_with(xx only_text_line, "diff --git");
@@ -3432,7 +3435,7 @@ jump_to_next_search_match :: () {
 
     if row_offset == line_offsets.count - 1 return; // no next match possible
 
-    // @HACK: doing this -------------------------------------V because of the diff headers stuff I recently added
+    // @HACK: doing this -------------------------------------V because of the @diff_headers stuff I recently added
     start_offset := ifx row_offset >= 0 then min(row_offset + 3, line_offsets.count - 1) else 0;
     search_start := line_offsets[start_offset];
 
@@ -3442,7 +3445,7 @@ jump_to_next_search_match :: () {
     if row_offset < 0 then row_offset = 0;
     while row_offset < line_offsets.count {
         if line_offsets[row_offset] > index { // overshot by 1 line
-            // @HACK: doing this ---------V because of the diff headers stuff I recently added
+            // @HACK: doing this ---------V because of the @diff_headers stuff I recently added
             row_offset = max(row_offset - 3, 0);
             return;
         }
@@ -3457,7 +3460,7 @@ jump_to_previous_search_match :: () {
 
     if row_offset == 0 return; // no previous match possible
 
-    // @HACK: doing this ----------V  because of the diff headers stuff I recently added
+    // @HACK: doing this ----------V  because of the @diff_headers stuff I recently added
     end_offset := max(row_offset - 2, 0);
     search_end := line_offsets[end_offset];
 
@@ -3470,7 +3473,7 @@ jump_to_previous_search_match :: () {
 
     while row_offset >= 0 {
         if line_offsets[row_offset] < index {
-            // @HACK: doing this because of the diff headers stuff I recently added
+            // @HACK: doing this because of the @diff_headers stuff I recently added
             row_offset = max(row_offset - 2, 0);
             return;
         }
