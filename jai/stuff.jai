@@ -529,6 +529,11 @@ for_reverse_range :: () {
     for #v2 < 3..1 print("#%\n", it);
 }
 
+for_reverse_array :: () {
+    array := u8.[1,2,3,4];
+    for < array { print("%\n", it); }
+}
+
 #no_reset polymorph_compilation_count := 0;
 
 polymorph_deduplication :: () {
@@ -773,6 +778,7 @@ main :: () {
     print("\n### memcpy_overlapping:\n\n");             memcpy_overlapping();
     print("\n### parse_elf_file:\n\n");                 parse_elf_file();
     print("\n### multi_map:\n\n");                      multi_map();
+    print("\n### for_reverse_array:\n\n");              for_reverse_array();
 }
 
 #import "Basic";
