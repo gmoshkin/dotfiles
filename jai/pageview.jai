@@ -1,4 +1,16 @@
 /* TODO:
+  - smart exponential backoff
+    motivation: currently backoff only happens when external command runs for a long time
+                this is needed so as not to burn the cpu too much, but there's some problems:
+    problem 1: if the external command runs for a long time but than changes the output the backoff doesn't happen
+    problem 2: if the external command runs for a short time but doesn't change the output we don't
+               do backoff at all, because I don't want it to break the case of `myps`
+    solution: come up with a smart strategy, track the number of times the output has
+              changed and work out a heuristic to disable the backoff only if we expect
+              there to be important updates. It's important that we don't start backoff
+              even if a streak of no change happened, because there might be a change we
+              want to see in time (I'm thinking about `myps` this whole time)
+
   - FIX A BUG in completion where . is not being added
   - completion menu scrolling
 
