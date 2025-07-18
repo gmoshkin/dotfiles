@@ -974,31 +974,37 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
     //
     // find closest diff markers
     //
-    last_diff, last_hunk: Range;
+    last_commit, last_diff, last_hunk: Range;
     second_to_last_diff: Range;
-    if line_index < line_offsets.count {
-        first_seen_line_start := line_offsets[line_index];
-        second_seen_line_start := ifx line_index + 1 < line_offsets.count then line_offsets[line_index + 1]
-                                                                          else only_text.count;
-        for diff_markers {
-            if it.start > second_seen_line_start break;
-            marker_text := slice(only_text, it.start, it.count);
-            if starts_with(marker_text, "diff") {
-                second_to_last_diff = last_diff;
-                last_diff = it;
+    first_line_index := line_index;
+    if first_line_index < line_offsets.count {
+        first_seen_line_start := line_offsets[first_line_index];
+        second_seen_line_start := ifx first_line_index + 1 < line_offsets.count then line_offsets[first_line_index + 1]
+                                                                                else only_text.count;
+        if (flags & .DIFF_MARKERS) {
+            for diff_markers {
+                if it.start > second_seen_line_start break;
+                marker_text := slice(only_text, it.start, it.count);
+                if starts_with(marker_text, "commit") {
+                    last_commit = it;
+                }
+                else if starts_with(marker_text, "diff") {
+                    second_to_last_diff = last_diff;
+                    last_diff = it;
+                }
+                else if starts_with(marker_text, "@@")   then last_hunk = it;
             }
-            else if starts_with(marker_text, "@@")   then last_hunk = it;
-        }
 
-        if last_hunk.start < last_diff.start         then last_hunk = .{};
-        if second_seen_line_start == only_text.count then last_hunk = .{};
-        if last_diff.start > first_seen_line_start || line_index == line_offsets.count {
-            last_diff = .{};
-            if second_to_last_diff.start < first_seen_line_start {
-                last_diff = second_to_last_diff;
+            if last_hunk.start < last_diff.start         then last_hunk = .{};
+            if second_seen_line_start == only_text.count then last_hunk = .{};
+            if last_diff.start > first_seen_line_start || first_line_index == line_offsets.count {
+                last_diff = .{};
+                if second_to_last_diff.start < first_seen_line_start {
+                    last_diff = second_to_last_diff;
+                }
             }
+            if !last_diff.count then last_hunk = .{};
         }
-        if !last_diff.count then last_hunk = .{};
     }
 
     line_number_max_digits := tprint("%", line_offsets.count).count;
@@ -1033,6 +1039,12 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
             return line_start, line_end, line_number;
         }
 
+        // FIXME: this doesn't work because the previous hunk overwrites the
+        // next diff. Gotta figure out the `second_to_last_diff` thing, i.e.
+        // make it work in the generic case??...
+        // if last_commit.count {
+        //     line_start, line_end, current_line_number = Setup_Line(*last_commit, row_offset);
+        // } else
         if last_diff.count {
             line_start, line_end, current_line_number = Setup_Line(*last_diff, row_offset);
         } else if last_hunk.count {
@@ -2586,9 +2598,15 @@ parse_raw_text_and_control_codes :: (using window_buffer: *Window_Buffer) {
 
             line_length := only_text_storage.count - line_start - 1;
             only_text_line := array_view(only_text_storage, line_start, line_length);
+            if starts_with(xx only_text_line, "commit ") {
+                array_add(*diff_markers, .{xx line_start, xx line_length});
+            }
             diff_marker := starts_with(xx only_text_line, "diff --git");
             if diff_marker { flags |= .DIFF_MARKERS; }
-            if diff_marker || (flags & .DIFF_MARKERS && starts_with(xx only_text_line, "@@ ")) {
+            if diff_marker {
+                array_add(*diff_markers, .{xx line_start, xx line_length});
+            }
+            if (flags & .DIFF_MARKERS && starts_with(xx only_text_line, "@@ ")) {
                 array_add(*diff_markers, .{xx line_start, xx line_length});
             }
         } else {
