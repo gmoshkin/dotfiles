@@ -178,3 +178,6 @@ def spell_out(number: int) -> str:
         pieces.append(one_to_nineteen[rest])
 
     return ' '.join(pieces)
+
+def hex_to_bytes(s):
+    return bytes(int(a + b, 16) for a, b in zip(s[0::2], s[1::2]))
