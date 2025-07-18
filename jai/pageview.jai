@@ -158,8 +158,11 @@ State :: struct {
     external_command_last_handled_output_version: u64;
 
     external_command_run_period_seconds := 1.0;
+    external_command_run_period_multiplier: float64 = 1.0; // @external_command_exponential_backoff
+    external_command_run_period_max: float64 = 10 * 60;
     time_next_command_run : float64 = -1.0;
     last_command_result: Process_Result;
+    last_command_result.exit_code = 0; // by default that would be -1, but I don't want that
     last_command_finish: float64 = -1.0;
     last_command_duration: float64 = -1.0;
     second_to_last_command_finish: float64 = -FLOAT64_INFINITY;
@@ -376,6 +379,20 @@ main :: () {
                     exit(1);
                 }
                 state.external_command_run_period_seconds = seconds;
+
+            case "--max-time"; #through;
+            case "--max-time-before-repeat";
+                cursor += 1;
+                if cursor >= args.count {
+                    print("Expected a number of seconds after '%'\n", arg);
+                    exit(1);
+                }
+                seconds, ok := string_to_float(args[cursor]);
+                if !ok {
+                    print("Expected a number of seconds after '%', got '%'\n", arg, args[cursor]);
+                    exit(1);
+                }
+                state.external_command_run_period_max = seconds;
 
             case "-w"; #through;
             case "--wrap"; #through;
@@ -1618,9 +1635,27 @@ read_some_from_external_command :: (output_closed: bool, error_closed: bool) {
         if last_command_duration > .5 {
             log("command finished: elapsed: %", last_command_duration);
         }
-        time_next_command_run = now + external_command_run_period_seconds;
+
+        if external_command_run_period_multiplier == 1.0 && last_command_duration > external_command_run_period_seconds {
+            // External command ran longer than the rerun period. So we update the
+            // multiplier based on that ratio.... Now that I think about it I'm not
+            // sure what's the best option here (not sure what options are there)
+            external_command_run_period_multiplier = last_command_duration / external_command_run_period_seconds;
+            clamp_external_command_run_period_multiplier();
+        }
+
+        time_next_command_run = now + external_command_run_period_seconds * external_command_run_period_multiplier;
         external_command_finished_count += 1;
     }
+}
+
+clamp_external_command_run_period_multiplier :: inline () { // @external_command_exponential_backoff
+    using context.state;
+
+    if external_command_run_period_seconds * external_command_run_period_multiplier < external_command_run_period_max
+        return;
+
+    external_command_run_period_multiplier = external_command_run_period_max / external_command_run_period_seconds;
 }
 
 maybe_handle_external_command_output :: () {
@@ -1644,7 +1679,18 @@ maybe_handle_external_command_output :: () {
 
     if main_window_buffer_history && hash == main_window_buffer_history[main_window_buffer_history.count - 1].hash {
         free(raw_text_and_control_codes);
+        if last_command_duration > external_command_run_period_seconds {
+            // External command output didn't change, increase the multiplier @external_command_exponential_backoff
+            external_command_run_period_multiplier *= 2;
+            clamp_external_command_run_period_multiplier();
+        }
         return;
+    }
+
+    if external_command_run_period_multiplier > 1.0 {
+        // External command output changed, reset the @external_command_exponential_backoff multiplier
+        external_command_run_period_multiplier = max(last_command_duration / external_command_run_period_seconds, 1.0);
+        clamp_external_command_run_period_multiplier();
     }
 
     Profile();
@@ -1790,7 +1836,18 @@ handle_piped_input_end :: () {
         for parent_process_command_line {
             array_add(*command, copy_string(it));
         }
-        time_next_command_run = -1;
+
+        last_command_finish = frame_time;
+        last_command_duration = frame_time - started_reading_piped_input;
+        if last_command_duration > external_command_run_period_seconds {
+            // @external_command_exponential_backoff
+            external_command_run_period_multiplier = last_command_duration / external_command_run_period_seconds;
+            clamp_external_command_run_period_multiplier();
+            time_next_command_run = frame_time + external_command_run_period_seconds * external_command_run_period_multiplier;
+        } else {
+            time_next_command_run = frame_time;
+        }
+
         main_window_source = .EXTERNAL_COMMAND;
         log("main window source is now external command: %", command);
     }
@@ -1965,6 +2022,9 @@ render_status_line_1 :: () {
                 text = trim(text);
                 append(*builder, text);
                 append(*builder, "s");
+                if external_command_run_period_multiplier != 1 { // @external_command_exponential_backoff
+                    print(*builder, " * %", fmt(external_command_run_period_multiplier, digits_after_comma=1));
+                }
                 append(*builder, "\e[0m");
             }
         }
@@ -3916,7 +3976,7 @@ completion_menu_builder_remaining_capacity :: () -> s64 {
 }
 
 //
-// command procs
+// command procs @console
 //
 
 console_commands: [..] Command;
@@ -3924,6 +3984,7 @@ init_commands :: () {
     if !console_commands {
         array_add(*console_commands, make_command("period", change_external_command_rerun_period));
         array_add(*console_commands, make_command("interval", change_external_command_rerun_period));
+        array_add(*console_commands, make_command("max_period", change_external_command_max_rerun_period));
         array_add(*console_commands, make_command("command", set_external_command));
         array_add(*console_commands, make_command("log", set_log_file));
         array_add(*console_commands, make_command("memory_usage", make_toggle("show_memory_usage")));
@@ -3951,8 +4012,25 @@ change_external_command_rerun_period :: (new_period: float32) -> (ok: bool, erro
 
     old_period := external_command_run_period_seconds;
     external_command_run_period_seconds = new_period;
+    external_command_run_period_multiplier = 1.0;
 
     time_next_command_run += new_period - old_period;
+
+    return true, "";
+}
+
+change_external_command_max_rerun_period :: (new_max_period: float32) -> (ok: bool, error_msg: string) {
+    using context.state;
+
+    if new_max_period <= 0.0001 return false, "value must not be less than 0.0001";
+    if new_max_period < external_command_run_period_seconds
+        return false, tprint("max value cannot be less than base value (currently %)", external_command_run_period_seconds);
+
+    external_command_run_period_max = new_max_period;
+    clamp_external_command_run_period_multiplier();
+
+    // Recalculate in case the multiplier changed, which it may not have, in which case this shouldn't change anything
+    time_next_command_run = last_command_finish + external_command_run_period_seconds * external_command_run_period_multiplier;
 
     return true, "";
 }
