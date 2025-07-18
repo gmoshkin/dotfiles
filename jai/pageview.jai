@@ -1,16 +1,4 @@
 /* TODO:
-  - smart exponential backoff
-    motivation: currently backoff only happens when external command runs for a long time
-                this is needed so as not to burn the cpu too much, but there's some problems:
-    problem 1: if the external command runs for a long time but than changes the output the backoff doesn't happen
-    problem 2: if the external command runs for a short time but doesn't change the output we don't
-               do backoff at all, because I don't want it to break the case of `myps`
-    solution: come up with a smart strategy, track the number of times the output has
-              changed and work out a heuristic to disable the backoff only if we expect
-              there to be important updates. It's important that we don't start backoff
-              even if a streak of no change happened, because there might be a change we
-              want to see in time (I'm thinking about `myps` this whole time)
-
   - FIX A BUG in completion where . is not being added
   - completion menu scrolling
 
@@ -170,8 +158,15 @@ State :: struct {
     external_command_last_handled_output_version: u64;
 
     external_command_run_period_seconds := 1.0;
-    external_command_run_period_multiplier: float64 = 1.0; // @external_command_exponential_backoff
+    external_command_backoff_multiplier: float64 = 1.0; // @external_command_exponential_backoff
     external_command_run_period_max: float64 = 10 * 60;
+    external_command_backoff_mode: enum_flags {
+        OFF :: 0x0;
+        ON :: 0x1;
+        SMART :: 0x2;
+        CHECKING :: 0x4; // in smart mode but not decided yet
+    } = .SMART | .CHECKING;
+    SMART_BACKOFF_THRESHOLD :: 5; // DEBUG :: 10;
     time_next_command_run : float64 = -1.0;
     last_command_result: Process_Result;
     last_command_result.exit_code = 0; // by default that would be -1, but I don't want that
@@ -180,6 +175,11 @@ State :: struct {
     second_to_last_command_finish: float64 = -FLOAT64_INFINITY;
 
     anti_flicker_period: float64 = 0.2;
+
+    // @external_command_exponential_backoff
+    smart_backoff_change_counter: u64;
+    smart_backoff_run_counter: u64;
+    smart_backoff_no_change_counter: u64;
 
     //
     // source: DRAWING_MODE
@@ -195,6 +195,7 @@ State :: struct {
     //
     redraw_once := false;
     main_window_buffer_history: [..] Window_Buffer;
+    next_window_buffer_source_version: u64 = 1;
     current_shown_buffer_index: s64;
     show_latest_buffer := true;
 
@@ -264,6 +265,7 @@ Cell_Position :: struct {
 
 Window_Buffer :: struct {
     index_in_history: s64;
+    source_version: u64;
     time_generated: Apollo_Time;
     duration: f64;
     hash: U128;
@@ -405,6 +407,10 @@ main :: () {
                     exit(1);
                 }
                 state.external_command_run_period_max = seconds;
+
+            case "--no-backoff"; #through;
+            case "--no-exponential-backoff";
+                state.external_command_backoff_mode = .OFF;
 
             case "-w"; #through;
             case "--wrap"; #through;
@@ -1536,6 +1542,15 @@ tmux_copy_to_clipboard :: (text: string) {
 // text sources
 //
 
+on_new_input_source :: inline () {
+    using context.state;
+
+    next_window_buffer_source_version += 1;
+    smart_backoff_change_counter = 0;
+    smart_backoff_run_counter = 0;
+    smart_backoff_no_change_counter = 0;
+}
+
 //
 // text source: EXTERNAL_COMMAND
 //
@@ -1648,26 +1663,26 @@ read_some_from_external_command :: (output_closed: bool, error_closed: bool) {
             log("command finished: elapsed: %", last_command_duration);
         }
 
-        if external_command_run_period_multiplier == 1.0 && last_command_duration > external_command_run_period_seconds {
+        if (external_command_backoff_mode != .OFF) &&
+           external_command_backoff_multiplier == 1.0 &&
+           last_command_duration > external_command_run_period_seconds
+        {
+            // @external_command_exponential_backoff
             // External command ran longer than the rerun period. So we update the
-            // multiplier based on that ratio.... Now that I think about it I'm not
-            // sure what's the best option here (not sure what options are there)
-            external_command_run_period_multiplier = last_command_duration / external_command_run_period_seconds;
+            // multiplier based on that ratio.... Now that I think about it I'm not sure what's the best option here (not sure what options are there)
+            external_command_backoff_multiplier = last_command_duration / external_command_run_period_seconds;
             clamp_external_command_run_period_multiplier();
+
+            if external_command_backoff_mode == .SMART | .CHECKING {
+                // Long running external command -> need backoff
+                external_command_backoff_mode = .SMART | .ON;
+            }
         }
 
-        time_next_command_run = now + external_command_run_period_seconds * external_command_run_period_multiplier;
+        time_next_command_run = now + external_command_run_period_seconds * external_command_backoff_multiplier;
         external_command_finished_count += 1;
+        smart_backoff_run_counter += 1;
     }
-}
-
-clamp_external_command_run_period_multiplier :: inline () { // @external_command_exponential_backoff
-    using context.state;
-
-    if external_command_run_period_seconds * external_command_run_period_multiplier < external_command_run_period_max
-        return;
-
-    external_command_run_period_multiplier = external_command_run_period_max / external_command_run_period_seconds;
 }
 
 maybe_handle_external_command_output :: () {
@@ -1689,24 +1704,20 @@ maybe_handle_external_command_output :: () {
     raw_text_and_control_codes = prepare_raw_text_and_control_codes_from_external_command();
     hash = Meow_Hash_Compute(xx raw_text_and_control_codes);
 
+    new_main_window_buffer := true;
+
     if main_window_buffer_history && hash == main_window_buffer_history[main_window_buffer_history.count - 1].hash {
         free(raw_text_and_control_codes);
-        if last_command_duration > external_command_run_period_seconds {
-            // External command output didn't change, increase the multiplier @external_command_exponential_backoff
-            external_command_run_period_multiplier *= 2;
-            clamp_external_command_run_period_multiplier();
-        }
+        do_external_command_backoff(false);
         return;
-    }
-
-    if external_command_run_period_multiplier > 1.0 {
-        // External command output changed, reset the @external_command_exponential_backoff multiplier
-        external_command_run_period_multiplier = max(last_command_duration / external_command_run_period_seconds, 1.0);
-        clamp_external_command_run_period_multiplier();
+    } else {
+        do_external_command_backoff(true);
+        smart_backoff_change_counter += 1;
     }
 
     Profile();
     init_window_buffer(*new_window_buffer, raw_text_and_control_codes);
+    new_window_buffer.source_version = next_window_buffer_source_version;
     Profile();
     parse_raw_text_and_control_codes(*new_window_buffer);
     Profile("length: %, lines: %, codes: %", raw_text_and_control_codes.count, line_offsets.count, control_codes.count);
@@ -1790,6 +1801,88 @@ display_external_command :: (builder: *String_Builder, command: [] string) {
 }
 
 //
+// @external_command_exponential_backoff
+//
+
+update_exponential_backoff_multiplier :: (new_multiplier: float64) {
+    using context.state;
+
+    external_command_backoff_multiplier = new_multiplier;
+    clamp_external_command_run_period_multiplier();
+    // Recalculate in case the multiplier changed, which it may not have, in which case this shouldn't change anything
+    time_next_command_run = last_command_finish + external_command_run_period_seconds * external_command_backoff_multiplier;
+}
+
+clamp_external_command_run_period_multiplier :: inline () { // @external_command_exponential_backoff
+    using context.state;
+
+    if external_command_run_period_seconds * external_command_backoff_multiplier < external_command_run_period_max
+        return;
+
+    external_command_backoff_multiplier = external_command_run_period_max / external_command_run_period_seconds;
+}
+
+do_external_command_backoff :: inline (got_change: bool) {
+    using context.state;
+
+    if got_change {
+        external_command_backoff_on_change();
+    } else {
+        external_command_backoff_on_no_change();
+    }
+
+    external_command_backoff_smart_mode_check();
+}
+
+external_command_backoff_smart_mode_check :: () {
+    using context.state;
+
+    // Check if we're in smart mode and we're still checking
+    if external_command_backoff_mode != .SMART | .CHECKING return;
+    // Check if current external command has finished the appropriate amount of times for the check
+    if smart_backoff_run_counter < SMART_BACKOFF_THRESHOLD return;
+
+    if !main_window_buffer_history return;
+
+    if smart_backoff_change_counter > 1 {
+        // Command ran the appropriate amount of times and the output changed at least once.
+        // Disable backoff because we want to see that shit (very dumb heuristic by the way)
+        external_command_backoff_mode = .SMART | .OFF;
+    } else {
+        // No change in output for first 10 runs -> backoff needed
+        external_command_backoff_mode = .SMART | .ON;
+    }
+}
+
+external_command_backoff_on_no_change :: () {
+    using context.state;
+
+    smart_backoff_no_change_counter += 1;
+
+    backoff_mode := external_command_backoff_mode;
+    if !(backoff_mode & .ON) return;
+
+    if (backoff_mode & .SMART) && (smart_backoff_no_change_counter < SMART_BACKOFF_THRESHOLD) return;
+
+    // External command output didn't change, increase the multiplier
+    update_exponential_backoff_multiplier(external_command_backoff_multiplier * 2);
+}
+
+external_command_backoff_on_change :: () {
+    using context.state;
+
+    smart_backoff_no_change_counter = 0;
+
+    backoff_mode := external_command_backoff_mode;
+    if !(backoff_mode & .ON) return;
+
+    if external_command_backoff_multiplier > 1.0 {
+        // External command output changed, reset the multiplier
+        update_exponential_backoff_multiplier(max(last_command_duration / external_command_run_period_seconds, 1.0));
+    }
+}
+
+//
 // text source: PIPED_INPUT
 //
 
@@ -1798,6 +1891,8 @@ read_some_from_piped_input :: () {
     first_time := (main_window_buffer_history.count == 0);
     if !main_window_buffer_history {
         array_add(*main_window_buffer_history, .{});
+        main_window_buffer_history[0].source_version = next_window_buffer_source_version;
+        on_new_input_source();
         started_reading_piped_input = seconds_since_init();
     }
 
@@ -1851,11 +1946,9 @@ handle_piped_input_end :: () {
 
         last_command_finish = frame_time;
         last_command_duration = frame_time - started_reading_piped_input;
-        if last_command_duration > external_command_run_period_seconds {
-            // @external_command_exponential_backoff
-            external_command_run_period_multiplier = last_command_duration / external_command_run_period_seconds;
-            clamp_external_command_run_period_multiplier();
-            time_next_command_run = frame_time + external_command_run_period_seconds * external_command_run_period_multiplier;
+        if (external_command_backoff_mode != .OFF) && last_command_duration > external_command_run_period_seconds {
+            // Increase backoff multiplier to the ratio
+            update_exponential_backoff_multiplier(last_command_duration / external_command_run_period_seconds);
         } else {
             time_next_command_run = frame_time;
         }
@@ -2034,8 +2127,10 @@ render_status_line_1 :: () {
                 text = trim(text);
                 append(*builder, text);
                 append(*builder, "s");
-                if external_command_run_period_multiplier != 1 { // @external_command_exponential_backoff
-                    print(*builder, " * %", fmt(external_command_run_period_multiplier, digits_after_comma=1));
+                if external_command_backoff_mode & .CHECKING {
+                    append(*builder, " * ?");
+                } else if (external_command_backoff_mode != .OFF) && external_command_backoff_multiplier != 1 { // @external_command_exponential_backoff
+                    print(*builder, " * %", fmt(external_command_backoff_multiplier, digits_after_comma=1));
                 }
                 append(*builder, "\e[0m");
             }
@@ -2267,6 +2362,15 @@ render_status_line_2 :: () {
                     // print(*builder, " mouse %, %", mouse_position.column, mouse_position.row);
                     // print(*builder, "  control codes count %", main_window_buffer.control_codes.count);
                 }
+
+                {
+                    // status line debug stuff section
+                    print(*builder, "% ", external_command_backoff_mode);
+                    print(*builder, "% ", smart_backoff_run_counter);
+                    print(*builder, "% ", smart_backoff_change_counter);
+                    print(*builder, "% ", smart_backoff_no_change_counter);
+                }
+
                 text_length := buffer.count - text_start;
                 overflow := text_length - terminal_size.cols;
                 if overflow > 0 {
@@ -3997,6 +4101,10 @@ init_commands :: () {
         array_add(*console_commands, make_command("period", change_external_command_rerun_period));
         array_add(*console_commands, make_command("interval", change_external_command_rerun_period));
         array_add(*console_commands, make_command("max_period", change_external_command_max_rerun_period));
+        array_add(*console_commands, make_command("backoff_on", set_external_command_backoff_on));
+        array_add(*console_commands, make_command("backoff_off", set_external_command_backoff_off));
+        array_add(*console_commands, make_command("backoff_smart", set_external_command_backoff_smart));
+        array_add(*console_commands, make_command("rerun_now", rerun_external_command_now));
         array_add(*console_commands, make_command("command", set_external_command));
         array_add(*console_commands, make_command("log", set_log_file));
         array_add(*console_commands, make_command("memory_usage", make_toggle("show_memory_usage")));
@@ -4024,9 +4132,15 @@ change_external_command_rerun_period :: (new_period: float32) -> (ok: bool, erro
 
     old_period := external_command_run_period_seconds;
     external_command_run_period_seconds = new_period;
-    external_command_run_period_multiplier = 1.0;
+    external_command_backoff_multiplier = 1.0;
 
     time_next_command_run += new_period - old_period;
+
+    if external_command_backoff_mode & .SMART {
+        smart_backoff_change_counter = 0;
+        smart_backoff_run_counter = 0;
+        smart_backoff_no_change_counter = 0;
+    }
 
     return true, "";
 }
@@ -4039,10 +4153,53 @@ change_external_command_max_rerun_period :: (new_max_period: float32) -> (ok: bo
         return false, tprint("max value cannot be less than base value (currently %)", external_command_run_period_seconds);
 
     external_command_run_period_max = new_max_period;
-    clamp_external_command_run_period_multiplier();
+    // Update based on the new max value
+    update_exponential_backoff_multiplier(external_command_backoff_multiplier);
 
-    // Recalculate in case the multiplier changed, which it may not have, in which case this shouldn't change anything
-    time_next_command_run = last_command_finish + external_command_run_period_seconds * external_command_run_period_multiplier;
+    return true, "";
+}
+
+set_external_command_backoff_on :: () -> (ok: bool, error_msg: string) { // @external_command_exponential_backoff
+    using context.state;
+
+    // Forced ON mode
+    external_command_backoff_mode = .ON;
+
+    return true, "";
+}
+
+set_external_command_backoff_off :: () -> (ok: bool, error_msg: string) { // @external_command_exponential_backoff
+    using context.state;
+
+    // Forced OFF mode
+    external_command_backoff_mode = .OFF;
+
+    update_exponential_backoff_multiplier(1.0);
+
+    return true, "";
+}
+
+set_external_command_backoff_smart :: () -> (ok: bool, error_msg: string) { // @external_command_exponential_backoff
+    using context.state;
+
+    // Start SMART backoff mode
+    external_command_backoff_mode = .SMART | .CHECKING;
+    smart_backoff_change_counter = 0;
+    smart_backoff_run_counter = 0;
+    smart_backoff_no_change_counter = 0;
+
+    return true, "";
+}
+
+rerun_external_command_now :: () -> (ok: bool, error_message: string) {
+    using context.state;
+
+    time_next_command_run = frame_time;
+    if external_command_backoff_mode & .SMART {
+        smart_backoff_change_counter = 0;
+        smart_backoff_run_counter = 0;
+        smart_backoff_no_change_counter = 0;
+    }
 
     return true, "";
 }
@@ -4057,9 +4214,14 @@ set_external_command :: (new_command: string) -> (ok: bool, error_message: strin
     // FIXME: probably want to split the command and do some special character escaping
     array_add(*command, copy_string(new_command));
     time_next_command_run = frame_time;
+    external_command_backoff_multiplier = 1.0;
+    if external_command_backoff_mode & .SMART {
+        external_command_backoff_mode = .SMART | .CHECKING;
+    }
     main_window_source = .EXTERNAL_COMMAND;
 
     command_version += 1;
+    on_new_input_source();
     log("external command changed to '%'", new_command);
 
     return true, "";
