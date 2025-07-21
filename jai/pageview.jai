@@ -1,4 +1,14 @@
 /* TODO:
+  - dynamic filters a-la fzf/CtrlP
+  - merging output from multiple files/input sources + orderring by date and maybe more
+    (I'm hoping for log-viewer style usage but also better)
+  - search match locations on a "scrollbar" thingy. Doesn't have to be perfect (it can't be)
+    should at least show with console-row granularity
+
+  - git @diff_headers thingy should be more general, I would like to also
+    support the "commit", but the code is too hacky at the moment, needs refactoring
+  - git @diff_headers don't work with `git --graph` style output and my `gl` output format
+
   - FIX A BUG in completion where . is not being added
   - completion menu scrolling
 
@@ -1789,8 +1799,18 @@ prepare_raw_text_and_control_codes_from_external_command :: () -> string {
 
 display_external_command :: (builder: *String_Builder, command: [] string) {
     append(builder, "\e[32m");
-    if path_filename(command[0]) == "git" then append(builder, "git");
-                                          else append(builder, command[0]);
+    if path_filename(command[0]) == "git" {
+        append(builder, "git");
+    } else if contains(command[0], #char "\n") || contains(command[0], #char "\r") {
+        head := command[0];
+        // @Robustness: I hard coded these escape sequences based on the one above.
+        // This will break the second I touch this code again!!!
+        head = replace(head, "\n", "\e[0;35m\\n\e[32m",, temp);
+        head = replace(head, "\t", "\e[0;35m\\t\e[32m",, temp);
+        append(builder, head);
+    } else {
+        append(builder, command[0]);
+    }
     append(builder, "\e[0m");
 
     for 1..command.count-1 {
