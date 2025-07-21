@@ -5,6 +5,8 @@
   - search match locations on a "scrollbar" thingy. Doesn't have to be perfect (it can't be)
     should at least show with console-row granularity
 
+  - do a fucking --help already!!!
+
   - git @diff_headers thingy should be more general, I would like to also
     support the "commit", but the code is too hacky at the moment, needs refactoring
   - git @diff_headers don't work with `git --graph` style output and my `gl` output format
@@ -140,6 +142,7 @@ State :: struct {
     main_window_source: enum {
         NONE;
         EXTERNAL_COMMAND;
+        EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN;
         PIPED_INPUT;
         DRAWING_MODE;
         // TODO: FILE;
@@ -391,6 +394,10 @@ main :: () {
             case "--line-numbers";
                 state.line_numberring = true;
 
+            case "-I"; #through;
+            case "--command-from-stdin";
+                state.main_window_source = .EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN;
+
             case "-d"; #through;
             case "--draw";
                 state.main_window_source = .DRAWING_MODE;
@@ -501,6 +508,11 @@ main :: () {
     context.logger = my_logger;
     context.logger_data = context.state;
 
+    builder: String_Builder;
+    builder.allocator = temp;
+    show_version_banner(*builder);
+    log("%", builder_to_string(*builder,, temp));
+
     if !isatty(STDOUT_FILENO) {
         using state;
         if command {
@@ -524,10 +536,20 @@ main :: () {
     // Read history file
     read_history_file();
 
+    gotta_reattach_stdin := false;
+
     // Choose input source
-    if !isatty(STDIN_FILENO) {
+    if !isatty(STDIN_FILENO) && state.main_window_source != .EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN {
         state.main_window_source = .PIPED_INPUT;
+        gotta_reattach_stdin = true;
         log("main window source is stdin");
+    } else if state.main_window_source == .EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN {
+        if isatty(STDIN_FILENO) {
+            print("When running with '-I/--command-from-stdin' stdin must be piped in, sorry about that!");
+            exit(1);
+        }
+        log("main window source is external command which comes from stdin");
+        gotta_reattach_stdin = true;
     } else if state.main_window_source == .NONE {
         if state.command {
             state.main_window_source = .EXTERNAL_COMMAND;
@@ -553,10 +575,11 @@ main :: () {
     signal(SIGWINCH, window_size_changed_signal_handler);
 
     // Reconfigure stdin to work properly
-    if state.main_window_source == .PIPED_INPUT {
+    if gotta_reattach_stdin {
         using context.state;
 
         print("Reading input from standard input...\n");
+        log("Reading input from standard input...\n");
 
         my_pid := getpid();
         info: Process_Info;
@@ -632,7 +655,7 @@ main :: () {
         rc = epoll_ctl(epoll_fd, .ADD, STDIN_FILENO, *event);
         assert(rc == 0);
 
-        if main_window_source == .PIPED_INPUT {
+        if main_window_source == .PIPED_INPUT || main_window_source == .EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN {
             event.events = EPOLLIN;
             event.data.fd = piped_input_fd;
             rc = epoll_ctl(epoll_fd, .ADD, piped_input_fd, *event);
@@ -787,6 +810,8 @@ main :: () {
 
         line_buffer: [] string; // temporary storage
         if #complete main_window_source == {
+            case .EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN; #through;
+                // TODO: read stderr and update it interactively
             case .EXTERNAL_COMMAND; #through;
             case .PIPED_INPUT;
                 line_buffer = build_line_buffer_for_main_window(main_window_buffer);
@@ -1943,6 +1968,8 @@ read_some_from_piped_input :: () {
     if debug { blocking_getchar(); debug = false; }
     parse_raw_text_and_control_codes(window_buffer);
     Profile("raw_text_and_control_codes.count: %", window_buffer.raw_text_and_control_codes.count);
+
+    // log("got new piped input!:\n'''%\n'''", window_buffer.raw_text_and_control_codes);
 }
 
 inspect_builder :: (builder: *String_Builder) {
@@ -1958,9 +1985,26 @@ inspect_builder :: (builder: *String_Builder) {
 }
 
 handle_piped_input_end :: () {
+    log("piped input pipe is no longer!");
     using context.state;
 
     shutdown_fd(*piped_input_fd);
+
+    if main_window_source == .EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN {
+        // @YUCK! embarassing shit right here!!!
+        main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
+
+        for command free(it); // There's no command though!?!?!??
+        command.count = 0;
+
+        array_add(*command, copy_string(main_window_buffer.raw_text_and_control_codes));
+
+        time_next_command_run = frame_time;
+        // XXX: not sure about this though..
+        main_window_source = .EXTERNAL_COMMAND;
+        log("main window source is now external command: %", command);
+        return;
+    }
 
     if !parent_process_command_line return;
     if path_filename(parent_process_command_line[0]) == "git" {
@@ -2162,6 +2206,7 @@ render_status_line_1 :: () {
                 append(*builder, "\e[0m");
             }
         }
+        case .EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN; #through;
         case .PIPED_INPUT; {
             append(*builder, "\e[35m"); // color magenta
             append(*builder, "<stdin>");
@@ -4972,11 +5017,19 @@ append_line_to_history_file :: (kind: History_File_Entry_Type, text: string) {
 //
 
 show_version_banner :: () {
+    builder: String_Builder;
+    builder.allocator = temp;
+    show_version_banner(*builder);
+    write_builder(*builder,, temp);
+}
+
+show_version_banner :: (builder: *String_Builder) {
     MONTHS :: string.["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     build_month := MONTHS[BUILD_DATE_MONTH];
-    print("% % % %, built on % % %\n", EXECUTABLE_NAME, GIT_HASH, DEBUG_OR_RELEASE, DYNAMIC_OR_STATIC, BUILD_DATE_DAY + 1, build_month, BUILD_DATE_YEAR);
-    print("compiler version: %\n", COMPILER_VERSION);
+    print(builder, "% % % %, built on % % %\n", EXECUTABLE_NAME, GIT_HASH, DEBUG_OR_RELEASE, DYNAMIC_OR_STATIC, BUILD_DATE_DAY + 1, build_month, BUILD_DATE_YEAR);
+    print(builder, "compiler version: %\n", COMPILER_VERSION);
 }
+
 
 //
 // print utilities
