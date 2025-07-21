@@ -86,3 +86,15 @@ function table.imap(t, cb)
     end
     return result
 end
+
+function unfuck(t)
+    if type(t) ~= 'table' then
+        return t
+    end
+
+    local unfucked_t = {}
+    for k, v in pairs(t) do
+        unfucked_t[k] = unfuck(v)
+    end
+    return unfucked_t
+end
