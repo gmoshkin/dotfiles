@@ -361,6 +361,12 @@ main :: () {
     while cursor < args.count {
         arg := args[cursor];
         if arg == {
+            case "-v"; #through;
+            case "--version"; #through;
+            case "version";
+                show_version_banner();
+                exit(0);
+
             case "-f"; #through;
             case "--follow";
                 state.stick_to_the_bottom = true;
@@ -517,6 +523,7 @@ main :: () {
             state.main_window_source = .EXTERNAL_COMMAND;
             log("main window source is external command: %", state.command);
         } else {
+            show_version_banner();
             print("Specify a command to run or pipe in some text on the stdin\n");
             exit(1);
         }
@@ -4938,6 +4945,17 @@ append_line_to_history_file :: (kind: History_File_Entry_Type, text: string) {
 
     data := builder_to_string(*builder,, temp);
     file_write(*file, data.data, data.count);
+}
+
+//
+// version banner
+//
+
+show_version_banner :: () {
+    MONTHS :: string.["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    build_month := MONTHS[BUILD_DATE_MONTH];
+    print("% % % %, built on % % %\n", EXECUTABLE_NAME, GIT_HASH, DEBUG_OR_RELEASE, DYNAMIC_OR_STATIC, BUILD_DATE_DAY + 1, build_month, BUILD_DATE_YEAR);
+    print("compiler version: %\n", COMPILER_VERSION);
 }
 
 //

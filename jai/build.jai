@@ -216,7 +216,44 @@ build_program :: (program: Program, parameters: Compile_Parameters) {
     set_build_options(options, workspace);
 
     compiler_begin_intercept(workspace);
+
+    add_build_string(tprint(#string CODE
+
+EXECUTABLE_NAME :: "%";
+
+    CODE, exe_name), workspace);
     add_build_file(source, workspace);
+
+    // As far as I understand at this point the compiler is compiling my code in
+    // parallel to the current program, so it's ok for me to do a bunch of slow
+    // and blocking stuff?
+
+    // Run this after starting the compilation because that way we don't block the compiler
+    git_hash := get_git_commit_hash();
+    debug_or_release := ifx debug_build then "debug" else "release";
+    dynamic_or_static := ifx dynamic_binary then "dynamic" else "static";
+    compiler_version := compiler_get_version_info(null);
+    today := to_calendar(current_time_consensus(), .LOCAL);
+
+    add_build_string(tprint(#string CODE
+
+GIT_HASH :: "%";
+DEBUG_OR_RELEASE :: "%";
+DYNAMIC_OR_STATIC :: "%";
+COMPILER_VERSION :: "%";
+BUILD_DATE_YEAR :: %;
+BUILD_DATE_MONTH :: %;
+BUILD_DATE_DAY :: %;
+
+        CODE,
+        git_hash,
+        debug_or_release,
+        dynamic_or_static,
+        compiler_version,
+        today.year,
+        today.month_starting_at_0,
+        today.day_of_month_starting_at_0,
+    ), workspace);
 
     original_print_integer: *Code_Procedure_Body;
     replacement_print_integer: *Code_Procedure_Body;
@@ -425,6 +462,20 @@ run_link_command_on_windows :: (using message: *Message_Phase) {
     if process_result.exit_code != 0 {
         print("Error: Link step failed! (Exit code %)\n", process_result.exit_code);
     }
+}
+
+get_git_commit_hash :: () -> string {
+    command: [..] string;
+    array_add(*command, "git", "rev-parse", "--verify", "HEAD"); // I have no idea what --verify does...
+
+    process_result, output := run_command(..command, capture_and_return_output=true);
+
+    if process_result.exit_code != 0 {
+        print("Error: command % failed (Exit code %)", command, process_result.exit_code);
+        return "";
+    }
+
+    return trim(output);
 }
 
 db_file_path :: () -> string {
