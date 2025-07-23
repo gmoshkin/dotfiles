@@ -3336,6 +3336,11 @@ handle_input_event :: (_event: Input_Event) {
                     case #char "N"; jump_to_previous_search_match();
 
                     case #char "c"; strip_control_codes = !strip_control_codes;
+
+                    // FIXME: it's actually better if I can just write this:
+                    // case #char "r"; if event.modifiers & .CONTROL
+                    case #char "\x12"; // CTRL+R
+                        command_rerun_external_command_now();
                 }
 
                 if event.char != #char "f" {
@@ -4257,6 +4262,12 @@ set_external_command_backoff_smart :: () -> (ok: bool, error_msg: string) { // @
 }
 
 rerun_external_command_now :: () -> (ok: bool, error_message: string) {
+    command_rerun_external_command_now();
+
+    return true, "";
+}
+
+command_rerun_external_command_now :: () {
     using context.state;
 
     time_next_command_run = frame_time;
@@ -4265,8 +4276,6 @@ rerun_external_command_now :: () -> (ok: bool, error_message: string) {
         smart_backoff_run_counter = 0;
         smart_backoff_no_change_counter = 0;
     }
-
-    return true, "";
 }
 
 set_external_command :: (new_command: string) -> (ok: bool, error_message: string) {
