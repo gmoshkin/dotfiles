@@ -2223,9 +2223,9 @@ render_status_line_1 :: () {
                 append(*builder, text);
                 append(*builder, "s");
                 if external_command_backoff_mode & .CHECKING {
-                    append(*builder, " * ?");
+                    append(*builder, " × ?");
                 } else if (external_command_backoff_mode != .OFF) && external_command_backoff_multiplier != 1 { // @external_command_exponential_backoff
-                    print(*builder, " * %", fmt(external_command_backoff_multiplier, digits_after_comma=1));
+                    print(*builder, " × %", fmt(external_command_backoff_multiplier, digits_after_comma=1));
                 }
                 append(*builder, "\e[0m");
             }
