@@ -2,10 +2,9 @@
   - dynamic filters a-la fzf/CtrlP
   - merging output from multiple files/input sources + orderring by date and maybe more
     (I'm hoping for log-viewer style usage but also better)
-  - search match locations on a "scrollbar" thingy. Doesn't have to be perfect (it can't be)
-    should at least show with console-row granularity
 
-  - scroll bar with search match highlights! @text_search
+  - search match locations on a "scrollbar" thingy. Doesn't have to be perfect (it can't be)
+    should at least show with console-row granularity @text_search @scrollbar
 
   - do a fucking --help already!!!
 
@@ -219,6 +218,8 @@ State :: struct {
     next_window_buffer_source_version: u64 = 1;
     current_shown_buffer_index: s64;
     show_latest_buffer := true;
+
+    draw_scrollbar := true; // @scrollbar
 
     selection_cursor := -1;
     last_selected_string: string;
@@ -1052,15 +1053,28 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
     // starts from 1, `+2` for :2_status_lines
     current_screen_row = 1 + 2;
 
+    // @scrollbar
+    // FIXME just store these in global state!
+    scrollbar_slider_top, scrollbar_slider_bottom, scrollbar_needed := calculate_scollbar_slider_shit(window_buffer);
+    do_scrollbar := (draw_scrollbar && scrollbar_needed);
+
     line_index := 0;
     if row_offset > 0 {
         line_index = row_offset;
     } else if row_offset < 0 {
+        builder: String_Builder;
+        builder.allocator = temp;
+
         // Extra blank lines for negative row_offset (for some reason)
         for 1..-row_offset {
-            array_add(*line_buffer, "\n");
+            current_screen_row += 1;
+            if do_scrollbar // @scrollbar
+                // FIXME this is wrong as fuck
+                draw_scrollbar_piece_in_current_line(*builder, scrollbar_slider_top, scrollbar_slider_bottom);
+
+            append(*builder, "\n");
+            array_add(*line_buffer, builder_to_string(*builder,, temp));
         }
-        current_screen_row += -row_offset;
     }
 
     //
@@ -1181,6 +1195,11 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
                 visible_columns_budget -= line_number_max_digits + 1; // `+ 1` for extra space
             }
 
+            if do_scrollbar {
+                // subtract @scrollbar width
+                visible_columns_budget -= 1;
+            }
+
             if col_offset > 0 {
                 // Skip `col_offset` visible characters `+ 1` for the :line_overflow_character
                 first_visible_column_offset := min(col_offset + 1, line.count);
@@ -1291,6 +1310,9 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
                 append(*builder, "\e[0m");
             }
 
+            if do_scrollbar // @scrollbar
+                draw_scrollbar_piece_in_current_line(*builder, scrollbar_slider_top, scrollbar_slider_bottom);
+
             if line_buffer.count != line_buffer.allocated - 1 {
                 append(*builder, "\n");
             }
@@ -1307,6 +1329,11 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
                 defer piece_index += 1;
                 visible_columns_budget : int = terminal_size.cols;
                 if line_numberring then visible_columns_budget -= line_number_max_digits + 1;
+
+                if do_scrollbar {
+                    // subtract @scrollbar width
+                    visible_columns_budget -= 1;
+                }
 
                 current_slice := utf8_substring(line_tail, 0, visible_columns_budget);
                 // TODO: maybe not just space but also other punctuation
@@ -1360,6 +1387,12 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
                 // Build the line string
                 build_line_with_control_codes(*builder, window_buffer, current_slice, codes);
 
+                // FIXME scrollbar slider is wrong in line_wrapping mode because
+                // I don't actually calculate the number of virtual lines so the
+                // proportions are wrong :c
+                if do_scrollbar // @scrollbar
+                    draw_scrollbar_piece_in_current_line(*builder, scrollbar_slider_top, scrollbar_slider_bottom);
+
                 if stick_to_the_bottom || line_buffer.count != line_buffer.allocated - 1 {
                     append(*builder, "\n");
                 } else {
@@ -1395,6 +1428,18 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
                     row_offset += 1;
                 }
             }
+        }
+    }
+
+    if do_scrollbar { // @scrollbar
+        builder: String_Builder;
+        builder.allocator = temp;
+
+        while line_buffer.count < main_window_height {
+            // This should only happen when there's not enough lines to fill the screen
+            draw_scrollbar_piece_in_current_line(*builder, scrollbar_slider_top, scrollbar_slider_bottom);
+            array_add(*line_buffer, builder_to_string(*builder,, temp));
+            current_screen_row += 1;
         }
     }
 
@@ -2470,6 +2515,11 @@ render_status_line_2 :: () {
 
                 {
                     // status line debug stuff section
+                    // if main_window_buffer_history {
+                    //     main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
+                    //     scrollbar_slider_top, scrollbar_slider_bottom, scrollbar_needed := calculate_scollbar_slider_shit(main_window_buffer);
+                    //     print(*builder, "  % % %", scrollbar_slider_top, scrollbar_slider_bottom, scrollbar_needed);
+                    // }
                 }
 
                 text_length := buffer.count - text_start;
@@ -4340,6 +4390,7 @@ init_commands :: () {
         array_add(*console_commands, make_command("show_state_field", show_state_field));
         array_add(*console_commands, make_command("debug_break", do_debug_break));
         array_add(*console_commands, make_command("party_time_update_period", set_party_time_update_period));
+        array_add(*console_commands, make_command("scrollbar", make_toggle("draw_scrollbar")));
     }
 }
 
@@ -5167,6 +5218,82 @@ append_line_to_history_file :: (kind: History_File_Entry_Type, text: string) {
 
     data := builder_to_string(*builder,, temp);
     file_write(*file, data.data, data.count);
+}
+
+//
+// @scrollbar stuff
+//
+
+calculate_scollbar_slider_shit :: (window_buffer: *Window_Buffer) -> top: s64, bottom: s64, needed: bool {
+    using context.state;
+
+    /* big brain time:
+    B - number of line in the text buffer          let's say 100
+    W - number of rows in the window               let's say 20
+    s - number of rows in the scrollbar slider     should be 4?
+
+          W / B = s / W   (or am I retarded?)
+            => s = (W * W) / B
+    */
+    slider_effective_size := main_window_height * main_window_height / cast(float) window_buffer.line_offsets.count;
+    slider_size := min(main_window_height, xx ceil(slider_effective_size));
+
+    /*
+
+    B - number of line in the text buffer          let's say 100
+    W - number of rows in the window               let's say 20
+    O - row offset of window                       let's say 30
+    o - scrollbar slide offset in window           should be 6?
+
+          O / B = o / W  =>  o = (W * O) / B
+
+    +------+ ---      ---
+    |      |  |        |
+    |      |  |- O     |
+    |      |  |        |
+    |      |  |        |
+    |+----+| ---       |
+    ||    ||  |- W     |
+    |+----+| ---       |- B
+    |      |           |
+    |      |           |
+    |      |           |
+    |      |           |
+    |      |           |
+    +------+          ---
+
+    */
+
+    slider_top_y := row_offset * main_window_height / cast(float) window_buffer.line_offsets.count;
+    slider_top_row := cast(s64) floor(slider_top_y);
+    slider_bottom_row := slider_top_row + slider_size;
+
+    needed := (main_window_height < window_buffer.line_offsets.count);
+
+    return slider_top_row, slider_bottom_row, needed;
+}
+
+draw_scrollbar_piece_in_current_line :: (builder: *String_Builder, slider_top: s64, slider_bottom: s64) {
+    using context.state;
+
+    // "\e[H": move cursor to given position (row, col) (1-based)
+    print(builder, "\e[%;%H", current_screen_row, terminal_size.cols);
+
+    // starts at -1 and `-2` for :2_status_lines (I don't really know why though...)
+    y := current_screen_row - 3;
+
+    // this stupid shit ToT
+    if row_offset < 0 then y += row_offset;
+
+    if (y >= slider_top) && (y < slider_bottom) {
+        append(builder, "\e[2;37;7m"); // color gray inverted
+    } else {
+        append(builder, "\e[0m"); // no color for scrollbar background
+    }
+
+    append(builder, " "); // @Temporary
+
+    append(builder, "\e[0m");
 }
 
 //
