@@ -230,6 +230,11 @@ EXECUTABLE_NAME :: "%";
 
     // Run this after starting the compilation because that way we don't block the compiler
     git_hash := get_git_commit_hash();
+    git_last_commit_message := get_git_last_commit_message();
+    log("git_last_commit_message:");
+    log("```");
+    log("%", git_last_commit_message);
+    log("```");
     debug_or_release := ifx debug_build then "debug" else "release";
     dynamic_or_static := ifx dynamic_binary then "dynamic" else "static";
     compiler_version := compiler_get_version_info(null);
@@ -238,6 +243,7 @@ EXECUTABLE_NAME :: "%";
     add_build_string(tprint(#string CODE
 
 GIT_HASH :: "%";
+GIT_LAST_COMMIT_MESSAGE :: "%";
 DEBUG_OR_RELEASE :: "%";
 DYNAMIC_OR_STATIC :: "%";
 COMPILER_VERSION :: "%";
@@ -247,6 +253,7 @@ BUILD_DATE_DAY :: %;
 
         CODE,
         git_hash,
+        git_last_commit_message,
         debug_or_release,
         dynamic_or_static,
         compiler_version,
@@ -467,6 +474,20 @@ run_link_command_on_windows :: (using message: *Message_Phase) {
 get_git_commit_hash :: () -> string {
     command: [..] string;
     array_add(*command, "git", "rev-parse", "--verify", "HEAD"); // I have no idea what --verify does...
+
+    process_result, output := run_command(..command, capture_and_return_output=true);
+
+    if process_result.exit_code != 0 {
+        print("Error: command % failed (Exit code %)", command, process_result.exit_code);
+        return "";
+    }
+
+    return trim(output);
+}
+
+get_git_last_commit_message :: () -> string {
+    command: [..] string;
+    array_add(*command, "git", "log", "--format=%B", "-n1", "HEAD");
 
     process_result, output := run_command(..command, capture_and_return_output=true);
 
