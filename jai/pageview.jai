@@ -795,7 +795,7 @@ main :: () {
 
             row_offset = max(row_offset, -(main_window_height - 1));
 
-            resize_scrollbar_search_matches_bit_array();
+            scrollbar_search_matches_handle_window_resize();
         }
 
         // Handle input
@@ -3933,6 +3933,11 @@ maybe_update_search_matches :: (window_buffer: *Window_Buffer) {
     }
 }
 
+update_just_the_scrollbar_search_matches :: () {
+    using context.state;
+
+}
+
 //
 // console_commands @console
 //
@@ -5319,11 +5324,24 @@ draw_scrollbar_piece_in_current_line :: (builder: *String_Builder) {
     append(builder, "\e[0m");
 }
 
-resize_scrollbar_search_matches_bit_array :: () {
+scrollbar_search_matches_handle_window_resize :: () {
     using context.state;
 
     deinit(*scrollbar_search_matches);
     scrollbar_search_matches.count = 0;
+
+    if !search.matches return;
+
+    assert(main_window_buffer_history.count != 0);
+    main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
+    update_scollbar_info(main_window_buffer);
+
+    init_bit_array(*scrollbar_search_matches, main_window_height);
+
+    for search.matches { // @text_search
+        scrollbar_y := line_index_to_scrollbar_row(it.line_index);
+        set_bit(*scrollbar_search_matches, scrollbar_y); // @scrollbar
+    }
 }
 
 //
