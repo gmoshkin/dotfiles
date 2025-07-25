@@ -1212,22 +1212,25 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
                     }
                 }
             } else if col_offset < 0 {
-                // Extra spaces if offset is negative
-                assert(visible_columns_budget > -col_offset);
-                for 1..-col_offset {
-                    append(*builder, " ");
-                    visible_columns_budget -= 1;
-                }
+                // Extra spaces if offset is negative (why are we still here? just to suffer?!?!?!??)
+                padding := min(-col_offset, visible_columns_budget);
+                // FIXME just use a "\e[%;%Hm" control sequence for big perf gain!!!
+                append_padding(*builder, padding);
+                visible_columns_budget -= padding;
+            }
+
+            if visible_columns_budget == 0 {
+                visible_slice.count = 0;
             }
 
             line_overflowed := utf8_count(visible_slice, false) > visible_columns_budget;
-            if line_overflowed {
+            if line_overflowed && (visible_columns_budget > 0) {
                 // Leave space for the :line_overflow_character
                 visible_slice = utf8_substring(visible_slice, 0, visible_columns_budget - 1);
             }
 
             codes.count = 0;
-            if !strip_control_codes {
+            if !strip_control_codes && (visible_slice.count != 0) {
                 array_add(*codes, ..find_all_control_codes_in_range(window_buffer, visible_slice));
             }
 
@@ -1243,6 +1246,12 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
                     // string changes, you retard.
                     index := find_index_from_left(tail, search.search_string);
                     if index < 0 break;
+
+                    if visible_slice.count == 0 {
+                        search_matched_in_hidden = true;
+                        break;
+                    }
+
                     match_start := tail.data + index;
                     match_end := match_start + search.search_string.count;
 
@@ -1262,8 +1271,10 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
 
             select_word_delayed(window_buffer, line, *codes);
 
-            // Build the line string
-            build_line_with_control_codes(*builder, window_buffer, visible_slice, codes);
+            if visible_slice {
+                // Build the line string
+                build_line_with_control_codes(*builder, window_buffer, visible_slice, codes);
+            }
 
             // Reset color codes
             append(*builder, "\e[0m");
