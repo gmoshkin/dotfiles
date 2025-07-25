@@ -3,9 +3,6 @@
   - merging output from multiple files/input sources + orderring by date and maybe more
     (I'm hoping for log-viewer style usage but also better)
 
-  - search match locations on a "scrollbar" thingy. Doesn't have to be perfect (it can't be)
-    should at least show with console-row granularity @text_search @scrollbar
-
   - do a fucking --help already!!!
 
   - git @diff_headers thingy should be more general, I would like to also
@@ -223,9 +220,11 @@ State :: struct {
     // @scrollbar
     //
     draw_scrollbar := true;
+    scrollbar_zoom_ratio: float;
     scrollbar_slider_height: s64;
     scrollbar_slider_top: s64;
     scrollbar_slider_bottom: s64;
+    scrollbar_search_matches: Bit_Array; // also @text_search
 
     selection_cursor := -1;
     last_selected_string: string;
@@ -795,6 +794,8 @@ main :: () {
             if main_window_source == .DRAWING_MODE resize_pixel_buffer();
 
             row_offset = max(row_offset, -(main_window_height - 1));
+
+            resize_scrollbar_search_matches_bit_array();
         }
 
         // Handle input
@@ -3865,8 +3866,8 @@ maybe_update_search_matches :: (window_buffer: *Window_Buffer) {
         search.matches.count = 0;
         search.flags = 0;
         search.window_buffer_line_cursor = 0;
+        clear_all_bits(*scrollbar_search_matches); // @scrollbar
         do_update = true;
-        log("search string changed, resetting matches");  // @debug
     }
 
     if search.window_buffer_hash != window_buffer.hash {
@@ -3877,8 +3878,8 @@ maybe_update_search_matches :: (window_buffer: *Window_Buffer) {
         search.flags = 0;
         search.window_buffer_hash = window_buffer.hash;
         search.window_buffer_line_cursor = 0;
+        clear_all_bits(*scrollbar_search_matches); // @scrollbar
         do_update = true;
-        log("buffer changed, resetting matches");  // @debug
     }
 
     line_index: s32 = 0;
@@ -3886,11 +3887,12 @@ maybe_update_search_matches :: (window_buffer: *Window_Buffer) {
         // We already tried finding all matches, but didn't have time => continue where we ended last time
         line_index = search.window_buffer_line_cursor;
         do_update = true;
-        log("continuing previously unfinished search");  // @debug
     }
 
     // Update not needed
     if !do_update return;
+
+    if scrollbar_search_matches.count == 0 then init_bit_array(*scrollbar_search_matches, main_window_height);
 
     start := current_time_monotonic();
     while line_index < window_buffer.line_offsets.count {
@@ -3900,7 +3902,6 @@ maybe_update_search_matches :: (window_buffer: *Window_Buffer) {
                 // Don't want to block the application loop for too long
                 search.flags |= .UNFINISHED;
                 search.window_buffer_line_cursor = xx line_index;
-                log("search is taking too long, gonna finish later");  // @debug
                 break;
             }
         }
@@ -3921,7 +3922,9 @@ maybe_update_search_matches :: (window_buffer: *Window_Buffer) {
         if offset_in_line == -1 continue;
         offset_in_line = min(offset_in_line, S16_MAX);
         array_add(*search.matches, .{ line_index, xx offset_in_line, 0 });
-        log("search.matches[%] = %", search.matches.count - 1, search.matches[search.matches.count - 1]); // @debug
+
+        scrollbar_y := line_index_to_scrollbar_row(line_index);
+        set_bit(*scrollbar_search_matches, scrollbar_y); // @scrollbar
     }
 
     if line_index >= window_buffer.line_offsets.count {
@@ -5241,7 +5244,8 @@ update_scollbar_info :: (window_buffer: *Window_Buffer) {
           W / B = s / W   (or am I retarded?)
             => s = (W * W) / B
     */
-    slider_effective_size := main_window_height * main_window_height / cast(float) window_buffer.line_offsets.count;
+    scrollbar_zoom_ratio = main_window_height / cast(float) window_buffer.line_offsets.count;
+    slider_effective_size := main_window_height * scrollbar_zoom_ratio;
     slider_size := min(main_window_height, xx ceil(slider_effective_size));
 
     scrollbar_slider_height = slider_size;
@@ -5272,12 +5276,20 @@ update_scollbar_info :: (window_buffer: *Window_Buffer) {
 
     */
 
-    slider_top_y := row_offset * main_window_height / cast(float) window_buffer.line_offsets.count;
+    slider_top_y := row_offset * scrollbar_zoom_ratio;
     slider_top_row := cast(s64) floor(slider_top_y);
     slider_bottom_row := slider_top_row + slider_size;
 
     scrollbar_slider_top = slider_top_row;
     scrollbar_slider_bottom = slider_bottom_row;
+}
+
+// Uses the last window_buffer provided to `update_scollbar_info`!!!
+line_index_to_scrollbar_row :: inline (line_index: s64) -> s64 {
+    using context.state;
+
+    // XXX Not sure if I need floor or ceil or what???
+    return xx floor(line_index * scrollbar_zoom_ratio);
 }
 
 draw_scrollbar_piece_in_current_line :: (builder: *String_Builder) {
@@ -5292,15 +5304,26 @@ draw_scrollbar_piece_in_current_line :: (builder: *String_Builder) {
     // this stupid shit ToT
     if row_offset < 0 then y += row_offset;
 
-    if (y >= scrollbar_slider_top) && (y < scrollbar_slider_bottom) {
-        append(builder, "\e[2;37;7m"); // color gray inverted
+    is_slider := (y >= scrollbar_slider_top) && (y < scrollbar_slider_bottom);
+    is_search_match := ifx (y >= 0) && (y < scrollbar_search_matches.count) then scrollbar_search_matches[y];
+    if is_slider && is_search_match {
+        append(builder, "\e[47;2;37m▋"); // background white, foreground gray
+    } else if is_slider {
+        append(builder, "\e[100m "); // background gray
+    } else if is_search_match {
+        append(builder, "\e[37;7m "); // background white
     } else {
         append(builder, "\e[0m"); // no color for scrollbar background
     }
 
-    append(builder, " "); // @Temporary
-
     append(builder, "\e[0m");
+}
+
+resize_scrollbar_search_matches_bit_array :: () {
+    using context.state;
+
+    deinit(*scrollbar_search_matches);
+    scrollbar_search_matches.count = 0;
 }
 
 //
@@ -5856,6 +5879,7 @@ run_tests :: () {
 #import "Random";
 #import "Error_Info";
 #import "Http";
+#import "Bit_Array";
 Meow_Hash :: #import "meow_hash";
 // #if OS == .LINUX #import "X11";
 // #import "Clipboard";
