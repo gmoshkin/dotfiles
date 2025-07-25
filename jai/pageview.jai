@@ -5,11 +5,18 @@
   - search match locations on a "scrollbar" thingy. Doesn't have to be perfect (it can't be)
     should at least show with console-row granularity
 
+  - scroll bar with search match highlights! @text_search
+
   - do a fucking --help already!!!
 
   - git @diff_headers thingy should be more general, I would like to also
     support the "commit", but the code is too hacky at the moment, needs refactoring
   - git @diff_headers don't work with `git --graph` style output and my `gl` output format
+
+  - FEATURE: text search completions: when parsing the raw buffer input collect
+    all the identifiers(words) and do completion based on that
+    - also prioritize words currently on screen, for that just scan the current
+      screen portion of the buffer, it should be super quick
 
   - FIX A BUG in completion where . is not being added
   - completion menu scrolling
@@ -92,16 +99,17 @@ State :: struct {
     history_cursor := -1;
     history_stash: string;
 
-    search_string_buffer: [..] u8;
-    search_string: string; // this is always just the search_string_buffer converted to string
-    search_string_history: [..] string;
-
     input_buffer: [..] u8;
     input_received_this_tick: bool;
 
     f_repeat_count: s64;
 
     completion_menu: Completion_Menu;
+
+    //
+    // @text_search
+    //
+    search: Search_Matches;
 
     //
     // command line history
@@ -493,7 +501,7 @@ main :: () {
     }
 
     // Preallocate memory
-    array_reserve(*state.search_string_buffer, 4096);
+    array_reserve(*state.search.search_string_buffer, 4096);
     array_reserve(*state.command_line, 4096);
     context.temporary_storage.overflow_allocator.proc = flat_pool_allocator_proc;
     context.temporary_storage.overflow_allocator.data = *state.temporary_storage_memory_pool;
@@ -788,6 +796,9 @@ main :: () {
             parse_and_handle_input();
         }
 
+        // @text_search
+        maybe_update_search_matches();
+
         main_window_buffer: *Window_Buffer;
         if main_window_buffer_history {
             main_window_buffer = *main_window_buffer_history[current_shown_buffer_index];
@@ -906,6 +917,8 @@ main :: () {
                 buffer_history_the_rest_bytes += it.line_offsets.allocated;
             }
 
+            search_matches_bytes := search.matches.allocated * size_of(Search_Match);
+            array_add(*rows, .["search matches: ", tprint("%", cast(Human_Readable_Memory) search_matches_bytes)]);
             array_add(*rows, .["text history:", tprint("%", cast(Human_Readable_Memory) buffer_history_raw_text_bytes)]);
             array_add(*rows, .["total history:", tprint("%", cast(Human_Readable_Memory) (buffer_history_raw_text_bytes + buffer_history_the_rest_bytes))]);
 
@@ -1096,7 +1109,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
     // these are used and reused for each line
     codes: [..] Control_Code_Info;
     codes.allocator = temp;
-    search_matches: [..] Pointer_Range;
+    search_matches: [..] Pointer_Range; // in current line
     search_matches.allocator = temp;
 
     // Preprocess lines to be displayed
@@ -1140,15 +1153,15 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
         search_matches.count = 0;
         // TODO: is the line is super fucking long this will be slow, so I
         // could test for that and do something else in that case
-        if search_string {
+        if search.search_string {
             // find all matches in current line
             tail := line;
             while tail {
-                found:, head:, tail = split_from_left(tail, search_string);
+                found:, head:, tail = split_from_left(tail, search.search_string);
                 if !found break;
 
                 start := head.data + head.count;
-                end := start + search_string.count;
+                end := start + search.search_string.count;
                 array_add(*search_matches, .{ start, end });
             }
         }
@@ -1178,8 +1191,8 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
                 visible_columns_budget -= 1;
                 // :search_string_highlight
                 search_matched_in_hidden := false;
-                if search_string {
-                    index := find_index_from_left(line, search_string);
+                if search.search_string {
+                    index := find_index_from_left(line, search.search_string);
                     search_matched_in_hidden = index >= 0 && index < first_visible_column_offset;
                 }
                 if search_matched_in_hidden then append(*builder, "\e[7m"); // invert color mode
@@ -1220,7 +1233,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
 
             // :search_string_highlight
             search_matched_in_hidden := false;
-            if search_string {
+            if search.search_string {
                 tail := line;
                 while tail && !should_exit {
                     // FIXME: I'm a dumbass, optimizing for searching over
@@ -1228,12 +1241,12 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
                     // in the file instantly and shows me their count. Just
                     // fucking find all matches when the text or search
                     // string changes, you retard.
-                    index := find_index_from_left(tail, search_string);
+                    index := find_index_from_left(tail, search.search_string);
                     if index < 0 break;
                     match_start := tail.data + index;
-                    match_end := match_start + search_string.count;
+                    match_end := match_start + search.search_string.count;
 
-                    tail = substring(tail, index + search_string.count);
+                    tail = substring(tail, index + search.search_string.count);
 
                     if match_end <= visible_slice.data continue;
 
@@ -2205,6 +2218,12 @@ render_status_line_1 :: () {
                 }
                 append(*builder, "\e[0m");
             }
+
+            // @text_search matches
+            {
+                if search.matches.count
+                    print(*builder, " m: %", search.matches.count);
+            }
         }
         case .EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN; #through;
         case .PIPED_INPUT; {
@@ -2217,6 +2236,12 @@ render_status_line_1 :: () {
             append(*builder, widget[t % widget.count]);
 
             append(*builder, "\e[0m");
+
+            // @text_search matches
+            {
+                if search.matches.count
+                    print(*builder, " m: %", search.matches.count);
+            }
         }
         case .DRAWING_MODE; {
             append(*builder, "\e[36m"); // color cyan
@@ -2445,7 +2470,7 @@ render_status_line_2 :: () {
             case .INPUT_COMMAND;
                 prefix := "??";
                 text := "<unknown mode>";
-                if input_mode == .INPUT_SEARCH_STRING { prefix = "/";  text = search_string; }
+                if input_mode == .INPUT_SEARCH_STRING { prefix = "/";  text = search.search_string; }
                 if input_mode == .INPUT_COMMAND       { prefix = "> "; text = xx command_line; }
                 append(*builder, prefix);
 
@@ -3323,7 +3348,7 @@ handle_input_event :: (_event: Input_Event) {
 
                     case #char "/"; {
                         input_mode = .INPUT_SEARCH_STRING;
-                        replace_console_command_line(xx search_string_buffer);
+                        replace_console_command_line(xx search.search_string_buffer);
                         history_cursor = -1;
                         // turn off error message instantly
                         info_message_deadline = frame_time - 1;
@@ -3514,9 +3539,13 @@ handle_input_event_in_input_command_mode :: (event: Input_Event) {
     }
 
     if input_mode == .INPUT_SEARCH_STRING {
-        search_string_buffer.count = 0;
-        array_add(*search_string_buffer, ..command_line);
-        search_string = xx search_string_buffer;
+        old_search_string := copy_string(search.search_string,, temp);
+        search.search_string_buffer.count = 0;
+        array_add(*search.search_string_buffer, ..command_line);
+        search.search_string = xx search.search_string_buffer;
+        if old_search_string != search.search_string {
+            search.flags |= .NEW_SEARCH_STRING;
+        }
     }
 }
 
@@ -3634,7 +3663,7 @@ get_history_for_input_mode :: () -> *[..] string, History_File_Entry_Type {
 
     if input_mode == {
         case .INPUT_COMMAND;        return *command_line_history, .COMMAND;
-        case .INPUT_SEARCH_STRING;  return *search_string_history, .SEARCH;
+        case .INPUT_SEARCH_STRING;  return *search.search_string_history, .SEARCH;
     }
     return null, .INVALID;
 }
@@ -3685,7 +3714,7 @@ jump_to_next_search_match :: () {
     start_offset := ifx row_offset >= 0 then min(row_offset + 3, line_offsets.count - 1) else 0;
     search_start := line_offsets[start_offset];
 
-    index := find_index_from_left(only_text, search_string, search_start);
+    index := find_index_from_left(only_text, search.search_string, search_start);
     if index == -1 return; // match not found
 
     if row_offset < 0 then row_offset = 0;
@@ -3711,7 +3740,7 @@ jump_to_previous_search_match :: () {
     search_end := line_offsets[end_offset];
 
     search_region := substring(only_text, 0, search_end);
-    index := find_index_from_right(search_region, search_string);
+    index := find_index_from_right(search_region, search.search_string);
 
     if index == -1 return; // match not found
 
@@ -3729,7 +3758,115 @@ jump_to_previous_search_match :: () {
 }
 
 //
-// console_commands
+// text search @text_search (text search)
+//
+
+Search_Matches :: struct {
+    flags: enum_flags {
+        NEW_SEARCH_STRING;
+        UNFINISHED;
+    }
+
+    matches: [..] Search_Match;
+    window_buffer_line_cursor: s32;
+
+    search_string_buffer: [..] u8;
+    search_string: string; // this is always just the search_string_buffer converted to string
+    search_string_history: [..] string;
+
+    window_buffer_hash: U128;
+}
+
+Search_Match :: struct {
+    line_index: s32;
+    offset_in_line: s16;
+    some_garbage_at_the_end: u16;
+}
+
+maybe_update_search_matches :: () {
+    using context.state;
+
+    if !search.search_string {
+        search.matches.count = 0;
+        return;
+    }
+
+    if !main_window_buffer_history return;
+
+    do_update := false;
+
+    if search.flags & .NEW_SEARCH_STRING {
+        search.matches.count = 0;
+        search.flags = 0;
+        search.window_buffer_line_cursor = 0;
+        do_update = true;
+        log("search string changed, resetting matches");  // @debug
+    }
+
+    window_buffer := *main_window_buffer_history[current_shown_buffer_index];
+    if search.window_buffer_hash != window_buffer.hash {
+        // Window buffer changed => reset the matches
+        // FIXME this is breaking the case of .PIPED_INPUT source when input is huge,
+        // but that case is currently cursed anyway, so...
+        search.matches.count = 0;
+        search.flags = 0;
+        search.window_buffer_hash = window_buffer.hash;
+        search.window_buffer_line_cursor = 0;
+        do_update = true;
+        log("buffer changed, resetting matches");  // @debug
+    }
+
+    line_index: s32 = 0;
+    if search.flags & .UNFINISHED {
+        // We already tried finding all matches, but didn't have time => continue where we ended last time
+        line_index = search.window_buffer_line_cursor;
+        do_update = true;
+        log("continuing previously unfinished search");  // @debug
+    }
+
+    // Update not needed
+    if !do_update return;
+
+    start := current_time_monotonic();
+    while line_index < window_buffer.line_offsets.count {
+        if line_index % 1024 == 0 {
+            elapsed := current_time_monotonic() - start;
+            if to_milliseconds(elapsed) > 5 {
+                // Don't want to block the application loop for too long
+                search.flags |= .UNFINISHED;
+                search.window_buffer_line_cursor = xx line_index;
+                log("search is taking too long, gonna finish later");  // @debug
+                break;
+            }
+        }
+        defer line_index += 1;
+
+        // TODO: factor this out into a procedure
+        line_start := window_buffer.line_offsets[line_index];
+        line_end: s64;
+        if line_index < window_buffer.line_offsets.count - 1 {
+            line_end = window_buffer.line_offsets[line_index + 1] - 1;
+        } else {
+            line_end = window_buffer.only_text.count;
+        }
+        line := substring(xx window_buffer.only_text, line_start, line_end);
+
+        // TODO: case-insensitive matching
+        offset_in_line := find_index_from_left(line, search.search_string);
+        if offset_in_line == -1 continue;
+        offset_in_line = min(offset_in_line, S16_MAX);
+        array_add(*search.matches, .{ line_index, xx offset_in_line, 0 });
+        log("search.matches[%] = %", search.matches.count - 1, search.matches[search.matches.count - 1]); // @debug
+    }
+
+    if line_index >= window_buffer.line_offsets.count {
+        search.flags &= ~.UNFINISHED;
+        search.window_buffer_line_cursor = 0;
+    }
+}
+
+//
+// console_commands @console
 //
 
 Command :: struct {
@@ -4968,7 +5105,7 @@ read_history_file :: () {
 
         if first == {
             case #char ":"; array_add(*command_line_history,  advance(line));
-            case #char "/"; array_add(*search_string_history, advance(line));
+            case #char "/"; array_add(*search.search_string_history, advance(line));
             case #char "\\";
                 control_code, ok := parse_ascii_or_hex(line);
                 assert(ok, "%: '%' is not a valid escape sequence", line_no, line);
