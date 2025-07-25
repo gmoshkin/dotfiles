@@ -12,13 +12,13 @@
     support the "commit", but the code is too hacky at the moment, needs refactoring
   - git @diff_headers don't work with `git --graph` style output and my `gl` output format
 
-  - FEATURE: text search completions: when parsing the raw buffer input collect
+  - FEATURE: @text_search @completion: when parsing the raw buffer input collect
     all the identifiers(words) and do completion based on that
     - also prioritize words currently on screen, for that just scan the current
       screen portion of the buffer, it should be super quick
 
-  - FIX A BUG in completion where . is not being added
-  - completion menu scrolling
+  - FIX A BUG in @completion where . is not being added
+  - @completion menu scrolling
 
   - command to save the current buffer and show diffs (maybe even in split view)
       although I can just use the tmux splits for that....
@@ -219,7 +219,13 @@ State :: struct {
     current_shown_buffer_index: s64;
     show_latest_buffer := true;
 
-    draw_scrollbar := true; // @scrollbar
+    //
+    // @scrollbar
+    //
+    draw_scrollbar := true;
+    scrollbar_slider_height: s64;
+    scrollbar_slider_top: s64;
+    scrollbar_slider_bottom: s64;
 
     selection_cursor := -1;
     last_selected_string: string;
@@ -797,9 +803,6 @@ main :: () {
             parse_and_handle_input();
         }
 
-        // @text_search
-        maybe_update_search_matches();
-
         main_window_buffer: *Window_Buffer;
         if main_window_buffer_history {
             main_window_buffer = *main_window_buffer_history[current_shown_buffer_index];
@@ -809,6 +812,11 @@ main :: () {
             }
         }
 
+        // @scrollbar
+        update_scollbar_info(main_window_buffer);
+
+        // @text_search
+        maybe_update_search_matches(main_window_buffer);
 
         Profile();
 
@@ -1054,9 +1062,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
     current_screen_row = 1 + 2;
 
     // @scrollbar
-    // FIXME just store these in global state!
-    scrollbar_slider_top, scrollbar_slider_bottom, scrollbar_needed := calculate_scollbar_slider_shit(window_buffer);
-    do_scrollbar := (draw_scrollbar && scrollbar_needed);
+    do_scrollbar := draw_scrollbar && (scrollbar_slider_height != main_window_height);
 
     line_index := 0;
     if row_offset > 0 {
@@ -1070,7 +1076,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
             current_screen_row += 1;
             if do_scrollbar // @scrollbar
                 // FIXME this is wrong as fuck
-                draw_scrollbar_piece_in_current_line(*builder, scrollbar_slider_top, scrollbar_slider_bottom);
+                draw_scrollbar_piece_in_current_line(*builder);
 
             append(*builder, "\n");
             array_add(*line_buffer, builder_to_string(*builder,, temp));
@@ -1311,7 +1317,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
             }
 
             if do_scrollbar // @scrollbar
-                draw_scrollbar_piece_in_current_line(*builder, scrollbar_slider_top, scrollbar_slider_bottom);
+                draw_scrollbar_piece_in_current_line(*builder);
 
             if line_buffer.count != line_buffer.allocated - 1 {
                 append(*builder, "\n");
@@ -1391,7 +1397,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
                 // I don't actually calculate the number of virtual lines so the
                 // proportions are wrong :c
                 if do_scrollbar // @scrollbar
-                    draw_scrollbar_piece_in_current_line(*builder, scrollbar_slider_top, scrollbar_slider_bottom);
+                    draw_scrollbar_piece_in_current_line(*builder);
 
                 if stick_to_the_bottom || line_buffer.count != line_buffer.allocated - 1 {
                     append(*builder, "\n");
@@ -1437,7 +1443,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
 
         while line_buffer.count < main_window_height {
             // This should only happen when there's not enough lines to fill the screen
-            draw_scrollbar_piece_in_current_line(*builder, scrollbar_slider_top, scrollbar_slider_bottom);
+            draw_scrollbar_piece_in_current_line(*builder);
             array_add(*line_buffer, builder_to_string(*builder,, temp));
             current_screen_row += 1;
         }
@@ -2517,8 +2523,7 @@ render_status_line_2 :: () {
                     // status line debug stuff section
                     // if main_window_buffer_history {
                     //     main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
-                    //     scrollbar_slider_top, scrollbar_slider_bottom, scrollbar_needed := calculate_scollbar_slider_shit(main_window_buffer);
-                    //     print(*builder, "  % % %", scrollbar_slider_top, scrollbar_slider_bottom, scrollbar_needed);
+                    //     print(*builder, "  % % %", scrollbar_slider_top, scrollbar_slider_bottom, scrollbar_slider_height);
                     // }
                 }
 
@@ -3844,7 +3849,7 @@ Search_Match :: struct {
     some_garbage_at_the_end: u16;
 }
 
-maybe_update_search_matches :: () {
+maybe_update_search_matches :: (window_buffer: *Window_Buffer) {
     using context.state;
 
     if !search.search_string {
@@ -3852,7 +3857,7 @@ maybe_update_search_matches :: () {
         return;
     }
 
-    if !main_window_buffer_history return;
+    if !window_buffer return;
 
     do_update := false;
 
@@ -3864,7 +3869,6 @@ maybe_update_search_matches :: () {
         log("search string changed, resetting matches");  // @debug
     }
 
-    window_buffer := *main_window_buffer_history[current_shown_buffer_index];
     if search.window_buffer_hash != window_buffer.hash {
         // Window buffer changed => reset the matches
         // FIXME this is breaking the case of .PIPED_INPUT source when input is huge,
@@ -5224,8 +5228,10 @@ append_line_to_history_file :: (kind: History_File_Entry_Type, text: string) {
 // @scrollbar stuff
 //
 
-calculate_scollbar_slider_shit :: (window_buffer: *Window_Buffer) -> top: s64, bottom: s64, needed: bool {
+update_scollbar_info :: (window_buffer: *Window_Buffer) {
     using context.state;
+
+    if !window_buffer return;
 
     /* big brain time:
     B - number of line in the text buffer          let's say 100
@@ -5237,6 +5243,8 @@ calculate_scollbar_slider_shit :: (window_buffer: *Window_Buffer) -> top: s64, b
     */
     slider_effective_size := main_window_height * main_window_height / cast(float) window_buffer.line_offsets.count;
     slider_size := min(main_window_height, xx ceil(slider_effective_size));
+
+    scrollbar_slider_height = slider_size;
 
     /*
 
@@ -5268,12 +5276,11 @@ calculate_scollbar_slider_shit :: (window_buffer: *Window_Buffer) -> top: s64, b
     slider_top_row := cast(s64) floor(slider_top_y);
     slider_bottom_row := slider_top_row + slider_size;
 
-    needed := (main_window_height < window_buffer.line_offsets.count);
-
-    return slider_top_row, slider_bottom_row, needed;
+    scrollbar_slider_top = slider_top_row;
+    scrollbar_slider_bottom = slider_bottom_row;
 }
 
-draw_scrollbar_piece_in_current_line :: (builder: *String_Builder, slider_top: s64, slider_bottom: s64) {
+draw_scrollbar_piece_in_current_line :: (builder: *String_Builder) {
     using context.state;
 
     // "\e[H": move cursor to given position (row, col) (1-based)
@@ -5285,7 +5292,7 @@ draw_scrollbar_piece_in_current_line :: (builder: *String_Builder, slider_top: s
     // this stupid shit ToT
     if row_offset < 0 then y += row_offset;
 
-    if (y >= slider_top) && (y < slider_bottom) {
+    if (y >= scrollbar_slider_top) && (y < scrollbar_slider_bottom) {
         append(builder, "\e[2;37;7m"); // color gray inverted
     } else {
         append(builder, "\e[0m"); // no color for scrollbar background
