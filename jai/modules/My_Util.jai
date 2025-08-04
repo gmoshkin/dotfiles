@@ -126,7 +126,7 @@ to_string :: inline (buffer: *String_Builder.Buffer) -> string {
 }
 
 append_padding :: inline (builder: *String_Builder, count: s64, $padding := " ") {
-    assert(count >= 0);
+    assert(count >= 0, "%", count);
     #assert(padding.count == 1); // TODO: it's pretty easy actually to support other counts
     global_buffer :: #run -> string {
         buffer: [] u8;

@@ -977,8 +977,7 @@ main :: () {
                 // "\e[H": move cursor to given position (row, col) (1-based)
                 print(*builder, "\e[%;%H", window_row_offset + 1 + it_index, window_col_offset + 1);
                 append(*builder, line);
-                // FIXME: not enough padding is added for some reason...
-                append_padding(*builder, max_width - line.count);
+                append_padding(*builder, max_width - count_visible_characters(line));
             }
             append(*builder, "\e[0m");
 
