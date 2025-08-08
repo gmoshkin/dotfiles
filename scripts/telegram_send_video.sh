@@ -2,8 +2,8 @@
 
 set -e
 
-FILEPATH="$(realpath $1)"
-CAPTION=$(basename $1)
+FILEPATH=$(realpath "$1")
+CAPTION=$(basename "$1")
 
 DIMENSIONS=$(
     ffprobe -v quiet -of json -show_streams "$FILEPATH" |
@@ -14,5 +14,5 @@ RESPONSE=$(
         -F "video=@$FILEPATH" \
         "https://api.telegram.org/bot${GMOSHKINBOT_TOKEN}/sendVideo?chat_id=${CHAT_ID_SP}&caption=${CAPTION}&${DIMENSIONS}&supports_streaming=True"
 )
-echo $RESPONSE | jq
-[ "$(echo "$RESPONSE" jq -r '.ok')" = true ]
+echo $RESPONSE | jq || echo $RESPONSE
+[ "$(echo "$RESPONSE" | jq -r '.ok')" = true ]
