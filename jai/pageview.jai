@@ -5,6 +5,11 @@
 
   - do a fucking --help already!!!
 
+  - @status_line right part when hiding it I should try to preserve the buffer version
+
+  - scrollbar @text_search matches use braille or digits or something else to
+    show how many matches there are, because screen row granularity sucks :c
+
   - git @diff_headers thingy should be more general, I would like to also
     support the "commit", but the code is too hacky at the moment, needs refactoring
   - git @diff_headers don't work with `git --graph` style output and my `gl` output format
