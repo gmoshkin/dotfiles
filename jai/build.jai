@@ -85,7 +85,8 @@
                     debug_parameters.debug_build = true;
 
                     print("Compiling a debug version...\n");
-                    build_program(program, debug_parameters);
+                    if !build_program(program, debug_parameters) exit(1);
+
                     exe_name, exe_path := get_program_info(program, debug=true);
 
                     print("\n");
@@ -98,7 +99,7 @@
                     print("\n");
 
                 }
-                build_program(program, compile_parameters);
+                if !build_program(program, compile_parameters) exit(1);
             case .GENERATE_SOURCE_INFO; generate_source_info(program);
             case .INSPECT_SOURCE_INFO;  inspect_source_info(program, inspect_parameters);
         }
@@ -185,7 +186,7 @@ get_program_info :: (program: Program, debug := false) -> (exe_name: string, exe
     return exe_name, exe_path, source;
 }
 
-build_program :: (program: Program, parameters: Compile_Parameters) {
+build_program :: (program: Program, parameters: Compile_Parameters) -> success: bool {
     using parameters;
 
     exe_name, exe_path, source := get_program_info(program, debug_build);
@@ -196,7 +197,7 @@ build_program :: (program: Program, parameters: Compile_Parameters) {
     options := get_build_options(workspace);
     if !workspace {
         log_error("Failed to create workspace");
-        return;
+        return false;
     }
 
     options.output_executable_name = exe_name;
@@ -265,11 +266,17 @@ BUILD_DATE_DAY :: %;
     original_print_integer: *Code_Procedure_Body;
     replacement_print_integer: *Code_Procedure_Body;
 
+    compilation_success := false;
+
     while true {
         base_message := compiler_wait_for_message();
         do_error_checking(null, base_message);
 
-        if base_message.kind == .COMPLETE break;
+        if base_message.kind == .COMPLETE {
+            using message := cast(*Message_Complete) base_message;
+            compilation_success = (error_code == .NONE);
+            break;
+        }
 
         if base_message.kind == .TYPECHECKED {
             using message := cast(*Message_Typechecked) base_message;
@@ -340,6 +347,8 @@ BUILD_DATE_DAY :: %;
     }
 
     compiler_end_intercept(workspace);
+
+    return compilation_success;
 }
 
 run_link_command_on_linux_with_musl :: (using message: *Message_Phase) {
