@@ -5,8 +5,6 @@
 
   - do a fucking --help already!!!
 
-  - @status_line right part when hiding it I should try to preserve the buffer version
-
   - scrollbar @text_search matches use braille or digits or something else to
     show how many matches there are, because screen row granularity sucks :c
 
@@ -1078,13 +1076,12 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
 
         // Extra blank lines for negative row_offset (for some reason)
         for 1..-row_offset {
-            current_screen_row += 1;
             if do_scrollbar // @scrollbar
-                // FIXME this is wrong as fuck
                 draw_scrollbar_piece_in_current_line(*builder);
-
-            append(*builder, "\n");
+            else
+                append(*builder, "\n");
             array_add(*line_buffer, builder_to_string(*builder,, temp));
+            current_screen_row += 1;
         }
     }
 
@@ -5375,9 +5372,6 @@ draw_scrollbar_piece_in_current_line :: (builder: *String_Builder) {
     // starts at -1 and `-2` for :2_status_lines (I don't really know why though...)
     y := current_screen_row - 3;
 
-    // this stupid shit ToT
-    if row_offset < 0 then y += row_offset;
-
     is_slider := (y >= scrollbar_slider_top) && (y < scrollbar_slider_bottom);
     is_search_match := ifx (y >= 0) && (y < scrollbar_search_matches.count) then scrollbar_search_matches[y];
     if is_slider && is_search_match {
@@ -5387,7 +5381,7 @@ draw_scrollbar_piece_in_current_line :: (builder: *String_Builder) {
     } else if is_search_match {
         append(builder, "\e[37;7m "); // background white
     } else {
-        append(builder, "\e[0m"); // no color for scrollbar background
+        append(builder, "\e[0m "); // no color for scrollbar background
     }
 
     append(builder, "\e[0m");
