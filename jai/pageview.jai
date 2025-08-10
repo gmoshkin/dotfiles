@@ -118,7 +118,7 @@ State :: struct {
     history_filepath: string;
 
     //
-    // status lines
+    // @status_line
     //
     frame_time: float64;
     info_message_color: string;
@@ -689,7 +689,7 @@ main :: () {
         }
     }
 
-    // Initialize status lines
+    // Initialize @status_line
     status_line_init();
 
     // Initialize input
@@ -904,7 +904,7 @@ main :: () {
         Profile();
 
         //
-        // second status line
+        // second @status_line
         //
         render_status_line_2();
 
@@ -2148,7 +2148,7 @@ shutdown_fd :: (fd: *s32) {
 }
 
 //
-// status lines
+// @status_line-s
 //
 
 status_line_init :: () {
@@ -2177,9 +2177,21 @@ render_status_line_1 :: () {
     // "\e[K": erase in line
     append(*builder, "\e[K");
 
-    //
-    // left side
-    //
+    // meat
+    render_status_line_1_left_side(*builder);
+    render_status_line_1_right_side(*builder);
+
+    append(*builder, "\n");
+
+    // second line is drawn at the end
+    append(*builder, "\n");
+
+    write_builder(*builder);
+}
+
+render_status_line_1_left_side :: (builder: *String_Builder) {
+    using context.state;
+
     if main_window_source == {
         // ⢎⠱ ⢎⡑ ⢎⡡ ⢎⡰ ⢆⡱ ⢌⡱ ⢊⡱ ⠎⡱
         //
@@ -2194,9 +2206,9 @@ render_status_line_1 :: () {
             max_command_string_length : s64 = terminal_size.cols / 2;
 
             // FIXME: show the command of the current shown buffer
-            append(*builder, "\e[35m"); // color magenta
-            append(*builder, "$(");
-            append(*builder, "\e[0m");
+            append(builder, "\e[35m"); // color magenta
+            append(builder, "$(");
+            append(builder, "\e[0m");
 
             {
                 temp_builder := String_Builder.{ allocator = temp };
@@ -2218,15 +2230,15 @@ render_status_line_1 :: () {
                         }
                     }
                     clamped_offset := clamp(current_command_string_scroll_offset, 0, command_string_overflow);
-                    scroll_string_with_control_codes(*builder, command_string, clamped_offset, max_command_string_length);
+                    scroll_string_with_control_codes(builder, command_string, clamped_offset, max_command_string_length);
                 } else {
-                    append(*builder, command_string);
+                    append(builder, command_string);
                 }
             }
 
-            append(*builder, "\e[35m"); // color magenta
-            append(*builder, ")");
-            append(*builder, "\e[0m");
+            append(builder, "\e[35m"); // color magenta
+            append(builder, ")");
+            append(builder, "\e[0m");
 
             duration := last_command_duration;
             // FIXME: this doesn't work >:c
@@ -2244,124 +2256,125 @@ render_status_line_1 :: () {
             // last command duration
             if duration > 0
             {
-                append(*builder, " \e[35m"); // color magenta
-                print(*builder, "%s", fmt(duration, digits_after_comma=3, keep_zero=true)); // color magenta
-                append(*builder, "\e[0m");
+                append(builder, " \e[35m"); // color magenta
+                print(builder, "%s", fmt(duration, digits_after_comma=3, keep_zero=true)); // color magenta
+                append(builder, "\e[0m");
             }
 
             if last_command_result.type == .STILL_RUNNING || (frame_time - second_to_last_command_finish < anti_flicker_period) {
-                append(*builder, "\e[35m"); // color magenta
+                append(builder, "\e[35m"); // color magenta
 
                 widget :: string.["⢎⡀", "⢆⡠", "⢄⡰", "⢀⡱", "⠈⡱", "⠊⠱", "⠎⠑", "⢎⠁"];
-                append(*builder, " ");
+                append(builder, " ");
                 t := cast(int) (frame_time * 10);
-                append(*builder, widget[t % widget.count]);
+                append(builder, widget[t % widget.count]);
 
-                append(*builder, "\e[0m");
+                append(builder, "\e[0m");
             } else if last_command_result.exit_code != 0 {
-                append(*builder, "\e[35m"); // color magenta
-                append(*builder, " -> ");
-                append(*builder, "\e[31m"); // color red
-                print(*builder, "%", last_command_result.exit_code);
-                append(*builder, "\e[0m");
+                append(builder, "\e[35m"); // color magenta
+                append(builder, " -> ");
+                append(builder, "\e[31m"); // color red
+                print(builder, "%", last_command_result.exit_code);
+                append(builder, "\e[0m");
             } else {
-                append(*builder, "   ");
+                append(builder, "   ");
             }
 
             // command rerun period
             {
-                append(*builder, "\e[2;37m"); // color gray (dark + white)
-                append(*builder, " T: ");
+                append(builder, "\e[2;37m"); // color gray (dark + white)
+                append(builder, " T: ");
                 // XXX: am I stupid, or is stb_print_float doing something
                 // weird when removing zero and when trailing_width is not zero?
-                text := tprint("%", fmt(external_command_run_period_seconds, digits_after_comma=1));
+                effective_period := external_command_run_period_seconds * external_command_backoff_multiplier;
+                text := tprint("%", fmt(effective_period, digits_after_comma=1));
                 text = trim(text);
-                append(*builder, text);
-                append(*builder, "s");
+                append(builder, text);
+                append(builder, "s");
                 if external_command_backoff_mode & .CHECKING {
-                    append(*builder, " × ?");
+                    append(builder, "?");
                 } else if (external_command_backoff_mode != .OFF) && external_command_backoff_multiplier != 1 { // @external_command_exponential_backoff
-                    print(*builder, " × %", fmt(external_command_backoff_multiplier, digits_after_comma=1));
+                    print(builder, "↑");
                 }
-                append(*builder, "\e[0m");
+                append(builder, "\e[0m");
             }
 
             // @text_search matches
             {
                 if search.matches.count
-                    print(*builder, " m: %", search.matches.count);
+                    print(builder, " m: %", search.matches.count);
             }
         }
         case .EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN; #through;
         case .PIPED_INPUT; {
-            append(*builder, "\e[35m"); // color magenta
-            append(*builder, "<stdin>");
+            append(builder, "\e[35m"); // color magenta
+            append(builder, "<stdin>");
 
             widget :: string.["⢎⡀", "⢆⡠", "⢄⡰", "⢀⡱", "⠈⡱", "⠊⠱", "⠎⠑", "⢎⠁"];
-            append(*builder, " ");
+            append(builder, " ");
             t := cast(int) (frame_time * 10);
-            append(*builder, widget[t % widget.count]);
+            append(builder, widget[t % widget.count]);
 
-            append(*builder, "\e[0m");
+            append(builder, "\e[0m");
 
             // @text_search matches
             {
                 if search.matches.count
-                    print(*builder, " m: %", search.matches.count);
+                    print(builder, " m: %", search.matches.count);
             }
         }
         case .DRAWING_MODE; {
-            append(*builder, "\e[36m"); // color cyan
-            append(*builder, "drawing mode");
-            append(*builder, "\e[0m");
+            append(builder, "\e[36m"); // color cyan
+            append(builder, "drawing mode");
+            append(builder, "\e[0m");
 
-            print(*builder, " %", last_shown_line_buffer_version);
+            print(builder, " %", last_shown_line_buffer_version);
 
-            append(*builder, " ");
-            pixels_to_braille(*builder, 0, 0, 21);
-            append(*builder, " ");
+            append(builder, " ");
+            pixels_to_braille(builder, 0, 0, 21);
+            append(builder, " ");
 
             t := cast(int) (frame_time * 10);
             // ⢎⠱ ⢎⡑ ⢎⡡ ⢎⡰ ⢆⡱ ⢌⡱ ⢊⡱ ⠎⡱
             {
                 widget :: string.["⢎⠱", "⢎⡑", "⢎⡡", "⢎⡰", "⢆⡱", "⢌⡱", "⢊⡱", "⠎⡱"];
-                append(*builder, " ");
-                append(*builder, widget[t % widget.count]);
+                append(builder, " ");
+                append(builder, widget[t % widget.count]);
             }
 
             // ⢎⡁ ⢎⡠ ⢆⡰ ⢄⡱ ⢈⡱ ⠊⡱ ⠎⠱ ⢎⠑
             {
                 widget :: string.["⢎⡁", "⢎⡠", "⢆⡰", "⢄⡱", "⢈⡱", "⠊⡱", "⠎⠱", "⢎⠑"];
-                append(*builder, " ");
-                append(*builder, widget[t % widget.count]);
+                append(builder, " ");
+                append(builder, widget[t % widget.count]);
             }
 
             // ⢎⡀ ⢆⡠ ⢄⡰ ⢀⡱ ⠈⡱ ⠊⠱ ⠎⠑ ⢎⠁
             {
                 widget :: string.["⢎⡀", "⢆⡠", "⢄⡰", "⢀⡱", "⠈⡱", "⠊⠱", "⠎⠑", "⢎⠁"];
-                append(*builder, " ");
-                append(*builder, widget[t % widget.count]);
+                append(builder, " ");
+                append(builder, widget[t % widget.count]);
             }
 
             // ⢆⡀ ⢄⡠ ⢀⡰  ⡱ ⠈⠱ ⠊⠑ ⠎⠁ ⢎
             {
                 widget :: string.["⢆⡀", "⢄⡠", "⢀⡰", "⠀⡱", "⠈⠱", "⠊⠑", "⠎⠁", "⢎⠀"];
-                append(*builder, " ");
-                append(*builder, widget[t % widget.count]);
+                append(builder, " ");
+                append(builder, widget[t % widget.count]);
             }
 
             // ⢄⡀ ⢀⡠  ⡰  ⠱ ⠈⠑ ⠊⠁ ⠎  ⢆
             {
                 widget :: string.["⢄⡀", "⢀⡠",  "⠀⡰", "⠀⠱", "⠈⠑", "⠊⠁", "⠎⠀", "⢆⠀"];
-                append(*builder, " ");
-                append(*builder, widget[t % widget.count]);
+                append(builder, " ");
+                append(builder, widget[t % widget.count]);
             }
 
             // ⢾⠳ ⢾⡓ ⢾⡥ ⢾⡴ ⢦⡷ ⢬⡷ ⢚⡷ ⠞⡷
             {
                 widget :: string.["⢾⠳", "⢾⡓", "⢾⡥", "⢾⡴", "⢦⡷", "⢬⡷", "⢚⡷", "⠞⡷"];
-                append(*builder, " ");
-                append(*builder, widget[t % widget.count]);
+                append(builder, " ");
+                append(builder, widget[t % widget.count]);
             }
 
             // ⢎⠑⢄⡱ ⠎⠑⢌⡱ ⠊⠑⢎⡱ ⠈⠱⢎⡱ ⡱⢎⡱ ⢀⡰⢎⡱ ⢄⡠⢎⡱ ⢆⡠⢊⡱ ⢎⡠⠊⡱ ⢎⡡⠊⠱ ⢎⡱⠊⠑ ⢎⡱⠎⠁ ⢎⡱⢎ ⢎⡱⢆⡀ ⢎⡱⢄⡠ ⢎⡑⢄⡰
@@ -2371,8 +2384,8 @@ render_status_line_1 :: () {
 
                     "⢎⡠⠊⡱", "⢎⡡⠊⠱", "⢎⡱⠊⠑", "⢎⡱⠎⠁", "⢎⡱⢎⠀", "⢎⡱⢆⡀", "⢎⡱⢄⡠", "⢎⡑⢄⡰",
                 ];
-                append(*builder, " ");
-                append(*builder, widget[t % widget.count]);
+                append(builder, " ");
+                append(builder, widget[t % widget.count]);
             }
 
             // ⠊⠑⢄⡀  ⠉⠢⣀⠄ ⠈⠢⣀⠆  ⠢⣈⠆    ⢌⡱   ⠐⣉⠆  ⠔⢉⠆ ⢀⠔⠉⠆  ⢀⡠⠊⠑ ⠠⣀⠔⠉ ⠰⣀⠔⠁ ⠰⣁⠔  ⢎⡡   ⠰⣉⠂  ⠰⡉⠢  ⠰⠉⠢⡀
@@ -2381,8 +2394,8 @@ render_status_line_1 :: () {
                     "⠊⠑⢄⡀", "⠈⠑⢄⡠", "⠀⠑⢄⡰", "⠀⠐⢄⡱", "⠀⠀⢌⡱", "⠀⠀⢊⡱", "⠀⠠⠊⡱", "⠀⡠⠊⠱",
                     "⢀⡠⠊⠑", "⢄⡠⠊⠁", "⢆⡠⠊⠀", "⢎⡠⠂⠀", "⢎⡡⠀⠀", "⢎⡑⠀⠀", "⢎⠑⠄⠀", "⠎⠑⢄⠀",
                 ];
-                append(*builder, " ");
-                append(*builder, widget[t % widget.count]);
+                append(builder, " ");
+                append(builder, widget[t % widget.count]);
             }
 
             {
@@ -2390,36 +2403,49 @@ render_status_line_1 :: () {
                     "⠊⠑⠀⠀", "⠈⠑⠄⠀", "⠀⠑⢄⠀", "⠀⠐⢄⡀", "⠀⠀⢄⡠", "⠀⠀⢀⡰", "⠀⠀⠀⡱", "⠀⠀⠈⠱",
                     "⠀⠀⠊⠑", "⠀⠠⠊⠁", "⠀⡠⠊⠀", "⢀⡠⠂⠀", "⢄⡠⠀⠀", "⢆⡀⠀⠀", "⢎⠀⠀⠀", "⠎⠁⠀⠀",
                 ];
-                append(*builder, " ");
-                append(*builder, widget[t % widget.count]);
+                append(builder, " ");
+                append(builder, widget[t % widget.count]);
             }
 
             {
                 widget :: string.[
                     "⠊⣵", "⢨⡵", "⣤⡱", "⢶⡰", "⢟⡠", "⢞⡃", "⢎⠛", "⠎⠷",
                 ];
-                append(*builder, " ");
-                append(*builder, widget[t % widget.count]);
+                append(builder, " ");
+                append(builder, widget[t % widget.count]);
             }
         }
     }
+}
 
-    left_side := to_string(*builder);
+render_status_line_1_right_side :: (outer_builder: *String_Builder) {
+    using context.state;
 
-    right_side_builder: String_Builder; right_side_builder.allocator = temp;
-    right_side: string;
-    //
-    // right side
-    //
+    left_side := to_string(outer_builder);
+
+    right_side_parts: [..] string;
+    right_side_parts.allocator = temp;
+
+    // parts:
+    buffer_number_in_history: string;
+    date_text: string;
+    time_text: string;
+
     {
-        append(*right_side_builder, "\e[2;37m"); // color gray (dark white)
-        if current_shown_buffer_index == main_window_buffer_history.count - 1 {
-            print(*right_side_builder, "#%", current_shown_buffer_index + 1);
-        } else {
-            print(*right_side_builder, "#%/%", current_shown_buffer_index + 1, main_window_buffer_history.count);
+        // buffer number in history
+        {
+            builder: String_Builder;
+            builder.allocator = temp;
+
+            append(*builder, "\e[2;37m"); // color gray (dark white)
+            if current_shown_buffer_index == main_window_buffer_history.count - 1 {
+                print(*builder, "#%", current_shown_buffer_index + 1);
+            } else {
+                print(*builder, "#%/%", current_shown_buffer_index + 1, main_window_buffer_history.count);
+            }
+            append(*builder, "\e[0m");
+            buffer_number_in_history = builder_to_string(*builder,, temp);
         }
-        append(*right_side_builder, "\e[0m");
-        append(*right_side_builder, " ");
 
         time := current_time_consensus();
         if main_window_source == .EXTERNAL_COMMAND && main_window_buffer_history {
@@ -2427,25 +2453,64 @@ render_status_line_1 :: () {
         }
         date_time := to_calendar(time, .LOCAL);
 
-        append(*right_side_builder, "\e[32m"); // color green
-        print_date_time_for_humans(*right_side_builder, date_time);
-        append(*right_side_builder, "\e[0m");
-        right_side = to_string(*right_side_builder);
+        // date
+        {
+            builder: String_Builder;
+            builder.allocator = temp;
+
+            append(*builder, "\e[32m"); // color green
+            print_date_for_humans(*builder, date_time);
+            append(*builder, "\e[0m");
+            date_text = builder_to_string(*builder,, temp);
+        }
+
+        // time
+        {
+            builder: String_Builder;
+            builder.allocator = temp;
+
+            append(*builder, "\e[32m"); // color green
+            print_time_for_humans(*builder, date_time);
+            append(*builder, "\e[0m");
+            time_text = builder_to_string(*builder,, temp);
+        }
     }
 
-    // padding between left side & right side
-    padding := terminal_size.cols - count_visible_characters(left_side) - count_visible_characters(right_side);
-    if padding >= 0 {
-        append_padding(*builder, padding);
-        append(*builder, right_side);
+    // TODO @Robustness not handling left side being over terminal width...
+    right_side_budget := terminal_size.cols - count_visible_characters(left_side);
+
+    maybe_do_parts :: (builder: *String_Builder, max_length: s64, parts_to_show: [] string) -> bool {
+        assert(parts_to_show.count > 0);
+
+        length := 0;
+        for part: parts_to_show {
+            length += count_visible_characters(part);
+        }
+        length += parts_to_show.count - 1; // padding
+
+        padding := max_length - length;
+        if padding < 0 {
+            return false;
+        }
+
+        // padding between left side & right side
+        append_padding(builder, padding);
+        append(builder, parts_to_show[0]);
+
+        i := 1;
+        while i < parts_to_show.count {
+            append(builder, " ");
+            append(builder, parts_to_show[i]);
+            i += 1;
+        }
+
+        return true;
     }
 
-    append(*builder, "\n");
-
-    // second line is drawn at the end
-    append(*builder, "\n");
-
-    write_builder(*builder);
+    done := false;
+    if !done then done = maybe_do_parts(outer_builder, right_side_budget, .[buffer_number_in_history, date_text, time_text]);
+    if !done then done = maybe_do_parts(outer_builder, right_side_budget, .[buffer_number_in_history, time_text]);
+    if !done then done = maybe_do_parts(outer_builder, right_side_budget, .[buffer_number_in_history]);
 }
 
 pixels_to_braille :: (builder: *String_Builder, x_0_: int, y_0_: int, count: int) {

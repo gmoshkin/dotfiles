@@ -344,14 +344,24 @@ print_date_time_for_humans :: (date_time: Calendar_Time) {
     write_builder(*builder);
 }
 
-print_date_time_for_humans :: (builder: *String_Builder, date_time: Calendar_Time) {
+print_date_for_humans :: (builder: *String_Builder, date_time: Calendar_Time) {
     using date_time;
     month_short :: string.["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    print(builder, "% % %:%:%", month_short[month_starting_at_0],
-                                day_of_month_starting_at_0 + 1,
-                                FormatInt.{value = hour,   minimum_digits = 2},
-                                FormatInt.{value = minute, minimum_digits = 2},
-                                FormatInt.{value = second, minimum_digits = 2});
+    print(builder, "% %", month_short[month_starting_at_0],
+                          day_of_month_starting_at_0 + 1);
+}
+
+print_time_for_humans :: (builder: *String_Builder, date_time: Calendar_Time) {
+    using date_time;
+    print(builder, "%:%:%", FormatInt.{value = hour,   minimum_digits = 2},
+                            FormatInt.{value = minute, minimum_digits = 2},
+                            FormatInt.{value = second, minimum_digits = 2});
+}
+
+print_date_time_for_humans :: (builder: *String_Builder, date_time: Calendar_Time) {
+    inline print_date_for_humans(builder, date_time);
+    append(builder, " ");
+    inline print_time_for_humans(builder, date_time);
 }
 
 print_date_time_for_log :: (builder: *String_Builder, date_time: Calendar_Time) {
