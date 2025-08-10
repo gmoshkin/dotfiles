@@ -334,7 +334,7 @@ only_visible_text :: (text_with_control_codes: string) -> string {
 }
 
 //
-// data & time utilities
+// date & time utilities
 //
 
 print_date_time_for_humans :: (date_time: Calendar_Time) {
@@ -345,17 +345,15 @@ print_date_time_for_humans :: (date_time: Calendar_Time) {
 }
 
 print_date_for_humans :: (builder: *String_Builder, date_time: Calendar_Time) {
-    using date_time;
     month_short :: string.["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    print(builder, "% %", month_short[month_starting_at_0],
-                          day_of_month_starting_at_0 + 1);
+    print(builder, "% %", month_short[date_time.month_starting_at_0],
+                          date_time.day_of_month_starting_at_0 + 1);
 }
 
 print_time_for_humans :: (builder: *String_Builder, date_time: Calendar_Time) {
-    using date_time;
-    print(builder, "%:%:%", FormatInt.{value = hour,   minimum_digits = 2},
-                            FormatInt.{value = minute, minimum_digits = 2},
-                            FormatInt.{value = second, minimum_digits = 2});
+    print(builder, "%:%:%", FormatInt.{value = date_time.hour,   minimum_digits = 2},
+                            FormatInt.{value = date_time.minute, minimum_digits = 2},
+                            FormatInt.{value = date_time.second, minimum_digits = 2});
 }
 
 print_date_time_for_humans :: (builder: *String_Builder, date_time: Calendar_Time) {
