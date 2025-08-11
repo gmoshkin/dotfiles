@@ -5,12 +5,15 @@ die() {
     exit 1
 }
 
+[ -n "$TELEGRAM_BOT_TOKEN" ] || die "'TELEGRAM_BOT_TOKEN' env must be set"
+
 if [ "$1" = "chat" ]; then
     [ -n "$2" ] || die "expected a chat id after 'chat'"
     CHAT_ID="$2"
     shift
     shift
 else
+    [ -n "$CHAT_ID_ME" ] || die "'CHAT_ID_ME' env must be set"
     CHAT_ID=$CHAT_ID_ME
 fi
 
