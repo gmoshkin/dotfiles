@@ -1,5 +1,7 @@
 #!/usr/bin/bash
 
+set -e
+
 die() {
     echo "$@" >&2
     exit 1
