@@ -59,6 +59,7 @@
             case "convert_wsl_paths";     program = .CONVERT_WSL_PATHS;
             case "windows_get_env";       program = .WINDOWS_GET_ENV;
             case "clipboard";             program = .CLIPBOARD;
+            case "aliases";               program = .SHELL_ALIASES;
             case "all";                   program = .ALL;
 
             case;
@@ -124,6 +125,7 @@ Program :: enum {
     CONVERT_WSL_PATHS;
     WINDOWS_GET_ENV;
     CLIPBOARD;
+    SHELL_ALIASES;
 }
 
 Mode :: enum {
@@ -178,6 +180,14 @@ get_program_info :: (program: Program, debug := false) -> (exe_name: string, exe
             exe_name = "clipboard";
             exe_path = windows_tools_directory;
             source = "clipboard.jai";
+        case .SHELL_ALIASES;
+            #if OS == .WINDOWS {
+                exe_name = "aliases-msys";
+            } else {
+                exe_name = "aliases-linux";
+            }
+            exe_path = #filepath;
+            source = "aliases.jai";
         case .ALL;
             assert(false, "unreachable");
     }

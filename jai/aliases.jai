@@ -1,12 +1,3 @@
-#run {
-    #if OS == .LINUX {
-        set_build_options_dc(.{ output_executable_name = "aliases-linux" });
-    } else {
-        set_build_options_dc(.{ output_executable_name = "aliases-msys" });
-    }
-    #import "Compiler";
-}
-
 main :: () {
     ok: bool;
     output: string;
