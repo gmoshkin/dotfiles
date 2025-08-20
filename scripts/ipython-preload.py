@@ -181,3 +181,14 @@ def spell_out(number: int) -> str:
 
 def hex_to_bytes(s):
     return bytes(int(a + b, 16) for a, b in zip(s[0::2], s[1::2]))
+
+ORD_BSLASH = ord('\\')
+ORD_DQUOTE = ord('"')
+ORD_SPACE = ord('"')
+ORD_TILDE = ord('~')
+
+def byte_to_hex(c):
+    return (f'\\{chr(c)}' if c == ORD_BSLASH or c == ORD_DQUOTE else chr(c) if ORD_SPACE <= c <= ORD_TILDE else f'\\x{c:02x}')
+
+def bytes_to_hex(b):
+    return 'b"{}"'.format(''.join(map(byte_to_hex, b)))
