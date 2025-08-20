@@ -92,9 +92,9 @@ function unfuck(t)
         return t
     end
 
-    local unfucked_t = {}
+    setmetatable(t, {})
     for k, v in pairs(t) do
-        unfucked_t[k] = unfuck(v)
+        unfuck(v)
     end
-    return unfucked_t
+    return t
 end
