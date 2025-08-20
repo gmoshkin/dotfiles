@@ -57,6 +57,18 @@ my_proc :: () -> s32 #c_call {
     return 0;
 }
 
+#program_export
+test__int_42: int = 42;
+
+#program_export
+test__pointer_to_int_42: *int = *test__int_42;
+
+#program_export
+type_info__my_proc: *Type_Info = type_info(type_of(my_proc));
+
+#program_export
+type_info__Context: *Type_Info = type_info(#Context);
+
 test_msgpack_encode :: () {
     check_mp_encode :: (v: $T, expected: string) {
         builder: String_Builder;
@@ -398,7 +410,7 @@ Lua_String_Reader :: struct {
     data: string;
 
     callback : Tarantool_API.lua_Reader : (L: *Tarantool_API.lua_State, ud: *void, sz: *u64) -> *u8 #c_call {
-        new_context := cast(*Context) ud;
+        new_context := cast(*#Context) ud;
         push_context,defer_pop new_context.*;
 
         // log("lua_reader is called");
@@ -523,13 +535,10 @@ print_hex :: inline (v: s64, add_newline := true) {
 }
 
 // lol
-Void :: #run -> void {
-    res : void = ---;
-    return res;
-};
+Void: void;
 
 Init_Context :: () #expand {
-    new_context : Context;
+    new_context : #Context;
     `push_context,defer_pop new_context;
 }
 

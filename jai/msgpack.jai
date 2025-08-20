@@ -661,8 +661,12 @@ mp_decode_array_count :: inline (s: *string) -> s64 {
 read_big_endian :: (p: *void, $T: Type) -> T {
     size :: size_of(T);
     res : T = ---;
-    memcpy(*res, p, size);
-    byte_swap_in_place(*res);
+    #if size == 1 {
+        res = cast(*T, p).*;
+    } else {
+        memcpy(*res, p, size);
+        byte_swap_in_place(*res);
+    }
     return res;
 }
 
