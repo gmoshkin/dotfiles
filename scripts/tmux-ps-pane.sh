@@ -12,7 +12,7 @@ case "$opt" in
     -l) cmd_fmt="%s | less" ;;
     -v) cmd_fmt="%s -C | vim -" ;;
     *)
-        exec tmux split-window -t $pane_id ~/dotfiles/jai/pageview -l /tmp/pageview.log -t .1 ~/dotfiles/jai/myps -t $pane_tty
+        exec tmux split-window -c '#{pane_current_path}' -t $pane_id ~/dotfiles/jai/pageview -l /tmp/pageview.log -t .1 ~/dotfiles/jai/myps -t $pane_tty
         ;;
 esac
 
