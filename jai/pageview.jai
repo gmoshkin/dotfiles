@@ -228,6 +228,7 @@ State :: struct {
     scrollbar_slider_top: s64;
     scrollbar_slider_bottom: s64;
     scrollbar_search_matches: Bit_Array; // also @text_search
+    scrollbar_resolution: s64;
 
     selection_cursor := -1;
     last_selected_string: string;
@@ -644,6 +645,7 @@ main :: () {
 
     // `- 2` for :2_status_lines
     state.main_window_height = state.terminal_size.rows - 2;
+    state.scrollbar_resolution = state.main_window_height * 2;
 
     // Setup terminal mode, after this exitting should be done via term_exit
     init_terminal_settings();
@@ -793,6 +795,7 @@ main :: () {
 
             // `- 2` for 2 status lines
             state.main_window_height = state.terminal_size.rows - 2;
+            state.scrollbar_resolution = state.main_window_height * 2;
 
             if main_window_source == .DRAWING_MODE resize_pixel_buffer();
 
@@ -1065,7 +1068,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
     current_screen_row = 1 + 2;
 
     // @scrollbar
-    do_scrollbar := draw_scrollbar && (scrollbar_slider_height != main_window_height);
+    do_scrollbar := draw_scrollbar && (scrollbar_slider_height != scrollbar_resolution);
 
     line_index := 0;
     if row_offset > 0 {
@@ -3921,6 +3924,7 @@ maybe_update_search_matches :: (window_buffer: *Window_Buffer) {
 
     if !search.search_string {
         search.matches.count = 0;
+        scrollbar_search_matches.count = 0;
         return;
     }
 
@@ -3958,7 +3962,8 @@ maybe_update_search_matches :: (window_buffer: *Window_Buffer) {
     // Update not needed
     if !do_update return;
 
-    if scrollbar_search_matches.count == 0 then init_bit_array(*scrollbar_search_matches, main_window_height);
+    // @scrollbar
+    if scrollbar_search_matches.count == 0 then init_bit_array(*scrollbar_search_matches, scrollbar_resolution);
 
     start := current_time_monotonic();
     while line_index < window_buffer.line_offsets.count {
@@ -3989,7 +3994,7 @@ maybe_update_search_matches :: (window_buffer: *Window_Buffer) {
         offset_in_line = min(offset_in_line, S16_MAX);
         array_add(*search.matches, .{ line_index, xx offset_in_line, 0 });
 
-        scrollbar_y := line_index_to_scrollbar_row(line_index);
+        scrollbar_y := line_index_to_scrollbar_element(line_index);
         set_bit(*scrollbar_search_matches, scrollbar_y); // @scrollbar
     }
 
@@ -5315,9 +5320,9 @@ update_scollbar_info :: (window_buffer: *Window_Buffer) {
           W / B = s / W   (or am I retarded?)
             => s = (W * W) / B
     */
-    scrollbar_zoom_ratio = main_window_height / cast(float) window_buffer.line_offsets.count;
-    slider_effective_size := main_window_height * scrollbar_zoom_ratio;
-    slider_size := min(main_window_height, xx ceil(slider_effective_size));
+    scrollbar_zoom_ratio = scrollbar_resolution / cast(float) window_buffer.line_offsets.count;
+    slider_effective_size := scrollbar_resolution * scrollbar_zoom_ratio;
+    slider_size := min(scrollbar_resolution, xx ceil(slider_effective_size));
 
     scrollbar_slider_height = slider_size;
 
@@ -5356,7 +5361,7 @@ update_scollbar_info :: (window_buffer: *Window_Buffer) {
 }
 
 // Uses the last window_buffer provided to `update_scollbar_info`!!!
-line_index_to_scrollbar_row :: inline (line_index: s64) -> s64 {
+line_index_to_scrollbar_element :: inline (line_index: s64) -> s64 {
     using context.state;
 
     // XXX Not sure if I need floor or ceil or what???
@@ -5369,19 +5374,44 @@ draw_scrollbar_piece_in_current_line :: (builder: *String_Builder) {
     // "\e[H": move cursor to given position (row, col) (1-based)
     print(builder, "\e[%;%H", current_screen_row, terminal_size.cols);
 
-    // starts at -1 and `-2` for :2_status_lines (I don't really know why though...)
-    y := current_screen_row - 3;
+    // current_screen_row starts at 3 (1-based and skips the :2_status_lines)
+    y_screen := current_screen_row - 3;
 
-    is_slider := (y >= scrollbar_slider_top) && (y < scrollbar_slider_bottom);
-    is_search_match := ifx (y >= 0) && (y < scrollbar_search_matches.count) then scrollbar_search_matches[y];
-    if is_slider && is_search_match {
-        append(builder, "\e[47;2;37m▋"); // background white, foreground gray
-    } else if is_slider {
-        append(builder, "\e[100m "); // background gray
-    } else if is_search_match {
-        append(builder, "\e[37;7m "); // background white
+    y_scrollbar_top := y_screen * 2;
+    y_scrollbar_bottom := y_scrollbar_top + 1;
+
+    top_is_slider := (y_scrollbar_top >= scrollbar_slider_top) && (y_scrollbar_top < scrollbar_slider_bottom);
+    top_is_search_match := ifx (y_scrollbar_top >= 0) && (y_scrollbar_top < scrollbar_search_matches.count)
+                           then scrollbar_search_matches[y_scrollbar_top];
+
+    bottom_is_slider := (y_scrollbar_bottom >= scrollbar_slider_top) && (y_scrollbar_bottom < scrollbar_slider_bottom);
+    bottom_is_search_match := ifx (y_scrollbar_bottom >= 0) && (y_scrollbar_bottom < scrollbar_search_matches.count)
+                              then scrollbar_search_matches[y_scrollbar_bottom];
+
+    if top_is_slider {
+        if bottom_is_slider {
+            append(builder, "\e[100m "); // background gray
+        } else if bottom_is_search_match {
+            append(builder, "\e[47;90m▀"); // background white, foreground gray
+        } else {
+            append(builder, "\e[90m▀"); // foreground gray
+        }
+    } else if top_is_search_match {
+        if bottom_is_slider {
+            append(builder, "\e[37;100m▀"); // foreground white, background gray
+        } else if bottom_is_search_match {
+            append(builder, "\e[47m "); // background white
+        } else {
+            append(builder, "\e[37m▀"); // foreground white
+        }
     } else {
-        append(builder, "\e[0m "); // no color for scrollbar background
+        if bottom_is_slider {
+            append(builder, "\e[90m▄"); // foreground gray
+        } else if bottom_is_search_match {
+            append(builder, "\e[37m▄"); // foreground white
+        } else {
+            append(builder, "\e[0m "); // empty
+        }
     }
 
     append(builder, "\e[0m");
@@ -5399,10 +5429,10 @@ scrollbar_search_matches_handle_window_resize :: () {
     main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
     update_scollbar_info(main_window_buffer);
 
-    init_bit_array(*scrollbar_search_matches, main_window_height);
+    init_bit_array(*scrollbar_search_matches, scrollbar_resolution);
 
     for search.matches { // @text_search
-        scrollbar_y := line_index_to_scrollbar_row(it.line_index);
+        scrollbar_y := line_index_to_scrollbar_element(it.line_index);
         set_bit(*scrollbar_search_matches, scrollbar_y); // @scrollbar
     }
 }
