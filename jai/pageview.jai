@@ -5524,6 +5524,321 @@ show_version_banner :: (builder: *String_Builder) {
     print(builder, "compiler version: %\n", COMPILER_VERSION);
 }
 
+//
+// @style and ansi escape sequences
+//
+
+Attribute_Info :: struct {
+    offset_in_line: s16;
+    type: Attribute_Type;
+    union {
+        small_style: Small_Style;
+        color_24bit: Color_24bit;
+    }
+}
+
+Attribute_Type :: enum u8 {
+    UNKNOWN;
+    SMALL_STYLE;
+    COLOR_24BIT;
+    TAB;
+}
+
+Small_Style :: struct {
+    fg_color: Color_256;
+    bg_color: Color_256;
+    attributes: Style_Attributes;
+    flags: enum_flags u8 {
+        FG;
+        BG;
+    }
+}
+#assert size_of(Small_Style) == 4;
+
+Color_24bit :: struct {
+    r: u8;
+    g: u8;
+    b: u8;
+    flags: enum_flags u8 {
+        BACKGROUND :: 0;
+        FOREGROUND :: 1;
+    }
+}
+#assert size_of(Color_24bit) == 4;
+
+Style :: struct {
+    fg_color: Vector4;
+    bg_color: Vector4;
+    attributes: Style_Attributes;
+}
+
+Style_Attributes :: enum_flags u8 { BOLD; FAINT; ITALIC; UNDERLINE; BLINKING; INVERSE; HIDDEN; STRIKETHROUGH; };
+
+
+Small_Escape_Sequence :: struct {
+    command_letter: u8;
+    argument_count: u8;
+    arguments: [6] u8;
+}
+#assert size_of(Small_Escape_Sequence) == 8;
+
+print :: (builder: *String_Builder, sequence: Small_Escape_Sequence) {
+    append(builder, sequence.command_letter);
+    append(builder, "(");
+    count := cast(int) sequence.argument_count;
+    for 0..count - 2
+        print(builder, "%, ", cast(Ansi_Style_Command) sequence.arguments[it]);
+    if sequence.argument_count
+        print(builder, "%", cast(Ansi_Style_Command) sequence.arguments[sequence.argument_count - 1]);
+    append(builder, ")");
+}
+
+evaluate_style_sequence :: (using sequence: Small_Escape_Sequence, using style: *Style, fg_default := Vector4.{}, bg_default := Vector4.{}) {
+    if command_letter != #char "m" return;
+
+    i := 0;
+    while i < argument_count {
+        command := cast(Ansi_Style_Command) arguments[i];
+        if command == {
+            // case .RESET_ALL;
+            //     fg_color = fg_default;
+            //     bg_color = bg_default;
+            //     attributes = xx 0;
+            // case .BOLD_ON;          attributes |= .BOLD;
+            // case .FAINT_ON;         attributes |= .FAINT;
+            // case .ITALIC_ON;        attributes |= .ITALIC;
+            // case .UNDERLINE_ON;     attributes |= .UNDERLINE;
+            // case .BLINKING_ON;      attributes |= .BLINKING;
+            // case .INVERSE_ON;       attributes |= .INVERSE;
+            // case .HIDDEN_ON;        attributes |= .HIDDEN;
+            // case .STRIKETHROUGH_ON; attributes |= .STRIKETHROUGH;
+
+            // case .BOLD_FAINT_OFF;    attributes &= ~(.BOLD | .FAINT);
+            // case .ITALIC_OFF;        attributes &= ~.ITALIC;
+            // case .UNDERLINE_OFF;     attributes &= ~.UNDERLINE;
+            // case .BLINKING_OFF;      attributes &= ~.BLINKING;
+            // case .INVERSE_OFF;       attributes &= ~.INVERSE;
+            // case .HIDDEN_OFF;        attributes &= ~.HIDDEN;
+            // case .STRIKETHROUGH_OFF; attributes &= ~.STRIKETHROUGH;
+
+            // case .FG_BLACK;   fg_color = color_black;
+            // case .FG_RED;     fg_color = color_red;
+            // case .FG_GREEN;   fg_color = color_green;
+            // case .FG_YELLOW;  fg_color = color_yellow;
+            // case .FG_BLUE;    fg_color = color_blue;
+            // case .FG_MAGENTA; fg_color = color_magenta;
+            // case .FG_CYAN;    fg_color = color_cyan;
+            // case .FG_WHITE;   fg_color = color_white;
+            // case .FG_COLOR;   log_error("command 38 not implemented yet"); return;
+            //     // TODO
+            //     // - 2;{r};{g};{b}
+            //     // - 5;{id}
+            // case .FG_DEFAULT; fg_color = fg_default;
+
+            // case .BG_BLACK;   bg_color = color_black;
+            // case .BG_RED;     bg_color = color_red;
+            // case .BG_GREEN;   bg_color = color_green;
+            // case .BG_YELLOW;  bg_color = color_yellow;
+            // case .BG_BLUE;    bg_color = color_blue;
+            // case .BG_MAGENTA; bg_color = color_magenta;
+            // case .BG_CYAN;    bg_color = color_cyan;
+            // case .BG_WHITE;   bg_color = color_white;
+            // case .BG_COLOR;   log_error_once("command 48 not implemented yet"); return;
+            //     // TODO
+            //     // - 2;{r};{g};{b}
+            //     // - 5;{id}
+            // case .BG_DEFAULT; bg_color = fg_default;
+
+            // case .FG_BRIGHT_BLACK;   fg_color = color_gray;
+            // case .FG_BRIGHT_RED;     fg_color = color_red;     log_error_once("bright colors not supported yet");
+            // case .FG_BRIGHT_GREEN;   fg_color = color_green;   log_error_once("bright colors not supported yet");
+            // case .FG_BRIGHT_YELLOW;  fg_color = color_yellow;  log_error_once("bright colors not supported yet");
+            // case .FG_BRIGHT_BLUE;    fg_color = color_blue;    log_error_once("bright colors not supported yet");
+            // case .FG_BRIGHT_MAGENTA; fg_color = color_magenta; log_error_once("bright colors not supported yet");
+            // case .FG_BRIGHT_CYAN;    fg_color = color_cyan;    log_error_once("bright colors not supported yet");
+            // case .FG_BRIGHT_WHITE;   fg_color = color_white;   log_error_once("bright colors not supported yet");
+
+            // case .BG_BRIGHT_BLACK;   bg_color = color_gray;
+            // case .BG_BRIGHT_RED;     bg_color = color_red;     log_error_once("bright colors not supported yet");
+            // case .BG_BRIGHT_GREEN;   bg_color = color_green;   log_error_once("bright colors not supported yet");
+            // case .BG_BRIGHT_YELLOW;  bg_color = color_yellow;  log_error_once("bright colors not supported yet");
+            // case .BG_BRIGHT_BLUE;    bg_color = color_blue;    log_error_once("bright colors not supported yet");
+            // case .BG_BRIGHT_MAGENTA; bg_color = color_magenta; log_error_once("bright colors not supported yet");
+            // case .BG_BRIGHT_CYAN;    bg_color = color_cyan;    log_error_once("bright colors not supported yet");
+            // case .BG_BRIGHT_WHITE;   bg_color = color_white;   log_error_once("bright colors not supported yet");
+            // case; log_error("unknown command: %", command);
+        }
+        i += 1;
+    }
+}
+
+parse_escape_sequence :: (s: string) -> Small_Escape_Sequence, bool {
+    if s.count < 3 return .{}, false;
+    if s[0] != #char "\e" return .{}, false;
+    if s[1] != #char "[" return .{}, false;
+
+    result: Small_Escape_Sequence;
+    cursor := 2;
+    parsing_number := false;
+    while cursor < s.count {
+        c := s[cursor];
+        if inline is_alpha(c) {
+            if parsing_number then result.argument_count += 1;
+            result.command_letter = c;
+            break;
+        } else if inline is_digit(c) {
+            arg := *result.arguments[result.argument_count];
+            arg.* = arg.* * 10 + c - #char "0";
+            parsing_number = true;
+        } else if c == #char ";" {
+            if parsing_number {
+                result.argument_count += 1;
+                parsing_number = false;
+            }
+        }
+        cursor += 1;
+    }
+
+    assert(result.command_letter != 0);
+    return result, true;
+}
+
+// The first number after `\e[` in a sequence ending with `m`
+Ansi_Style_Command :: enum {
+    RESET_ALL :: 0;
+
+    BOLD_ON           :: 1;
+    FAINT_ON          :: 2;
+    ITALIC_ON         :: 3;
+    UNDERLINE_ON      :: 4;
+    BLINKING_ON       :: 5;
+    INVERSE_ON        :: 7;
+    HIDDEN_ON         :: 8;
+    STRIKETHROUGH_ON  :: 9;
+
+    BOLD_FAINT_OFF    :: 22;
+    ITALIC_OFF        :: 23;
+    UNDERLINE_OFF     :: 24;
+    BLINKING_OFF      :: 25;
+    INVERSE_OFF       :: 27;
+    HIDDEN_OFF        :: 28;
+    STRIKETHROUGH_OFF :: 29;
+
+    FG_BLACK   :: 30;
+    FG_RED     :: 31;
+    FG_GREEN   :: 32;
+    FG_YELLOW  :: 33;
+    FG_BLUE    :: 34;
+    FG_MAGENTA :: 35;
+    FG_CYAN    :: 36;
+    FG_WHITE   :: 37;
+
+    FG_COLOR   :: 38;
+
+    FG_DEFAULT :: 39;
+
+    BG_BLACK   :: 40;
+    BG_RED     :: 41;
+    BG_GREEN   :: 42;
+    BG_YELLOW  :: 43;
+    BG_BLUE    :: 44;
+    BG_MAGENTA :: 45;
+    BG_CYAN    :: 46;
+    BG_WHITE   :: 47;
+
+    BG_COLOR   :: 48;
+
+    BG_DEFAULT :: 49;
+
+    FG_BRIGHT_BLACK   :: 90;
+    FG_BRIGHT_RED     :: 91;
+    FG_BRIGHT_GREEN   :: 92;
+    FG_BRIGHT_YELLOW  :: 93;
+    FG_BRIGHT_BLUE    :: 94;
+    FG_BRIGHT_MAGENTA :: 95;
+    FG_BRIGHT_CYAN    :: 96;
+    FG_BRIGHT_WHITE   :: 97;
+
+    BG_BRIGHT_BLACK   :: 100;
+    BG_BRIGHT_RED     :: 101;
+    BG_BRIGHT_GREEN   :: 102;
+    BG_BRIGHT_YELLOW  :: 103;
+    BG_BRIGHT_BLUE    :: 104;
+    BG_BRIGHT_MAGENTA :: 105;
+    BG_BRIGHT_CYAN    :: 106;
+    BG_BRIGHT_WHITE   :: 107;
+}
+
+// These are used in `\e[38;5;{Color_256}` command
+Color_256 :: enum u8 {
+
+    TRANSPARENT    :: 0;
+    RED            :: 1;
+    GREEN          :: 2;
+    YELLOW         :: 3;
+    BLUE           :: 4;
+    MAGENTA        :: 5;
+    CYAN           :: 6;
+    WHITE          :: 7;
+    BRIGHT_BLACK   :: 8;
+    BRIGHT_RED     :: 9;
+    BRIGHT_GREEN   :: 10;
+    BRIGHT_YELLOW  :: 11;
+    BRIGHT_BLUE    :: 12;
+    BRIGHT_MAGENTA :: 13;
+    BRIGHT_CYAN    :: 14;
+    BRIGHT_WHITE   :: 15;
+
+    // The formula for these is `16 + r * 36 + g * 6 + b` where r, g & b are in 0..5 inclusively
+    RGB_0_0_0 ::  16; RGB_0_0_1 ::  17; RGB_0_0_2 ::  18; RGB_0_0_3 ::  19; RGB_0_0_4 ::  20; RGB_0_0_5 ::  21;
+    RGB_0_1_0 ::  22; RGB_0_1_1 ::  23; RGB_0_1_2 ::  24; RGB_0_1_3 ::  25; RGB_0_1_4 ::  26; RGB_0_1_5 ::  27;
+    RGB_0_2_0 ::  28; RGB_0_2_1 ::  29; RGB_0_2_2 ::  30; RGB_0_2_3 ::  31; RGB_0_2_4 ::  32; RGB_0_2_5 ::  33;
+    RGB_0_3_0 ::  34; RGB_0_3_1 ::  35; RGB_0_3_2 ::  36; RGB_0_3_3 ::  37; RGB_0_3_4 ::  38; RGB_0_3_5 ::  39;
+    RGB_0_4_0 ::  40; RGB_0_4_1 ::  41; RGB_0_4_2 ::  42; RGB_0_4_3 ::  43; RGB_0_4_4 ::  44; RGB_0_4_5 ::  45;
+    RGB_0_5_0 ::  46; RGB_0_5_1 ::  47; RGB_0_5_2 ::  48; RGB_0_5_3 ::  49; RGB_0_5_4 ::  50; RGB_0_5_5 ::  51;
+
+    RGB_1_0_0 ::  52; RGB_1_0_1 ::  53; RGB_1_0_2 ::  54; RGB_1_0_3 ::  55; RGB_1_0_4 ::  56; RGB_1_0_5 ::  57;
+    RGB_1_1_0 ::  58; RGB_1_1_1 ::  59; RGB_1_1_2 ::  60; RGB_1_1_3 ::  61; RGB_1_1_4 ::  62; RGB_1_1_5 ::  63;
+    RGB_1_2_0 ::  64; RGB_1_2_1 ::  65; RGB_1_2_2 ::  66; RGB_1_2_3 ::  67; RGB_1_2_4 ::  68; RGB_1_2_5 ::  69;
+    RGB_1_3_0 ::  70; RGB_1_3_1 ::  71; RGB_1_3_2 ::  72; RGB_1_3_3 ::  73; RGB_1_3_4 ::  74; RGB_1_3_5 ::  75;
+    RGB_1_4_0 ::  76; RGB_1_4_1 ::  77; RGB_1_4_2 ::  78; RGB_1_4_3 ::  79; RGB_1_4_4 ::  80; RGB_1_4_5 ::  81;
+    RGB_1_5_0 ::  82; RGB_1_5_1 ::  83; RGB_1_5_2 ::  84; RGB_1_5_3 ::  85; RGB_1_5_4 ::  86; RGB_1_5_5 ::  87;
+
+    RGB_2_0_0 ::  88; RGB_2_0_1 ::  89; RGB_2_0_2 ::  90; RGB_2_0_3 ::  91; RGB_2_0_4 ::  92; RGB_2_0_5 ::  93;
+    RGB_2_1_0 ::  94; RGB_2_1_1 ::  95; RGB_2_1_2 ::  96; RGB_2_1_3 ::  97; RGB_2_1_4 ::  98; RGB_2_1_5 ::  99;
+    RGB_2_2_0 :: 100; RGB_2_2_1 :: 101; RGB_2_2_2 :: 102; RGB_2_2_3 :: 103; RGB_2_2_4 :: 104; RGB_2_2_5 :: 105;
+    RGB_2_3_0 :: 106; RGB_2_3_1 :: 107; RGB_2_3_2 :: 108; RGB_2_3_3 :: 109; RGB_2_3_4 :: 110; RGB_2_3_5 :: 111;
+    RGB_2_4_0 :: 112; RGB_2_4_1 :: 113; RGB_2_4_2 :: 114; RGB_2_4_3 :: 115; RGB_2_4_4 :: 116; RGB_2_4_5 :: 117;
+    RGB_2_5_0 :: 118; RGB_2_5_1 :: 119; RGB_2_5_2 :: 120; RGB_2_5_3 :: 121; RGB_2_5_4 :: 122; RGB_2_5_5 :: 123;
+
+    RGB_3_0_0 :: 124; RGB_3_0_1 :: 125; RGB_3_0_2 :: 126; RGB_3_0_3 :: 127; RGB_3_0_4 :: 128; RGB_3_0_5 :: 129;
+    RGB_3_1_0 :: 130; RGB_3_1_1 :: 131; RGB_3_1_2 :: 132; RGB_3_1_3 :: 133; RGB_3_1_4 :: 134; RGB_3_1_5 :: 135;
+    RGB_3_2_0 :: 136; RGB_3_2_1 :: 137; RGB_3_2_2 :: 138; RGB_3_2_3 :: 139; RGB_3_2_4 :: 140; RGB_3_2_5 :: 141;
+    RGB_3_3_0 :: 142; RGB_3_3_1 :: 143; RGB_3_3_2 :: 144; RGB_3_3_3 :: 145; RGB_3_3_4 :: 146; RGB_3_3_5 :: 147;
+    RGB_3_4_0 :: 148; RGB_3_4_1 :: 149; RGB_3_4_2 :: 150; RGB_3_4_3 :: 151; RGB_3_4_4 :: 152; RGB_3_4_5 :: 153;
+    RGB_3_5_0 :: 154; RGB_3_5_1 :: 155; RGB_3_5_2 :: 156; RGB_3_5_3 :: 157; RGB_3_5_4 :: 158; RGB_3_5_5 :: 159;
+
+    RGB_4_0_0 :: 160; RGB_4_0_1 :: 161; RGB_4_0_2 :: 162; RGB_4_0_3 :: 163; RGB_4_0_4 :: 164; RGB_4_0_5 :: 165;
+    RGB_4_1_0 :: 166; RGB_4_1_1 :: 167; RGB_4_1_2 :: 168; RGB_4_1_3 :: 169; RGB_4_1_4 :: 170; RGB_4_1_5 :: 171;
+    RGB_4_2_0 :: 172; RGB_4_2_1 :: 173; RGB_4_2_2 :: 174; RGB_4_2_3 :: 175; RGB_4_2_4 :: 176; RGB_4_2_5 :: 177;
+    RGB_4_3_0 :: 178; RGB_4_3_1 :: 179; RGB_4_3_2 :: 180; RGB_4_3_3 :: 181; RGB_4_3_4 :: 182; RGB_4_3_5 :: 183;
+    RGB_4_4_0 :: 184; RGB_4_4_1 :: 185; RGB_4_4_2 :: 186; RGB_4_4_3 :: 187; RGB_4_4_4 :: 188; RGB_4_4_5 :: 189;
+    RGB_4_5_0 :: 190; RGB_4_5_1 :: 191; RGB_4_5_2 :: 192; RGB_4_5_3 :: 193; RGB_4_5_4 :: 194; RGB_4_5_5 :: 195;
+
+    RGB_5_0_0 :: 196; RGB_5_0_1 :: 197; RGB_5_0_2 :: 198; RGB_5_0_3 :: 199; RGB_5_0_4 :: 200; RGB_5_0_5 :: 201;
+    RGB_5_1_0 :: 202; RGB_5_1_1 :: 203; RGB_5_1_2 :: 204; RGB_5_1_3 :: 205; RGB_5_1_4 :: 206; RGB_5_1_5 :: 207;
+    RGB_5_2_0 :: 208; RGB_5_2_1 :: 209; RGB_5_2_2 :: 210; RGB_5_2_3 :: 211; RGB_5_2_4 :: 212; RGB_5_2_5 :: 213;
+    RGB_5_3_0 :: 214; RGB_5_3_1 :: 215; RGB_5_3_2 :: 216; RGB_5_3_3 :: 217; RGB_5_3_4 :: 218; RGB_5_3_5 :: 219;
+    RGB_5_4_0 :: 220; RGB_5_4_1 :: 221; RGB_5_4_2 :: 222; RGB_5_4_3 :: 223; RGB_5_4_4 :: 224; RGB_5_4_5 :: 225;
+    RGB_5_5_0 :: 226; RGB_5_5_1 :: 227; RGB_5_5_2 :: 228; RGB_5_5_3 :: 229; RGB_5_5_4 :: 230; RGB_5_5_5 :: 231;
+
+    // 0 is black, 23 is white
+    GRAY_0  :: 232; GRAY_1  :: 233; GRAY_2  :: 234; GRAY_3  :: 235; GRAY_4  :: 236; GRAY_5  :: 237;
+    GRAY_6  :: 238; GRAY_7  :: 239; GRAY_8  :: 240; GRAY_9  :: 241; GRAY_10 :: 242; GRAY_11 :: 243;
+    GRAY_12 :: 244; GRAY_13 :: 245; GRAY_14 :: 246; GRAY_15 :: 247; GRAY_16 :: 248; GRAY_17 :: 249;
+    GRAY_18 :: 250; GRAY_19 :: 251; GRAY_20 :: 252; GRAY_21 :: 253; GRAY_22 :: 254; GRAY_23 :: 255;
+}
+
 
 //
 // print utilities
