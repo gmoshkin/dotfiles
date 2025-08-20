@@ -87,14 +87,18 @@ function table.imap(t, cb)
     return result
 end
 
-function unfuck(t)
+function setmetatable_recursive(t, meta)
     if type(t) ~= 'table' then
         return t
     end
 
-    setmetatable(t, {})
+    setmetatable(t, meta)
     for k, v in pairs(t) do
-        unfuck(v)
+        setmetatable_recursive(v, meta)
     end
     return t
+end
+
+function unfuck(t)
+    return setmetatable_recursive(t, {})
 end
