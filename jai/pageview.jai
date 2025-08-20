@@ -3125,6 +3125,10 @@ Input_Event :: struct {
         KEY_DOWN;
         KEY_LEFT;
         KEY_RIGHT;
+        HOME;
+        END;
+        PAGE_UP;
+        PAGE_DOWN;
         MOUSE_WHEEL_UP;
         MOUSE_WHEEL_DOWN;
         MOUSE_LEFT_DOWN;
@@ -3200,6 +3204,8 @@ parse_and_handle_input :: () {
             // handled
         } else if try_parse_directional_key_sequence(sequence, *event) {
             // log("parsed a direction key event: `\\x1b[%` -> %", cast(Ascii_Or_Hex) sequence, event);
+            // handled
+        } else if try_parse_page_up_or_down(sequence, *event) {
             // handled
         } else if sequence == "Z" {
             event.kind = .CHARACTER;
@@ -3320,6 +3326,8 @@ try_parse_directional_key_sequence :: (sequence: string, event: *Input_Event) ->
         case #char "B"; kind = .KEY_DOWN;
         case #char "C"; kind = .KEY_RIGHT;
         case #char "D"; kind = .KEY_LEFT;
+        case #char "H"; kind = .HOME;
+        case #char "F"; kind = .END;
         case; return false;
     }
     if sequence.count == 1 {
@@ -3336,6 +3344,41 @@ try_parse_directional_key_sequence :: (sequence: string, event: *Input_Event) ->
         case #char "4"; event.modifiers = .ALT | .SHIFT;
         case #char "5"; event.modifiers = .CONTROL;
         case #char "6"; event.modifiers = .CONTROL | .SHIFT;
+        case #char "7"; event.modifiers = .CONTROL | .ALT;
+        case #char "8"; event.modifiers = .CONTROL | .ALT | .SHIFT;
+        case;           return false;
+    }
+
+    event.kind = kind;
+    return true;
+}
+
+try_parse_page_up_or_down :: (sequence: string, event: *Input_Event) -> bool {
+    kind: Input_Event.Kind;
+    if sequence[sequence.count - 1] != #char "~" return false;
+
+    if sequence[0] == {
+        case #char "1"; kind = .HOME;
+        case #char "4"; kind = .END;
+        case #char "5"; kind = .PAGE_UP;
+        case #char "6"; kind = .PAGE_DOWN;
+        case; return false;
+    }
+    if sequence.count == 2 {
+        event.kind = kind;
+        return true;
+    }
+
+    if sequence.count != 4         return false;
+    if sequence[1]    != #char ";" return false;
+    if sequence[2] == {
+        case #char "2"; event.modifiers = .SHIFT;
+        case #char "3"; event.modifiers = .ALT;
+        case #char "4"; event.modifiers = .ALT | .SHIFT;
+        case #char "5"; event.modifiers = .CONTROL;
+        case #char "6"; event.modifiers = .CONTROL | .SHIFT;
+        case #char "7"; event.modifiers = .CONTROL | .ALT;
+        case #char "8"; event.modifiers = .CONTROL | .ALT | .SHIFT;
         case;           return false;
     }
 
@@ -3425,6 +3468,16 @@ handle_input_event :: (_event: Input_Event) {
                 case .KEY_UP;   navigate_window_up(ifx event.modifiers & .SHIFT then .HALF_SCREEN else .ONE_ROW);
                 case .KEY_DOWN; navigate_window_down(ifx event.modifiers & .SHIFT then .HALF_SCREEN else .ONE_ROW);
 
+                case .PAGE_UP;   if event.modifiers & .ALT then navigate_window_to_top();
+                                                           else navigate_window_up(.HALF_SCREEN);
+                case .PAGE_DOWN; if event.modifiers & .ALT then navigate_window_to_bottom();
+                                                           else navigate_window_down(.HALF_SCREEN);
+
+                case .HOME; if event.modifiers & .SHIFT then navigate_window_to_top();
+                                                        else col_offset = 0;
+
+                case .END;  if event.modifiers & .SHIFT then navigate_window_to_bottom();
+
                 case .KEY_LEFT;
                     if !line_wrapping {
                         if event.modifiers & .SHIFT then col_offset -= terminal_size.cols / 2;
@@ -3468,11 +3521,8 @@ handle_input_event :: (_event: Input_Event) {
 
                     case #char "w"; line_wrapping = !line_wrapping;
 
-                    case #char "g"; row_offset = 0; wrapped_line_offset = 0; stick_to_the_bottom = false;
-                    case #char "G"; {
-                        row_offset = main_window_buffer.line_offsets.count - main_window_height;
-                        stick_to_the_bottom = true;
-                    }
+                    case #char "g"; navigate_window_to_top();
+                    case #char "G"; navigate_window_to_bottom();
 
                     case #char "0"; col_offset = 0;
 
@@ -3520,6 +3570,24 @@ handle_input_event :: (_event: Input_Event) {
             handle_input_event_in_input_command_mode(event);
 
     }
+}
+
+navigate_window_to_top :: () {
+    using context.state;
+
+    row_offset = 0;
+    wrapped_line_offset = 0;
+    stick_to_the_bottom = false;
+}
+
+navigate_window_to_bottom :: () {
+    using context.state;
+
+    if !main_window_buffer_history return;
+    main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
+
+    row_offset = main_window_buffer.line_offsets.count - main_window_height;
+    stick_to_the_bottom = true;
 }
 
 Window_Shift_Kind :: enum { ONE_ROW; HALF_SCREEN; };
