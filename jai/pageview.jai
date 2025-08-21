@@ -204,6 +204,7 @@ State :: struct {
     //
     // source: DRAWING_MODE
     //
+    // TODO instead of Vector4 do union { Color_256; Color_24bit; }
     pixel_buffer: [..] Vector4;
     pixel_window_size: Vector2;
     pixel_size: enum {
@@ -844,10 +845,6 @@ main :: () {
         main_window_redraw_needed := input_received_this_tick
             || window_size_changed_this_tick
             || (main_window_buffer_changed_this_tick && current_shown_buffer_index == main_window_buffer_history.count - 1);
-        if main_window_buffer_changed_this_tick {
-            log("current_shown_buffer_index: %", current_shown_buffer_index);
-            log("main_window_buffer_history.count - 1: %", main_window_buffer_history.count - 1);
-        }
 
         line_buffer: [] string; // temporary storage
         if #complete main_window_source == {
@@ -1856,7 +1853,6 @@ maybe_handle_external_command_output :: () {
     do_external_command_backoff(got_change=true);
     smart_backoff_change_counter += 1;
 
-    log("main_window_buffer_changed_this_tick = true");
     main_window_buffer_changed_this_tick = true;
 
     Profile();
@@ -2055,7 +2051,6 @@ read_some_from_piped_input :: () {
     has_new_data := read_all_available_data_from_piped_input();
     if !has_new_data return;
 
-    log("main_window_buffer_changed_this_tick = true");
     main_window_buffer_changed_this_tick = true;
     window_buffer := *main_window_buffer_history[current_shown_buffer_index];
     window_buffer.source = main_window_source;
@@ -2586,9 +2581,15 @@ render_status_line_2 :: () {
     if frame_time < info_message_deadline {
         append(*builder, to_string(*info_message_builder));
     } else if main_window_source == .DRAWING_MODE {
-        append(*builder, "drawing mode");
+        if input_mode == {
+            case .NAVIGATE;
+                append(*builder, "drawing mode");
 
-        print(*builder, " mouse %, %", mouse_position.column, mouse_position.row);
+                print(*builder, " mouse %, %", mouse_position.column, mouse_position.row);
+            case .INPUT_SEARCH_STRING; #through;
+            case .INPUT_COMMAND;
+                render_status_line_2_command_line(*builder, input_mode);
+        }
     } else {
         if input_mode ==  {
             case .NAVIGATE;
@@ -2641,33 +2642,7 @@ render_status_line_2 :: () {
                 }
             case .INPUT_SEARCH_STRING; #through;
             case .INPUT_COMMAND;
-                prefix := "??";
-                text := "<unknown mode>";
-                if input_mode == .INPUT_SEARCH_STRING { prefix = "/";  text = search.search_string; }
-                if input_mode == .INPUT_COMMAND       { prefix = "> "; text = xx command_line; }
-                append(*builder, prefix);
-
-                visible_columns_budget := terminal_size.cols - prefix.count;
-
-                overflow := text.count - visible_columns_budget;
-                // FIXME: I just want the last column to be left for the cursor
-                // if the cursor is at the last column, but than be filled with
-                // the search string otherwise... but I'm a sleepy head right
-                // now :(
-                if overflow > 0 {
-                    // Add extra space at the end for the cursor
-                    overflow += 1;
-                    slice_start := clamp(input_cursor - 2, 0, overflow);
-                    append(*builder, substring(text, slice_start, count=visible_columns_budget - 1));
-                    // `+ 1` because rows start at 1
-                    cursor_line = 2;
-                    cursor_column = input_cursor - slice_start + prefix.count + 1;
-                } else {
-                    append(*builder, text);
-                    // `+ 1` because rows start at 1
-                    cursor_line = 2;
-                    cursor_column = input_cursor + prefix.count + 1;
-                }
+                render_status_line_2_command_line(*builder, input_mode);
         }
     }
 
@@ -2675,6 +2650,38 @@ render_status_line_2 :: () {
 
     assert(get_current_buffer(*builder) == buffer);
     write_builder(*builder);
+}
+
+render_status_line_2_command_line :: (builder: *String_Builder, input_mode: type_of(State.input_mode)) {
+    using,except.["input_mode"] context.state;
+
+    prefix := "??";
+    text := "<unknown mode>";
+    if input_mode == .INPUT_SEARCH_STRING { prefix = "/";  text = search.search_string; }
+    if input_mode == .INPUT_COMMAND       { prefix = "> "; text = xx command_line; }
+    append(builder, prefix);
+
+    visible_columns_budget := terminal_size.cols - prefix.count;
+
+    overflow := text.count - visible_columns_budget;
+    // FIXME: I just want the last column to be left for the cursor
+    // if the cursor is at the last column, but than be filled with
+    // the search string otherwise... but I'm a sleepy head right
+    // now :(
+    if overflow > 0 {
+        // Add extra space at the end for the cursor
+        overflow += 1;
+        slice_start := clamp(input_cursor - 2, 0, overflow);
+        append(builder, substring(text, slice_start, count=visible_columns_budget - 1));
+        // `+ 1` because rows start at 1
+        cursor_line = 2;
+        cursor_column = input_cursor - slice_start + prefix.count + 1;
+    } else {
+        append(builder, text);
+        // `+ 1` because rows start at 1
+        cursor_line = 2;
+        cursor_column = input_cursor + prefix.count + 1;
+    }
 }
 
 //
@@ -3435,9 +3442,6 @@ handle_input_event :: (_event: Input_Event) {
         mouse_y := (mouse_position.row - 1) - 2; // `- 2` for :2_status_lines
         pixel_index := mouse_y * width + mouse_x;
 
-        if input_mode == {
-            case .INPUT_COMMAND;
-        }
         if event.kind == {
             case .MOUSE_LEFT_DRAG; #through;
             case .MOUSE_LEFT_DOWN;
@@ -3471,8 +3475,7 @@ handle_input_event :: (_event: Input_Event) {
                 }
         }
 
-        // FIXME: ugly hack, also it doesn't work
-        if input_mode == .NAVIGATE return;
+        return;
     }
 
     main_window_buffer: *Window_Buffer;
@@ -5503,19 +5506,19 @@ draw_scrollbar_piece_in_current_line :: (builder: *String_Builder) {
         "\e[0m ",            //
         "\e[90m▀",           // top slider
         "\e[37m▀",           // top match
-        "\e[38;5;248m▀",     // top both
+        "\e[38;5;143m▀",     // top both
         "\e[90m▄",           //             bottom slider
         "\e[100m ",          // top slider  bottom slider
         "\e[37;100m▀",       // top match   bottom slider
-        "\e[38;5;248;100m▀", // top both    bottom slider
+        "\e[38;5;143;100m▀", // top both    bottom slider
         "\e[37m▄",           //             bottom match
         "\e[47;90m▀",        // top slider  bottom match
         "\e[47m ",           // top match   bottom match
-        "\e[38;5;248;47m▀",  // top both    bottom match
-        "\e[90;38;5;248m▄",  //             bottom both
-        "\e[90;48;5;248m▀",  // top slider  bottom both
-        "\e[37;48;5;248m▀",  // top match   bottom both
-        "\e[48;5;248m ",     // top both    bottom both
+        "\e[38;5;143;47m▀",  // top both    bottom match
+        "\e[90;38;5;143m▄",  //             bottom both
+        "\e[90;48;5;143m▀",  // top slider  bottom both
+        "\e[37;48;5;143m▀",  // top match   bottom both
+        "\e[48;5;143m ",     // top both    bottom both
     ];
 
     append(builder, cases[i]);
