@@ -5456,32 +5456,28 @@ draw_scrollbar_piece_in_current_line :: (builder: *String_Builder) {
     bottom_is_search_match := ifx (y_scrollbar_bottom >= 0) && (y_scrollbar_bottom < scrollbar_search_matches.count)
                               then scrollbar_search_matches[y_scrollbar_bottom];
 
-    if top_is_slider {
-        if bottom_is_slider {
-            append(builder, "\e[100m "); // background gray
-        } else if bottom_is_search_match {
-            append(builder, "\e[47;90m▀"); // background white, foreground gray
-        } else {
-            append(builder, "\e[90m▀"); // foreground gray
-        }
-    } else if top_is_search_match {
-        if bottom_is_slider {
-            append(builder, "\e[37;100m▀"); // foreground white, background gray
-        } else if bottom_is_search_match {
-            append(builder, "\e[47m "); // background white
-        } else {
-            append(builder, "\e[37m▀"); // foreground white
-        }
-    } else {
-        if bottom_is_slider {
-            append(builder, "\e[90m▄"); // foreground gray
-        } else if bottom_is_search_match {
-            append(builder, "\e[37m▄"); // foreground white
-        } else {
-            append(builder, "\e[0m "); // empty
-        }
-    }
+    i := cast(u8, top_is_slider) + cast(u8, top_is_search_match) * 2 +
+         cast(u8, bottom_is_slider) * 4 + cast(u8, bottom_is_search_match) * 8;
+    cases :: string.[
+        "\e[0m ",            //
+        "\e[90m▀",           // top slider
+        "\e[37m▀",           // top match
+        "\e[38;5;248m▀",     // top both
+        "\e[90m▄",           //             bottom slider
+        "\e[100m ",          // top slider  bottom slider
+        "\e[37;100m▀",       // top match   bottom slider
+        "\e[38;5;248;100m▀", // top both    bottom slider
+        "\e[37m▄",           //             bottom match
+        "\e[47;90m▀",        // top slider  bottom match
+        "\e[47m ",           // top match   bottom match
+        "\e[38;5;248;47m▀",  // top both    bottom match
+        "\e[90;38;5;248m▄",  //             bottom both
+        "\e[90;48;5;248m▀",  // top slider  bottom both
+        "\e[37;48;5;248m▀",  // top match   bottom both
+        "\e[48;5;248m ",     // top both    bottom both
+    ];
 
+    append(builder, cases[i]);
     append(builder, "\e[0m");
 }
 
