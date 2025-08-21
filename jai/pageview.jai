@@ -204,8 +204,9 @@ State :: struct {
     //
     // source: DRAWING_MODE
     //
-    // TODO instead of Vector4 do union { Color_256; Color_24bit; }
-    pixel_buffer: [..] Vector4;
+    current_pixel_fg := #run Pixel_Value.rgb(0xe5, 0xe5, 0xe5);
+    current_pixel_bg := #run Pixel_Value.rgb(0x33, 0x33, 0x33);
+    pixel_buffer: [..] Pixel_Value;
     pixel_window_size: Vector2;
     pixel_size: enum {
         TWO_CHARACTERS;
@@ -296,6 +297,96 @@ Delayed_Action :: struct {
 Cell_Position :: struct {
     row: s32;
     column: s32;
+}
+
+Pixel_Value :: struct {
+    type: enum {
+        RGB;
+        COLOR_256;
+    };
+    union {
+        using _rgb: struct {
+            r: u8;
+            g: u8;
+            b: u8;
+        };
+        _256: Color_256;
+    };
+
+    rgb :: (r: u8, g: u8, b: u8) -> Pixel_Value {
+        res: Pixel_Value;
+        res.type = .RGB;
+        res.r = r;
+        res.g = g;
+        res.b = b;
+
+        return res;
+    }
+
+    id :: (id: u8) -> Pixel_Value {
+        res: Pixel_Value;
+        res.type = .COLOR_256;
+        res._256 = xx id;
+
+        return res;
+    }
+}
+
+print_pixel_value :: (builder: *String_Builder, using v: Pixel_Value, $fg := false) {
+    #if fg {
+        if type == {
+            case .RGB;          print(builder, "\e[38;2;%;%;%m", r, g, b);
+            case .COLOR_256;    print(builder, "\e[38;5;%m", cast(u8) _256);
+        }
+    } else {
+        if type == {
+            case .RGB;          print(builder, "\e[48;2;%;%;%m", r, g, b);
+            case .COLOR_256;    print(builder, "\e[48;5;%m", cast(u8) _256);
+        }
+    }
+}
+
+get_red :: (using v: Pixel_Value) -> u8 {
+    if type == {
+        case .RGB;
+            return r;
+
+        case .COLOR_256;
+            if _256 == {
+                case .RED;          return 0xdd;
+                case .BRIGHT_RED;   return 0xff;
+                case .GRAY_1;       return 11;
+                case .GRAY_2;       return 22;
+                case .GRAY_3;       return 33;
+                case .GRAY_4;       return 44;
+                case .GRAY_5;       return 55;
+                case .GRAY_6;       return 67;
+                case .GRAY_7;       return 78;
+                case .GRAY_8;       return 89;
+                case .GRAY_9;       return 100;
+                case .GRAY_10;      return 111;
+                case .GRAY_11;      return 122;
+                case .GRAY_12;      return 133;
+                case .GRAY_13;      return 144;
+                case .GRAY_14;      return 155;
+                case .GRAY_15;      return 166;
+                case .GRAY_16;      return 177;
+                case .GRAY_17;      return 188;
+                case .GRAY_18;      return 200;
+                case .GRAY_19;      return 211;
+                case .GRAY_20;      return 222;
+                case .GRAY_21;      return 233;
+                case .GRAY_22;      return 244;
+                case .GRAY_23;      return 255;
+            }
+            if _256 >= .RGB_1_0_0 && _256 <= .RGB_1_5_5 return 1 * 0x33;
+            if _256 >= .RGB_2_0_0 && _256 <= .RGB_2_5_5 return 2 * 0x33;
+            if _256 >= .RGB_3_0_0 && _256 <= .RGB_3_5_5 return 3 * 0x33;
+            if _256 >= .RGB_4_0_0 && _256 <= .RGB_4_5_5 return 4 * 0x33;
+            if _256 >= .RGB_5_0_0 && _256 <= .RGB_5_5_5 return 5 * 0x33;
+    }
+
+    return 0;
 }
 
 Window_Buffer :: struct {
@@ -1497,13 +1588,13 @@ resize_pixel_buffer :: () {
     array_resize(*pixel_buffer, xx (pixel_window_size.x * pixel_window_size.y));
 
     pixel_buffer.count = xx (pixel_window_size.x * pixel_window_size.y);
-    for *pixel_buffer it.* = .{ .2, .2, .2, 1 };
+    for *pixel_buffer it.* = current_pixel_bg;
 
     width = xx pixel_window_size.x;
-    for 1..22 pixel_buffer[5 * width + (it - 1) * 2] = .{ .9, .9, .9, 1 };
-    for 1..5 pixel_buffer[6 * width + (it - 1) * 10] = .{ .9, .9, .9, 1 };
-    for 1..3 pixel_buffer[(it - 1) * 2 * width + 43] = .{ .9, .9, .9, 1 };
-    pixel_buffer[44] = .{ .9, .9, .9, 1 };
+    for 1..22 pixel_buffer[5 * width + (it - 1) * 2] = current_pixel_fg;
+    for 1..5 pixel_buffer[6 * width + (it - 1) * 10] = current_pixel_fg;
+    for 1..3 pixel_buffer[(it - 1) * 2 * width + 43] = current_pixel_fg;
+    pixel_buffer[44] = current_pixel_fg;
 
 }
 
@@ -1526,10 +1617,8 @@ build_line_buffer_for_pixel_buffer :: () -> [] string {
         for x : 0..width - 1 {
         // for x : 0..9 {
             pixel := pixel_buffer[y * width + x];
-            r := cast(u8) (pixel.x * 255);
-            g := cast(u8) (pixel.y * 255);
-            b := cast(u8) (pixel.z * 255);
-            print(*builder, "\e[48;2;%;%;%m  ", r, g, b);
+            print_pixel_value(*builder, pixel);
+            append(*builder, "  ");
         }
         append(*builder, "\e[0m");
         append(*builder, "\n");
@@ -2347,6 +2436,12 @@ render_status_line_1_left_side :: (builder: *String_Builder) {
             append(builder, "drawing mode");
             append(builder, "\e[0m");
 
+            append(builder, " ");
+            print_pixel_value(builder, current_pixel_fg);
+            append(builder, "  \e[0m");
+            print_pixel_value(builder, current_pixel_bg);
+            append(builder, "  \e[0m");
+
             print(builder, " %", last_shown_line_buffer_version);
 
             append(builder, " ");
@@ -2543,7 +2638,8 @@ pixels_to_braille :: (builder: *String_Builder, x_0_: int, y_0_: int, count: int
     for 0..count-1 {
         braille: u32 = 0x2800;
         is_on :: (x: int, y: int) -> bool #expand {
-            return pixel_buffer[y * (cast(int) pixel_window_size.x) + x].x > .6;
+            pixel := pixel_buffer[y * (cast(int) pixel_window_size.x) + x];
+            return get_red(pixel) > 0x99;
         }
 
         if is_on(x_0 + stride * it + 0, y_0 + 0) braille += 1 << 0;
@@ -3446,17 +3542,18 @@ handle_input_event :: (_event: Input_Event) {
             case .MOUSE_LEFT_DRAG; #through;
             case .MOUSE_LEFT_DOWN;
                 if pixel_index >= 0 && pixel_index < pixel_buffer.count {
-                    pixel_buffer[pixel_index] = .{ .9, .9, .9, 1 };
+                    pixel_buffer[pixel_index] = current_pixel_fg;
                 }
             case .MOUSE_RIGHT_DRAG; #through;
             case .MOUSE_RIGHT_DOWN;
                 if pixel_index >= 0 && pixel_index < pixel_buffer.count {
-                    pixel_buffer[pixel_index] = .{ .2, .2, .2, 1 };
+                    pixel_buffer[pixel_index] = current_pixel_bg;
                 }
             case .MOUSE_MIDDLE_DOWN;
                 builder: String_Builder;
-                pixels_to_braille(*builder, 0, 0, count=2);
-                tmux_copy_to_clipboard(builder_to_string(*builder,, temp));
+                pixels_to_braille(*builder, 0, 0, count=21); //
+                text := builder_to_string(*builder,, temp);
+                tmux_copy_to_clipboard(trim_crap(text));
         }
 
         if input_mode == {
@@ -4586,6 +4683,10 @@ init_commands :: () {
         array_add(*console_commands, make_command("debug_break", do_debug_break));
         array_add(*console_commands, make_command("party_time_update_period", set_party_time_update_period));
         array_add(*console_commands, make_command("scrollbar", make_toggle("draw_scrollbar")));
+        array_add(*console_commands, make_command("fg_rgb", set_current_pixel_fg_rgb));
+        array_add(*console_commands, make_command("fg_256", set_current_pixel_fg_256));
+        array_add(*console_commands, make_command("bg_rgb", set_current_pixel_bg_rgb));
+        array_add(*console_commands, make_command("bg_256", set_current_pixel_bg_256));
     }
 }
 
@@ -4817,6 +4918,46 @@ show_state_field :: (path: string) -> (ok := true, error_message := "") {
 
 do_debug_break :: () -> (ok := true, error_message := "") {
     debug_break();
+    return;
+}
+
+set_current_pixel_fg_rgb :: (r: u8, g: u8, b: u8) -> (ok := true, error_message := "") {
+    using context.state;
+
+    current_pixel_fg.type = .RGB;
+    current_pixel_fg.r = r;
+    current_pixel_fg.g = g;
+    current_pixel_fg.b = b;
+
+    return;
+}
+
+set_current_pixel_fg_256 :: (number: u8) -> (ok := true, error_message := "") {
+    using context.state;
+
+    current_pixel_fg.type = .COLOR_256;
+    current_pixel_fg._256 = xx number;
+
+    return;
+}
+
+set_current_pixel_bg_rgb :: (r: u8, g: u8, b: u8) -> (ok := true, error_message := "") {
+    using context.state;
+
+    current_pixel_bg.type = .RGB;
+    current_pixel_bg.r = r;
+    current_pixel_bg.g = g;
+    current_pixel_bg.b = b;
+
+    return;
+}
+
+set_current_pixel_bg_256 :: (number: u8) -> (ok := true, error_message := "") {
+    using context.state;
+
+    current_pixel_bg.type = .COLOR_256;
+    current_pixel_bg._256 = xx number;
+
     return;
 }
 
@@ -6001,6 +6142,20 @@ count_occurences :: (text: string, byte: u8) -> s64 {
     return count;
 }
 
+trim_crap :: (s: string, crap := "⠀" /* \u2800 */) -> string {
+    new_s := s;
+    while starts_with(new_s, crap) {
+        new_s.data += crap.count;
+        new_s.count -= crap.count;
+    }
+
+    while ends_with(new_s, crap) {
+        new_s.count -= crap.count;
+    }
+
+    return new_s;
+}
+
 //
 // human readable memory sizes
 //
@@ -6384,6 +6539,28 @@ test_parse_ascii_or_hex :: () {
 
 }
 
+test_print_pixel_value :: () {
+    pixel: Pixel_Value;
+
+    owned_builder: String_Builder;
+    builder := *owned_builder;
+
+    pixel = Pixel_Value.id(1);
+
+    append(builder, " ");
+    print_pixel_value(builder, pixel);
+    append(builder, "  \e[0m");
+
+    pixel = Pixel_Value.rgb(13, 37, 69);
+    print_pixel_value(builder, pixel);
+    append(builder, "  \e[0m");
+
+    s := builder_to_string(builder);
+    assert(s == " \e[48;5;1m  \e[0m\e[48;2;13;37;69m  \e[0m", "%", cast(Ascii_Or_Hex) s);
+
+    print("%\n", s);
+}
+
 run_tests :: () {
     t0 := seconds_since_init();
     log("running tests...");
@@ -6392,6 +6569,7 @@ run_tests :: () {
     log("test_get_subfield_by_path");               test_get_subfield_by_path();
     log("test_array_ordered_remove_range");         test_array_ordered_remove_range();
     log("test_parse_ascii_or_hex");                 test_parse_ascii_or_hex();
+    log("test_print_pixel_value");                  test_print_pixel_value();
 
     elapsed := seconds_since_init() - t0;
     log("\e[32mall tests passed!\e[0m elapsed: %", fmt(elapsed, 6));
