@@ -20,6 +20,7 @@
 	p           = pull
 	pr          = pull --rebase
 	pu          = push
+	puf         = push --force-with-lease
 	s           = -c color.ui=always status
 	ss          = stash save
 	sp          = stash pop
