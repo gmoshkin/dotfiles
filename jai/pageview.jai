@@ -218,6 +218,9 @@ State :: struct {
     next_window_buffer_source_version: u64 = 1;
     current_shown_buffer_index: s64;
     show_latest_buffer := true;
+    main_window_buffer_changed_this_tick := false;
+    main_window_renderred_times := 0;
+    window_size_changed_this_tick := false;
 
     //
     // @scrollbar
@@ -741,6 +744,8 @@ main :: () {
         epoll_events.count = rc;
 
         input_received_this_tick = false;
+        main_window_buffer_changed_this_tick = false;
+        window_size_changed_this_tick = false;
 
         // Handle IO events
         external_command_ready := false;
@@ -788,6 +793,7 @@ main :: () {
         // changed and only redraw given lines... This is very very sad...
         if window_size_changed {
             window_size_changed = false;
+            window_size_changed_this_tick = true;
             redraw_once = true;
 
             // Get terminal size
@@ -835,13 +841,24 @@ main :: () {
         // Main window
         //
 
+        main_window_redraw_needed := input_received_this_tick
+            || window_size_changed_this_tick
+            || (main_window_buffer_changed_this_tick && current_shown_buffer_index == main_window_buffer_history.count - 1);
+        if main_window_buffer_changed_this_tick {
+            log("current_shown_buffer_index: %", current_shown_buffer_index);
+            log("main_window_buffer_history.count - 1: %", main_window_buffer_history.count - 1);
+        }
+
         line_buffer: [] string; // temporary storage
         if #complete main_window_source == {
             case .EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN; #through;
                 // TODO: read stderr and update it interactively
             case .EXTERNAL_COMMAND; #through;
             case .PIPED_INPUT;
-                line_buffer = build_line_buffer_for_main_window(main_window_buffer);
+                if main_window_redraw_needed || last_shown_line_buffer.count == 0
+                    line_buffer = build_line_buffer_for_main_window(main_window_buffer);
+                else
+                    line_buffer = last_shown_line_buffer;
 
             case .DRAWING_MODE;
                 line_buffer = build_line_buffer_for_pixel_buffer();
@@ -1058,6 +1075,8 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
 
     if !window_buffer return .[];
     if main_window_height == 0 return .[];
+
+    main_window_renderred_times += 1;
 
     // `line_buffer` stores pointers into `window_buffer` or temporary storage
     line_buffer: [..] string;
@@ -1830,12 +1849,15 @@ maybe_handle_external_command_output :: () {
 
     if main_window_buffer_history && hash == main_window_buffer_history[main_window_buffer_history.count - 1].hash {
         free(raw_text_and_control_codes);
-        do_external_command_backoff(false);
+        do_external_command_backoff(got_change=false);
         return;
-    } else {
-        do_external_command_backoff(true);
-        smart_backoff_change_counter += 1;
     }
+
+    do_external_command_backoff(got_change=true);
+    smart_backoff_change_counter += 1;
+
+    log("main_window_buffer_changed_this_tick = true");
+    main_window_buffer_changed_this_tick = true;
 
     Profile();
     init_window_buffer(*new_window_buffer, raw_text_and_control_codes);
@@ -2033,6 +2055,8 @@ read_some_from_piped_input :: () {
     has_new_data := read_all_available_data_from_piped_input();
     if !has_new_data return;
 
+    log("main_window_buffer_changed_this_tick = true");
+    main_window_buffer_changed_this_tick = true;
     window_buffer := *main_window_buffer_history[current_shown_buffer_index];
     window_buffer.source = main_window_source;
     window_buffer.time_generated = current_time_consensus();
@@ -2572,6 +2596,19 @@ render_status_line_2 :: () {
                 if main_window_buffer_history {
                     main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
                     line_count = main_window_buffer.line_offsets.count;
+                }
+
+                // render counter
+                {
+                    values :: string.[
+                        "  ", " ⢀", " ⣀", "⢀⣀", "⣀⣀", "⣀⣠", "⣀⣤", "⣠⣤",
+                        "⣤⣤", "⣤⣴", "⣤⣶", "⣴⣶", "⣶⣶", "⣶⣾", "⣶⣿", "⣾⣿",
+                        "⣿⣿", "⣿⡿", "⣿⠿", "⡿⠿", "⠿⠿", "⠿⠟", "⠿⠛", "⠟⠛",
+                        "⠛⠛", "⠛⠋", "⠛⠉", "⠋⠉", "⠉⠉", "⠉⠁", "⠉ ", "⠁ ",
+                    ];
+                    i := main_window_renderred_times % values.count;
+                    append(*builder, values[i]);
+                    append(*builder, "  ");
                 }
 
                 text_start := buffer.count;
@@ -3423,6 +3460,10 @@ handle_input_event :: (_event: Input_Event) {
                 handle_input_event_in_input_command_mode(event);
 
             case .NAVIGATE;
+                if (event.kind == .CHARACTER) && (event.char == #char "q") {
+                    should_exit = true;
+                }
+
                 if event.kind == .CHARACTER {
                     if event.char == {
                         case #char ";"; switch_to_command_line_mode();
