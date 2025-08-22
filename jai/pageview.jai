@@ -2672,6 +2672,70 @@ pixels_to_braille :: (builder: *String_Builder, x_0_: int, y_0_: int, count: int
     }
 }
 
+Braille_Pixels :: enum_flags {
+    // Corrdinates go from top left to bottom right
+    ____ :: 0;
+    _0_0 :: 1 << 0;
+    _0_1 :: 1 << 1;
+    _0_2 :: 1 << 2;
+    _1_0 :: 1 << 3;
+    _1_1 :: 1 << 4;
+    _1_2 :: 1 << 5;
+    _0_3 :: 1 << 6;
+    _1_3 :: 1 << 7;
+}
+
+make_braille :: (pixels: Braille_Pixels) -> u32 {
+    res: u32 = 0x2800;
+    res += xx pixels;
+    return res;
+}
+
+print_braille :: inline (builder: *String_Builder, pixels: Braille_Pixels) {
+    print_utf8(builder, make_braille(pixels));
+}
+
+Braille_Pair :: struct {
+    left: Braille_Pixels;
+    right: Braille_Pixels;
+}
+
+make_binary_representation :: (i: u16) -> Braille_Pair {
+    mapping :: Braille_Pair.[
+        /* bit  0 */ .{ ._0_0, .____, },
+        /* bit  1 */ .{ ._1_0, .____, },
+        /* bit  2 */ .{ .____, ._0_0, },
+        /* bit  3 */ .{ .____, ._1_0, },
+        /* bit  4 */ .{ ._0_1, .____, },
+        /* bit  5 */ .{ ._1_1, .____, },
+        /* bit  6 */ .{ .____, ._0_1, },
+        /* bit  7 */ .{ .____, ._1_1, },
+        /* bit  8 */ .{ ._0_2, .____, },
+        /* bit  9 */ .{ ._1_2, .____, },
+        /* bit 10 */ .{ .____, ._0_2, },
+        /* bit 11 */ .{ .____, ._1_2, },
+        /* bit 12 */ .{ ._0_3, .____, },
+        /* bit 13 */ .{ ._1_3, .____, },
+        /* bit 14 */ .{ .____, ._0_3, },
+        /* bit 15 */ .{ .____, ._1_3, },
+    ];
+
+    res: Braille_Pair;
+
+    x := i;
+    for 0..15 {
+        bit := x & 1;
+        x >>= 1;
+        if !bit continue;
+
+        pair := mapping[it];
+        res.left |= pair.left;
+        res.right |= pair.right;
+    }
+
+    return res;
+}
+
 render_status_line_2 :: () {
     using context.state;
 
@@ -2710,14 +2774,18 @@ render_status_line_2 :: () {
 
                 // render counter
                 {
-                    values :: string.[
-                        "  ", " ⢀", " ⣀", "⢀⣀", "⣀⣀", "⣀⣠", "⣀⣤", "⣠⣤",
-                        "⣤⣤", "⣤⣴", "⣤⣶", "⣴⣶", "⣶⣶", "⣶⣾", "⣶⣿", "⣾⣿",
-                        "⣿⣿", "⣿⡿", "⣿⠿", "⡿⠿", "⠿⠿", "⠿⠟", "⠿⠛", "⠟⠛",
-                        "⠛⠛", "⠛⠋", "⠛⠉", "⠋⠉", "⠉⠉", "⠉⠁", "⠉ ", "⠁ ",
-                    ];
-                    i := main_window_renderred_times % values.count;
-                    append(*builder, values[i]);
+                    // values :: string.[
+                    //     "  ", " ⢀", " ⣀", "⢀⣀", "⣀⣀", "⣀⣠", "⣀⣤", "⣠⣤",
+                    //     "⣤⣤", "⣤⣴", "⣤⣶", "⣴⣶", "⣶⣶", "⣶⣾", "⣶⣿", "⣾⣿",
+                    //     "⣿⣿", "⣿⡿", "⣿⠿", "⡿⠿", "⠿⠿", "⠿⠟", "⠿⠛", "⠟⠛",
+                    //     "⠛⠛", "⠛⠋", "⠛⠉", "⠋⠉", "⠉⠉", "⠉⠁", "⠉ ", "⠁ ",
+                    // ];
+                    // i := main_window_renderred_times % values.count;
+                    // append(*builder, values[i]);
+                    i := main_window_renderred_times % 0x10000; // 2 ^ 16
+                    braille_pair := make_binary_representation(xx i);
+                    print_braille(*builder, braille_pair.left);
+                    print_braille(*builder, braille_pair.right);
                     append(*builder, "  ");
                 }
 
@@ -6169,6 +6237,15 @@ trim_crap :: (s: string, crap := "⠀" /* \u2800 */) -> string {
     return new_s;
 }
 
+print_utf8 :: (builder: *String_Builder, u: u32) {
+    data := ensure_contiguous_space(builder, 4);
+    buffer: string;
+    buffer.data = data;
+    buffer.count = 4;
+    character_utf32_to_utf8(u, *buffer);
+    advance_through_ensured_space(builder, buffer.count);
+}
+
 //
 // human readable memory sizes
 //
@@ -6574,6 +6651,18 @@ test_print_pixel_value :: () {
     print("%\n", s);
 }
 
+test_print_braille :: () {
+    owned_builder: String_Builder;
+    builder := *owned_builder;
+
+    print_braille(builder, ._0_0 | ._1_1 | ._1_2 | ._0_3);
+    print_braille(builder, ._1_0 | ._0_1 | ._0_2 | ._1_3);
+    s := builder_to_string(builder);
+    assert(s == "⡱⢎", "%", s);
+
+    print("%\n", s);
+}
+
 run_tests :: () {
     t0 := seconds_since_init();
     log("running tests...");
@@ -6583,6 +6672,7 @@ run_tests :: () {
     log("test_array_ordered_remove_range");         test_array_ordered_remove_range();
     log("test_parse_ascii_or_hex");                 test_parse_ascii_or_hex();
     log("test_print_pixel_value");                  test_print_pixel_value();
+    log("test_print_braille");                      test_print_braille();
 
     elapsed := seconds_since_init() - t0;
     log("\e[32mall tests passed!\e[0m elapsed: %", fmt(elapsed, 6));
