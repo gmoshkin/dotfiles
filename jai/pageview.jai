@@ -429,6 +429,21 @@ Window_Buffer :: struct {
     diff_markers: [..] Range;
 }
 
+memory_usage :: (buffer: *Window_Buffer) -> (raw_text_usage: s64, rest_usage: s64) {
+    raw_text_usage, rest_usage: s64;
+
+    raw_text_usage += buffer.raw_text_and_control_codes.count;
+
+    rest_usage += size_of(Window_Buffer);
+    rest_usage += buffer.only_text_storage.allocated;
+    rest_usage += buffer.control_codes.allocated * size_of(Control_Code_Info);
+    rest_usage += buffer.line_offsets.allocated * size_of(s64);
+    rest_usage += buffer.unique_control_codes.allocated * size_of(Small_Bytes);
+    rest_usage += buffer.diff_markers.allocated * size_of(Range);
+
+    return raw_text_usage, rest_usage;
+}
+
 Range :: struct { start, count: s32; }
 
 Control_Code_Info :: struct {
@@ -1044,11 +1059,9 @@ main :: () {
             buffer_history_raw_text_bytes := 0;
             buffer_history_the_rest_bytes := 0;
             for *main_window_buffer_history {
-                buffer_history_raw_text_bytes += it.raw_text_and_control_codes.count;
-                buffer_history_the_rest_bytes += size_of(Window_Buffer);
-                buffer_history_the_rest_bytes += it.only_text_storage.allocated;
-                buffer_history_the_rest_bytes += it.control_codes.allocated;
-                buffer_history_the_rest_bytes += it.line_offsets.allocated;
+                raw_text_usage, rest_usage := memory_usage(it);
+                buffer_history_raw_text_bytes += raw_text_usage;
+                buffer_history_the_rest_bytes += rest_usage;
             }
 
             search_matches_bytes := search.matches.allocated * size_of(Search_Match);
