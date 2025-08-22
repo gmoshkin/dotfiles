@@ -1,47 +1,60 @@
 /* TODO:
-  - dynamic filters a-la fzf/CtrlP
-  - merging output from multiple files/input sources + orderring by date and maybe more
+  - FEATURE: dynamic filters a-la fzf/CtrlP
+  - FEATURE: merging output from multiple files/input sources + orderring by date and maybe more
     (I'm hoping for log-viewer style usage but also better)
 
-  - do a fucking --help already!!!
+  - FEATURE: do a fucking --help already!!!
 
-  - scrollbar @text_search matches use braille or digits or something else to
+  - IMPROVEMENT: scrollbar @text_search matches use braille or digits or something else to
     show how many matches there are, because screen row granularity sucks :c
 
-  - git @diff_headers thingy should be more general, I would like to also
+  - IMPROVEMENT: git @diff_headers thingy should be more general, I would like to also
     support the "commit", but the code is too hacky at the moment, needs refactoring
-  - git @diff_headers don't work with `git --graph` style output and my `gl` output format
+  - IMPROVEMENT: git @diff_headers don't work with `git --graph` style output and my `gl` output format
 
   - FEATURE: @text_search @completion: when parsing the raw buffer input collect
     all the identifiers(words) and do completion based on that
     - also prioritize words currently on screen, for that just scan the current
       screen portion of the buffer, it should be super quick
 
+  - FEATURE: @marks:
+    - set manual mark on one of the lines
+    - one of the random colors is chosen
+        - can also specify a color
+    - mark is highlighted on the @scrollbar
+    - QUESTION: what happens when text updates?
+        - would be cool to detect text changes a-la diff and move the mark
+          accordingly if possible
+        - super stupid solution: find a line with same text somewhere around and
+          move the mark there
+
   - FIX A BUG in @completion where . is not being added
   - @completion menu scrolling
 
-  - command to save the current buffer and show diffs (maybe even in split view)
+  - FEATURE: @save the whole @buffer_history
+    - could support @autosave if enabled
+    - ask to save before closing if @autosave is not enabled
+
+  - FEATURE: command to show @diff between buffer versions (maybe even in split view)
       although I can just use the tmux splits for that....
 
-  - optimize parsing the input stream. Currently I read the whole buffer in and
+  - IMPROVEMENT: optimize parsing the input stream. Currently I read the whole buffer in and
     parse it all together, but then I only show a small portion of that, this sucks.
     `git log -p` doesn't work because of that. Potential solutions:
     - parse stream in chunks, don't reparse chunks if they didn't change
     - don't parse further than needed. Although my search command relies on the
       whole input being parsed which sucks, should rework it also
 
-  - option to watch a file/directory for changes and only rerun the command then
+  - FEATURE: option to watch a file/directory for changes and only rerun the command then
     Some use cases for that:
         - lightweight LSP alternative `pageview --watch src/ 'jai src/myprogram.jai'`
         - ?
 
-   - I support running command in shell, so that you can do stuff like
-        `pv "cat /proc/123/stat | tr ' ' '\n'"`
-        although maybe doing simple filters is going to be simple?
+  - FEATURE: doing simple filters is going to be simple?
         Like having an array of simple filters of kind
           - replace all ' ' with '\n' and stuff
           But I don't wanna be supporting regular expressions though
-   - smarter word selection when clicking on text:
+  - IMPROVEMENT: smarter word selection when clicking on text:
       - currently I just use the spaces to determine word boundaries, but it
       would be nice to also use other delimiters like "()[]|,". And maybe even
       some context sensitive stuff:
@@ -2710,11 +2723,11 @@ render_status_line_2 :: () {
 
                 text_start := buffer.count;
                 {
-                    append(*builder, "offset: ");
-                    if !line_wrapping then print(*builder, "%, ", col_offset);
-                    print(*builder, "%", row_offset);
+                    print(*builder, "[%", row_offset);
                     if line_wrapping then print(*builder, "(+%)", wrapped_line_offset);
-                    print(*builder, "/%  ", line_count);
+                    print(*builder, "/%", line_count);
+                    if !line_wrapping && col_offset then print(*builder, " %", col_offset);
+                    append(*builder, "]  ");
                     if stick_to_the_bottom then append(*builder, "sinking   ");
 
                     // Print current input buffer
