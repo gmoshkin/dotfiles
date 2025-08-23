@@ -165,6 +165,7 @@ State :: struct {
         EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN;
         PIPED_INPUT;
         DRAWING_MODE;
+        GAME_OF_LIFE;
         // TODO: FILE;
     }
 
@@ -224,6 +225,26 @@ State :: struct {
     pixel_size: enum {
         TWO_CHARACTERS;
     };
+
+    //
+    // GAME_OF_LIFE
+    //
+    cell_field_history: [..] Cell_Field;
+    current_cell_field_index_in_history: int;
+
+    cell_field_width := 256;
+    cell_field_height := 256;
+
+    cell_field_offset_x: int;
+    cell_field_offset_y: int;
+
+    cell_field_zoom_area_offset_x: int;
+    cell_field_zoom_area_offset_y: int;
+
+    game_of_life_paused: bool;
+    game_of_life_tick_needed: bool;
+    tick_period := 1.0;
+    next_tick_time := 0.0;
 
     //
     // rendering
@@ -543,6 +564,10 @@ main :: () {
             case "--draw";
                 state.main_window_source = .DRAWING_MODE;
 
+            case "-g"; #through;
+            case "--game-of-life";
+                state.main_window_source = .GAME_OF_LIFE;
+
             case "-t"; #through;
             case "--time"; #through;
             case "--time-before-repeat";
@@ -812,6 +837,10 @@ main :: () {
         }
     }
 
+    if state.main_window_source == .GAME_OF_LIFE {
+        init_game_of_life();
+    }
+
     // Initialize @status_line
     status_line_init();
 
@@ -945,6 +974,22 @@ main :: () {
             }
         }
 
+        Profile();
+
+        if main_window_source == .GAME_OF_LIFE {
+            if !game_of_life_paused {
+                while next_tick_time <= frame_time {
+                    next_tick_time += tick_period;
+                    tick_game_of_life();
+                }
+            } else if game_of_life_tick_needed {
+                game_of_life_tick_needed = false;
+                tick_game_of_life();
+            }
+        }
+
+        Profile();
+
         // @scrollbar
         update_scollbar_info(main_window_buffer);
 
@@ -978,6 +1023,9 @@ main :: () {
 
             case .DRAWING_MODE;
                 line_buffer = build_line_buffer_for_pixel_buffer();
+
+            case .GAME_OF_LIFE;
+                line_buffer = build_line_buffer_for_game_of_life();
 
             case .NONE;
         }
@@ -1650,6 +1698,285 @@ build_line_buffer_for_pixel_buffer :: () -> [] string {
         append(*builder, "\n");
 
         array_add(*line_buffer, builder_to_string(*builder,, temp));
+    }
+
+    return line_buffer;
+}
+
+//
+// game of life
+//
+
+Cell_Field :: [..] u8;
+
+init_game_of_life :: () {
+    using context.state;
+
+    // TODO: need to move the pixel rows based on old cell_field_size
+    cell_field_area := cell_field_width * cell_field_height;
+
+    init_cell_field := make_new_cell_field();
+
+    // set_cell(init_cell_field, 0, 0);
+    // set_cell(init_cell_field, 0, 1);
+    // set_cell(init_cell_field, 1, 0);
+    // set_cell(init_cell_field, 1, 1);
+
+/*
+    _ # _
+    _ _ #
+    # # #
+*/
+
+    x, y := 2, 2;
+    set_cell(init_cell_field, x + 0, y + 2);
+    set_cell(init_cell_field, x + 1, y + 0);
+    set_cell(init_cell_field, x + 1, y + 2);
+    set_cell(init_cell_field, x + 2, y + 1);
+    set_cell(init_cell_field, x + 2, y + 2);
+
+/*
+    _ _ #
+    # _ #
+    _ # #
+*/
+    x, y = 10, 10;
+    set_cell(init_cell_field, x + 2, y + 0);
+    set_cell(init_cell_field, x + 0, y + 1);
+    set_cell(init_cell_field, x + 2, y + 1);
+    set_cell(init_cell_field, x + 1, y + 2);
+    set_cell(init_cell_field, x + 2, y + 2);
+}
+
+make_new_cell_field :: () -> Cell_Field {
+    using context.state;
+
+    new_cell_field := array_add(*cell_field_history);
+    current_cell_field_index_in_history = cell_field_history.count - 1;
+
+    cell_field_area := cell_field_width * cell_field_height;
+    array_resize(new_cell_field, cell_field_area);
+    new_cell_field.count = cell_field_area;
+
+    return new_cell_field.*;
+}
+
+current_cell_field :: () -> Cell_Field {
+    using context.state;
+
+    return cell_field_history[current_cell_field_index_in_history];
+}
+
+set_cell :: inline (field: Cell_Field, x: int, y: int, on := true) {
+    using context.state;
+
+    field[cell_field_width * y + x] = xx on;
+}
+
+get_cell_checked :: inline (field: Cell_Field, x: int, y: int) -> bool {
+    using context.state;
+
+    if x < 0 || x >= cell_field_width  return false;
+    if y < 0 || y >= cell_field_height return false;
+    return field[cell_field_width * y + x] != 0;
+}
+
+get_cell :: inline (field: Cell_Field, x: int, y: int) -> bool {
+    using context.state;
+
+    return field[cell_field_width * y + x] != 0;
+}
+
+// GAME_OF_LIFE
+
+tick_game_of_life :: () {
+    using context.state;
+
+    old_cell_field := last(cell_field_history);
+    new_cell_field := make_new_cell_field();
+
+    width := cell_field_width;
+    height := cell_field_height;
+
+    Tick_Cell :: (x: int, y: int, num_live_neighbors: int) #expand {
+        if num_live_neighbors == 3 {
+            set_cell(`new_cell_field, x, y, true);
+        } else if num_live_neighbors == 2 {
+            set_cell(`new_cell_field, x, y, get_cell(`old_cell_field, x, y));
+        } else {
+            set_cell(`new_cell_field, x, y, false);
+        }
+    }
+
+    // top left
+    {
+        x, y := 0, 0;
+        num_live_neighbors := 0;
+        num_live_neighbors += xx get_cell(old_cell_field, x,     y + 1);
+        num_live_neighbors += xx get_cell(old_cell_field, x + 1, y);
+        num_live_neighbors += xx get_cell(old_cell_field, x + 1, y + 1);
+        Tick_Cell(x, y, num_live_neighbors);
+    }
+
+    // top right
+    {
+        x, y := width - 1, 0;
+        num_live_neighbors := 0;
+        num_live_neighbors += xx get_cell(old_cell_field, x,     y + 1);
+        num_live_neighbors += xx get_cell(old_cell_field, x - 1, y);
+        num_live_neighbors += xx get_cell(old_cell_field, x - 1, y + 1);
+        Tick_Cell(x, y, num_live_neighbors);
+    }
+
+    // bottom left
+    {
+        x, y := 0, height - 1;
+        num_live_neighbors := 0;
+        num_live_neighbors += xx get_cell(old_cell_field, x,     y - 1);
+        num_live_neighbors += xx get_cell(old_cell_field, x + 1, y);
+        num_live_neighbors += xx get_cell(old_cell_field, x + 1, y - 1);
+        Tick_Cell(x, y, num_live_neighbors);
+    }
+
+    // bottom right
+    {
+        x, y := width - 1, height - 1;
+        num_live_neighbors := 0;
+        num_live_neighbors += xx get_cell(old_cell_field, x,     y - 1);
+        num_live_neighbors += xx get_cell(old_cell_field, x - 1, y);
+        num_live_neighbors += xx get_cell(old_cell_field, x - 1, y - 1);
+        Tick_Cell(x, y, num_live_neighbors);
+    }
+
+    // topmost row
+    {
+        y := 0;
+        for x: 1..width-2 {
+            num_live_neighbors := 0;
+            num_live_neighbors += xx get_cell(old_cell_field, x - 1, y);
+            num_live_neighbors += xx get_cell(old_cell_field, x - 1, y + 1);
+            num_live_neighbors += xx get_cell(old_cell_field, x,     y + 1);
+            num_live_neighbors += xx get_cell(old_cell_field, x + 1, y + 1);
+            num_live_neighbors += xx get_cell(old_cell_field, x + 1, y);
+            Tick_Cell(x, y, num_live_neighbors);
+        }
+    }
+
+    // bottommost row
+    {
+        y := height - 1;
+        for x: 1..width-2 {
+            num_live_neighbors := 0;
+            num_live_neighbors += xx get_cell(old_cell_field, x - 1, y);
+            num_live_neighbors += xx get_cell(old_cell_field, x - 1, y - 1);
+            num_live_neighbors += xx get_cell(old_cell_field, x,     y - 1);
+            num_live_neighbors += xx get_cell(old_cell_field, x + 1, y - 1);
+            num_live_neighbors += xx get_cell(old_cell_field, x + 1, y);
+            Tick_Cell(x, y, num_live_neighbors);
+        }
+    }
+
+    // leftmost column
+    {
+        x := 0;
+        for y: 1..height-2 {
+            num_live_neighbors := 0;
+            num_live_neighbors += xx get_cell(old_cell_field, x,     y - 1);
+            num_live_neighbors += xx get_cell(old_cell_field, x + 1, y - 1);
+            num_live_neighbors += xx get_cell(old_cell_field, x + 1, y);
+            num_live_neighbors += xx get_cell(old_cell_field, x + 1, y + 1);
+            num_live_neighbors += xx get_cell(old_cell_field, x,     y + 1);
+            Tick_Cell(x, y, num_live_neighbors);
+        }
+    }
+
+    // rightmost column
+    {
+        x := width - 1;
+        for y: 1..height-2 {
+            num_live_neighbors := 0;
+            num_live_neighbors += xx get_cell(old_cell_field, x,     y - 1);
+            num_live_neighbors += xx get_cell(old_cell_field, x - 1, y - 1);
+            num_live_neighbors += xx get_cell(old_cell_field, x - 1, y);
+            num_live_neighbors += xx get_cell(old_cell_field, x - 1, y + 1);
+            num_live_neighbors += xx get_cell(old_cell_field, x,     y + 1);
+            Tick_Cell(x, y, num_live_neighbors);
+        }
+    }
+
+    for x: 1..cell_field_width-2 {
+        for y: 1..cell_field_width-2 {
+            num_live_neighbors := 0;
+            num_live_neighbors += xx get_cell(old_cell_field, x - 1, y - 1);
+            num_live_neighbors += xx get_cell(old_cell_field, x,     y - 1);
+            num_live_neighbors += xx get_cell(old_cell_field, x + 1, y - 1);
+            num_live_neighbors += xx get_cell(old_cell_field, x + 1, y);
+            num_live_neighbors += xx get_cell(old_cell_field, x + 1, y + 1);
+            num_live_neighbors += xx get_cell(old_cell_field, x,     y + 1);
+            num_live_neighbors += xx get_cell(old_cell_field, x - 1, y + 1);
+            num_live_neighbors += xx get_cell(old_cell_field, x - 1, y);
+            Tick_Cell(x, y, num_live_neighbors);
+        }
+    }
+}
+
+// GAME_OF_LIFE
+
+build_line_buffer_for_game_of_life :: () -> [] string {
+    using context.state;
+
+    line_buffer: [..] string;
+    line_buffer.allocator = temp;
+    array_reserve(*line_buffer, main_window_height);
+
+    cell_field := current_cell_field();
+
+    zoom_area_height := cast(u16, main_window_height);
+    zoom_area_pixels := zoom_area_height;
+    zoom_area_width := zoom_area_height * 2; // because 2 chars per pixel
+    unzoomed_width := terminal_size.cols - zoom_area_width;
+
+    for row: 0..main_window_height - 1 {
+        owned_builder: String_Builder;
+        builder := *owned_builder;
+        builder.allocator = temp;
+
+        for col : 0..unzoomed_width - 1 {
+            x := col * 2 - cell_field_offset_x;
+            y := row * 4 - cell_field_offset_y;
+
+            braille: Braille_Pixels;
+            if get_cell_checked(cell_field, x,     y)     braille |= ._0_0;
+            if get_cell_checked(cell_field, x + 1, y)     braille |= ._1_0;
+            if get_cell_checked(cell_field, x    , y + 1) braille |= ._0_1;
+            if get_cell_checked(cell_field, x + 1, y + 1) braille |= ._1_1;
+            if get_cell_checked(cell_field, x    , y + 2) braille |= ._0_2;
+            if get_cell_checked(cell_field, x + 1, y + 2) braille |= ._1_2;
+            if get_cell_checked(cell_field, x    , y + 3) braille |= ._0_3;
+            if get_cell_checked(cell_field, x + 1, y + 3) braille |= ._1_3;
+
+            if braille {
+                print_braille(builder, braille);
+            } else {
+                append(builder, " ");
+            }
+        }
+
+        for col_ofs: 0..zoom_area_pixels - 1 {
+            x := col_ofs - cell_field_zoom_area_offset_x;
+            y := row - cell_field_zoom_area_offset_y;
+
+            if get_cell_checked(cell_field, x, y) {
+                append(builder, "\e[47m  ");
+            } else {
+                append(builder, "\e[48;5;232m  ");
+            }
+        }
+
+        append(builder, "\e[0m");
+        append(builder, "\n");
+
+        array_add(*line_buffer, builder_to_string(builder,, temp));
     }
 
     return line_buffer;
@@ -2555,6 +2882,21 @@ render_status_line_1_left_side :: (builder: *String_Builder) {
                 append(builder, widget[t % widget.count]);
             }
         }
+        case .GAME_OF_LIFE; {
+            append(builder, "\e[2;37m"); // color gray (dark white)
+            print(builder, "ofs: [% %]", cell_field_offset_x, cell_field_offset_y);
+            append(builder, "  ");
+            print(builder, "zoomed ofs: [% %]", cell_field_zoom_area_offset_x, cell_field_zoom_area_offset_y);
+
+            append(builder, "    ");
+            append(builder, "\e[0m");
+            append(builder, "\e[37m"); // color white
+            if game_of_life_paused {
+                append(builder, "pause");
+            } else {
+                append(builder, "play");
+            }
+        }
     }
 }
 
@@ -2573,6 +2915,24 @@ render_status_line_1_right_side :: (outer_builder: *String_Builder) {
 
     {
         // buffer number in history
+        if main_window_source == .GAME_OF_LIFE
+        {
+            builder: String_Builder;
+            builder.allocator = temp;
+
+            append(*builder, "\e[2;37m"); // color gray (dark white)
+            curr := current_cell_field_index_in_history + 1;
+            max := cell_field_history.count;
+
+            if curr == max {
+                print(*builder, "#%", max);
+            } else {
+                print(*builder, "#%/%", curr, max);
+            }
+            append(*builder, "\e[0m");
+            buffer_number_in_history = builder_to_string(*builder,, temp);
+        }
+        else
         {
             builder: String_Builder;
             builder.allocator = temp;
@@ -3663,6 +4023,76 @@ handle_input_event :: (_event: Input_Event) {
                     if event.char == {
                         case #char ";"; switch_to_command_line_mode();
                     }
+                }
+        }
+
+        return;
+    }
+
+    if main_window_source == .GAME_OF_LIFE { // @input
+        width := cell_field_width;
+        height := cell_field_height;
+        // WRONG: mouse_x := (mouse_position.column - 1) / 2;
+        mouse_y := (mouse_position.row - 1) - 2; // `- 2` for :2_status_lines
+
+        // TODO: this is wrong :(
+        // if event.kind == {
+        //     case .MOUSE_LEFT_DRAG; #through;
+        //     case .MOUSE_LEFT_DOWN;
+        //         field := current_cell_field();
+        //         if mouse_x >= 0 && mouse_x < cell_field_width {
+        //             set_cell
+        //         }
+        //         if pixel_index >= 0 && pixel_index < pixel_buffer.count {
+        //             pixel_buffer[pixel_index] = current_pixel_fg;
+        //         }
+        // }
+
+        if input_mode == {
+            case .INPUT_COMMAND;
+                handle_input_event_in_input_command_mode(event);
+
+            case .NAVIGATE;
+                if (event.kind == .CHARACTER) && (event.char == #char "q") {
+                    should_exit = true;
+                }
+
+                if event.kind == .CHARACTER {
+                    if event.char == {
+                        case #char ";"; switch_to_command_line_mode();
+
+                        case #char "f";
+                            if current_cell_field_index_in_history < cell_field_history.count - 1 {
+                                current_cell_field_index_in_history += 1;
+                            } else {
+                                game_of_life_tick_needed = true;
+                            }
+                        case #char "b";
+                            if current_cell_field_index_in_history > 0 {
+                                game_of_life_paused = true;
+                                current_cell_field_index_in_history -= 1;
+                            }
+
+                        case #char "p";
+                            game_of_life_paused = !game_of_life_paused;
+                            if !game_of_life_paused {
+                                next_tick_time = xx (frame_time + tick_period);
+                            }
+                    }
+                }
+
+                if event.kind == {
+                    case .KEY_LEFT;  if event.modifiers & .CONTROL then cell_field_zoom_area_offset_x -= 1;
+                                                                   else cell_field_offset_x -= 1;
+
+                    case .KEY_RIGHT; if event.modifiers & .CONTROL then cell_field_zoom_area_offset_x += 1;
+                                                                   else cell_field_offset_x += 1;
+
+                    case .KEY_UP;    if event.modifiers & .CONTROL then cell_field_zoom_area_offset_y -= 1;
+                                                                   else cell_field_offset_y -= 1;
+
+                    case .KEY_DOWN;  if event.modifiers & .CONTROL then cell_field_zoom_area_offset_y += 1;
+                                                                   else cell_field_offset_y += 1;
                 }
         }
 
@@ -4792,6 +5222,10 @@ change_external_command_rerun_period :: (new_period: float32) -> (ok: bool, erro
     old_period := external_command_run_period_seconds;
     external_command_run_period_seconds = new_period;
     external_command_backoff_multiplier = 1.0;
+
+    old_tick_period := new_period;
+    tick_period = new_period;
+    next_tick_time += new_period - old_tick_period;
 
     time_next_command_run += new_period - old_period;
 
