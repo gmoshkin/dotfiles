@@ -344,7 +344,11 @@ BUILD_DATE_DAY :: %;
 
             if phase == .READY_FOR_CUSTOM_LINK_COMMAND {
                 #if OS == .LINUX {
-                    run_link_command_on_linux_with_musl(message);
+                    ok := run_link_command_on_linux_with_musl(message);
+                    if !ok {
+                        compilation_success = false;
+                        break;
+                    }
                 }
 
                 #if OS == .WINDOWS {
@@ -361,7 +365,7 @@ BUILD_DATE_DAY :: %;
     return compilation_success;
 }
 
-run_link_command_on_linux_with_musl :: (using message: *Message_Phase) {
+run_link_command_on_linux_with_musl :: (using message: *Message_Phase) -> bool {
     assert(phase == .READY_FOR_CUSTOM_LINK_COMMAND, "%", phase);
 
     compiler_path := get_path_of_running_executable();
@@ -400,7 +404,10 @@ run_link_command_on_linux_with_musl :: (using message: *Message_Phase) {
 
     if process_result.exit_code != 0 {
         print("Error: Link step failed! (Exit code %)\n", process_result.exit_code);
+        return false;
     }
+
+    return true;
 }
 
 #if OS == .WINDOWS
