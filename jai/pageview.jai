@@ -1008,7 +1008,9 @@ main :: () {
 
         main_window_redraw_needed := input_received_this_tick
             || window_size_changed_this_tick
-            || (main_window_buffer_changed_this_tick && current_shown_buffer_index == main_window_buffer_history.count - 1);
+            || (main_window_buffer_changed_this_tick && current_shown_buffer_index == main_window_buffer_history.count - 1)
+            || search.flags & .UNFINISHED
+            ;
 
         line_buffer: [] string; // temporary storage
         if #complete main_window_source == {
