@@ -336,7 +336,7 @@ Cell_Position :: struct {
 Pixel_Value :: struct {
     type: enum {
         RGB;
-        COLOR_256;
+        COLOR_8BIT;
     };
     union {
         using _rgb: struct {
@@ -344,7 +344,7 @@ Pixel_Value :: struct {
             g: u8;
             b: u8;
         };
-        _256: Color_256;
+        _8bit: Color_8bit;
     };
 
     rgb :: (r: u8, g: u8, b: u8) -> Pixel_Value {
@@ -359,8 +359,8 @@ Pixel_Value :: struct {
 
     id :: (id: u8) -> Pixel_Value {
         res: Pixel_Value;
-        res.type = .COLOR_256;
-        res._256 = xx id;
+        res.type = .COLOR_8BIT;
+        res._8bit = xx id;
 
         return res;
     }
@@ -370,12 +370,12 @@ print_pixel_value :: (builder: *String_Builder, using v: Pixel_Value, $fg := fal
     #if fg {
         if type == {
             case .RGB;          print(builder, "\e[38;2;%;%;%m", r, g, b);
-            case .COLOR_256;    print(builder, "\e[38;5;%m", cast(u8) _256);
+            case .COLOR_8BIT;    print(builder, "\e[38;5;%m", cast(u8) _8bit);
         }
     } else {
         if type == {
             case .RGB;          print(builder, "\e[48;2;%;%;%m", r, g, b);
-            case .COLOR_256;    print(builder, "\e[48;5;%m", cast(u8) _256);
+            case .COLOR_8BIT;    print(builder, "\e[48;5;%m", cast(u8) _8bit);
         }
     }
 }
@@ -385,8 +385,8 @@ get_red :: (using v: Pixel_Value) -> u8 {
         case .RGB;
             return r;
 
-        case .COLOR_256;
-            if _256 == {
+        case .COLOR_8BIT;
+            if _8bit == {
                 case .RED;          return 0xdd;
                 case .BRIGHT_RED;   return 0xff;
                 case .GRAY_1;       return 11;
@@ -413,11 +413,11 @@ get_red :: (using v: Pixel_Value) -> u8 {
                 case .GRAY_22;      return 244;
                 case .GRAY_23;      return 255;
             }
-            if _256 >= .RGB_1_0_0 && _256 <= .RGB_1_5_5 return 1 * 0x33;
-            if _256 >= .RGB_2_0_0 && _256 <= .RGB_2_5_5 return 2 * 0x33;
-            if _256 >= .RGB_3_0_0 && _256 <= .RGB_3_5_5 return 3 * 0x33;
-            if _256 >= .RGB_4_0_0 && _256 <= .RGB_4_5_5 return 4 * 0x33;
-            if _256 >= .RGB_5_0_0 && _256 <= .RGB_5_5_5 return 5 * 0x33;
+            if _8bit >= .RGB_1_0_0 && _8bit <= .RGB_1_5_5 return 1 * 0x33;
+            if _8bit >= .RGB_2_0_0 && _8bit <= .RGB_2_5_5 return 2 * 0x33;
+            if _8bit >= .RGB_3_0_0 && _8bit <= .RGB_3_5_5 return 3 * 0x33;
+            if _8bit >= .RGB_4_0_0 && _8bit <= .RGB_4_5_5 return 4 * 0x33;
+            if _8bit >= .RGB_5_0_0 && _8bit <= .RGB_5_5_5 return 5 * 0x33;
     }
 
     return 0;
@@ -5465,8 +5465,8 @@ set_current_pixel_fg_rgb :: (r: u8, g: u8, b: u8) -> (ok := true, error_message 
 set_current_pixel_fg_256 :: (number: u8) -> (ok := true, error_message := "") {
     using context.state;
 
-    current_pixel_fg.type = .COLOR_256;
-    current_pixel_fg._256 = xx number;
+    current_pixel_fg.type = .COLOR_8BIT;
+    current_pixel_fg._8bit = xx number;
 
     return;
 }
@@ -5485,8 +5485,8 @@ set_current_pixel_bg_rgb :: (r: u8, g: u8, b: u8) -> (ok := true, error_message 
 set_current_pixel_bg_256 :: (number: u8) -> (ok := true, error_message := "") {
     using context.state;
 
-    current_pixel_bg.type = .COLOR_256;
-    current_pixel_bg._256 = xx number;
+    current_pixel_bg.type = .COLOR_8BIT;
+    current_pixel_bg._8bit = xx number;
 
     return;
 }
@@ -6240,11 +6240,11 @@ show_version_banner :: (builder: *String_Builder) {
 //
 
 Attribute_Info :: struct {
-    offset_in_line: s16;
     type: Attribute_Type;
     union {
         small_style: Small_Style;
         color_24bit: Color_24bit;
+        char: u8;
     }
 }
 
@@ -6252,17 +6252,14 @@ Attribute_Type :: enum u8 {
     UNKNOWN;
     SMALL_STYLE;
     COLOR_24BIT;
+    NON_PRINTABLE_CHAR;
     TAB;
 }
 
 Small_Style :: struct {
-    fg_color: Color_256;
-    bg_color: Color_256;
+    fg_color: Color_8bit;
+    bg_color: Color_8bit;
     attributes: Style_Attributes;
-    flags: enum_flags u8 {
-        FG;
-        BG;
-    }
 }
 #assert size_of(Small_Style) == 4;
 
@@ -6270,7 +6267,7 @@ Color_24bit :: struct {
     r: u8;
     g: u8;
     b: u8;
-    flags: enum_flags u8 {
+    flags: enum u8 {
         BACKGROUND :: 0;
         FOREGROUND :: 1;
     }
@@ -6278,9 +6275,70 @@ Color_24bit :: struct {
 #assert size_of(Color_24bit) == 4;
 
 Style :: struct {
-    fg_color: Vector4;
-    bg_color: Vector4;
+    union {
+        fg_8bit: Color_8bit;
+        fg_24bit: Color_24bit;
+    }
+    union {
+        bg_8bit: Color_8bit;
+        bg_24bit: Color_24bit;
+    }
+    flags: Flags;
     attributes: Style_Attributes;
+
+    Flags :: enum_flags {
+        FG_24BIT    :: 1 << 0;
+        FG_DEFAULT  :: 1 << 1;
+        FG_NOT_8BIT :: FG_24BIT | FG_DEFAULT;
+        BG_24BIT    :: 1 << 2;
+        BG_DEFAULT  :: 1 << 3;
+        BG_NOT_8BIT :: BG_24BIT | BG_DEFAULT;
+    };
+}
+#assert size_of(Style) == 10;
+
+is_default :: inline (using style: Style) {
+    return (flags & .FG_DEFAULT) && (flags & .BG_DEFAULT) && (attributes == 0);
+}
+
+equals :: inline (a: Style, b: Style) -> bool {
+    if a.attributes != b.attributes return false;
+
+    if a.flags & .FG_DEFAULT {
+        if !(b.flags & .FG_DEFAULT) return false;
+    } else if a.flags & .FG_24BIT {
+        if !(b.flags & .FG_24BIT) return false;
+        assert(!(b.flags & .FG_DEFAULT));
+        if a.fg_24bit.r != b.fg_24bit.r return false;
+        if a.fg_24bit.g != b.fg_24bit.g return false;
+        if a.fg_24bit.b != b.fg_24bit.b return false;
+    } else /* a fg 8bit */ {
+        if b.flags & .FG_NOT_8BIT return false;
+        if a.fg_8bit != b.fg_8bit return false;
+    }
+
+    if a.flags & .BG_DEFAULT {
+        if !(b.flags & .BG_DEFAULT) return false;
+    } else if a.flags & .BG_24BIT {
+        if !(b.flags & .BG_24BIT) return false;
+        assert(!(b.flags & .BG_DEFAULT));
+        if a.bg_24bit.r != b.bg_24bit.r return false;
+        if a.bg_24bit.g != b.bg_24bit.g return false;
+        if a.bg_24bit.b != b.bg_24bit.b return false;
+    } else /* a bg 8bit */ {
+        if b.flags & .BG_NOT_8BIT return false;
+        if a.bg_8bit != b.bg_8bit return false;
+    }
+
+    return true;
+}
+
+normalize :: inline (flags: Style.Flags) -> Style.Flags {
+    if !(flags & .FG_24BIT) && !(flags & .BG_24BIT) return flags;
+    result := flags;
+    if flags & .FG_DEFAULT then result &= ~.FG_24BIT;
+    if flags & .BG_DEFAULT then result &= ~.BG_24BIT;
+    return result;
 }
 
 Style_Attributes :: enum_flags u8 { BOLD; FAINT; ITALIC; UNDERLINE; BLINKING; INVERSE; HIDDEN; STRIKETHROUGH; };
@@ -6293,6 +6351,20 @@ Small_Escape_Sequence :: struct {
 }
 #assert size_of(Small_Escape_Sequence) == 8;
 
+make_small_escape_sequence :: inline (command: u8, arguments: .. u8) -> Small_Escape_Sequence {
+    assert(arguments.count <= 6, "%", arguments);
+    result: Small_Escape_Sequence;
+    result.command_letter = command;
+    result.argument_count = arguments.count;
+    memcpy(result.arguments.data, arguments.data, arguments.count);
+    return result;
+}
+
+make_small_escape_sequence :: inline ($command: string, arguments: .. u8) -> Small_Escape_Sequence {
+    #assert command.count == 1;
+    return make_small_escape_sequence(command[0], arguments);
+}
+
 print :: (builder: *String_Builder, sequence: Small_Escape_Sequence) {
     append(builder, sequence.command_letter);
     append(builder, "(");
@@ -6304,86 +6376,119 @@ print :: (builder: *String_Builder, sequence: Small_Escape_Sequence) {
     append(builder, ")");
 }
 
-evaluate_style_sequence :: (using sequence: Small_Escape_Sequence, using style: *Style, fg_default := Vector4.{}, bg_default := Vector4.{}) {
-    if command_letter != #char "m" return;
+evaluate_style_sequence :: (using sequence: Small_Escape_Sequence, style: Style) -> Style {
+    if command_letter != #char "m" return style;
+    res := style;
 
-    i := 0;
-    while i < argument_count {
-        command := cast(Ansi_Style_Command) arguments[i];
+    cursor := 0;
+    while cursor < argument_count {
+        command := cast(Ansi_Style_Command) arguments[cursor];
+        cursor += 1;
         if command == {
-            // case .RESET_ALL;
-            //     fg_color = fg_default;
-            //     bg_color = bg_default;
-            //     attributes = xx 0;
-            // case .BOLD_ON;          attributes |= .BOLD;
-            // case .FAINT_ON;         attributes |= .FAINT;
-            // case .ITALIC_ON;        attributes |= .ITALIC;
-            // case .UNDERLINE_ON;     attributes |= .UNDERLINE;
-            // case .BLINKING_ON;      attributes |= .BLINKING;
-            // case .INVERSE_ON;       attributes |= .INVERSE;
-            // case .HIDDEN_ON;        attributes |= .HIDDEN;
-            // case .STRIKETHROUGH_ON; attributes |= .STRIKETHROUGH;
+            case .RESET_ALL;
+                res.flags = .FG_DEFAULT | .BG_DEFAULT;
+                res.attributes = 0;
+            case .BOLD_ON;          res.attributes |= .BOLD;
+            case .FAINT_ON;         res.attributes |= .FAINT;
+            case .ITALIC_ON;        res.attributes |= .ITALIC;
+            case .UNDERLINE_ON;     res.attributes |= .UNDERLINE;
+            case .BLINKING_ON;      res.attributes |= .BLINKING;
+            case .INVERSE_ON;       res.attributes |= .INVERSE;
+            case .HIDDEN_ON;        res.attributes |= .HIDDEN;
+            case .STRIKETHROUGH_ON; res.attributes |= .STRIKETHROUGH;
 
-            // case .BOLD_FAINT_OFF;    attributes &= ~(.BOLD | .FAINT);
-            // case .ITALIC_OFF;        attributes &= ~.ITALIC;
-            // case .UNDERLINE_OFF;     attributes &= ~.UNDERLINE;
-            // case .BLINKING_OFF;      attributes &= ~.BLINKING;
-            // case .INVERSE_OFF;       attributes &= ~.INVERSE;
-            // case .HIDDEN_OFF;        attributes &= ~.HIDDEN;
-            // case .STRIKETHROUGH_OFF; attributes &= ~.STRIKETHROUGH;
+            case .BOLD_FAINT_OFF;    res.attributes &= ~(.BOLD | .FAINT);
+            case .ITALIC_OFF;        res.attributes &= ~.ITALIC;
+            case .UNDERLINE_OFF;     res.attributes &= ~.UNDERLINE;
+            case .BLINKING_OFF;      res.attributes &= ~.BLINKING;
+            case .INVERSE_OFF;       res.attributes &= ~.INVERSE;
+            case .HIDDEN_OFF;        res.attributes &= ~.HIDDEN;
+            case .STRIKETHROUGH_OFF; res.attributes &= ~.STRIKETHROUGH;
 
-            // case .FG_BLACK;   fg_color = color_black;
-            // case .FG_RED;     fg_color = color_red;
-            // case .FG_GREEN;   fg_color = color_green;
-            // case .FG_YELLOW;  fg_color = color_yellow;
-            // case .FG_BLUE;    fg_color = color_blue;
-            // case .FG_MAGENTA; fg_color = color_magenta;
-            // case .FG_CYAN;    fg_color = color_cyan;
-            // case .FG_WHITE;   fg_color = color_white;
-            // case .FG_COLOR;   log_error("command 38 not implemented yet"); return;
-            //     // TODO
-            //     // - 2;{r};{g};{b}
-            //     // - 5;{id}
-            // case .FG_DEFAULT; fg_color = fg_default;
+            case .FG_BLACK;   res.fg_8bit = .BLACK;     res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_RED;     res.fg_8bit = .RED;       res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_GREEN;   res.fg_8bit = .GREEN;     res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_YELLOW;  res.fg_8bit = .YELLOW;    res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_BLUE;    res.fg_8bit = .BLUE;      res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_MAGENTA; res.fg_8bit = .MAGENTA;   res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_CYAN;    res.fg_8bit = .CYAN;      res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_WHITE;   res.fg_8bit = .WHITE;     res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_COLOR;
+                if cursor == argument_count break;
+                variant := arguments[cursor];
+                if variant == {
+                case 2;
+                    if cursor + 3 >= argument_count break;
+                    res.fg_24bit.r := arguments[cursor + 1];
+                    res.fg_24bit.g := arguments[cursor + 2];
+                    res.fg_24bit.b := arguments[cursor + 3];
+                    res.flags &= ~.FG_DEFAULT;
+                    res.flags |= .FG_24BIT;
+                    cursor += 4;
+                case 5;
+                    if cursor + 1 >= argument_count break;
+                    res.fg_8bit = xx arguments[cursor + 1];
+                    res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+                    cursor += 2;
+                case;
+                    continue;
+                }
+            case .FG_DEFAULT; res.flags |= .FG_DEFAULT; res.flags &= ~(.FG_24BIT);
 
-            // case .BG_BLACK;   bg_color = color_black;
-            // case .BG_RED;     bg_color = color_red;
-            // case .BG_GREEN;   bg_color = color_green;
-            // case .BG_YELLOW;  bg_color = color_yellow;
-            // case .BG_BLUE;    bg_color = color_blue;
-            // case .BG_MAGENTA; bg_color = color_magenta;
-            // case .BG_CYAN;    bg_color = color_cyan;
-            // case .BG_WHITE;   bg_color = color_white;
-            // case .BG_COLOR;   log_error_once("command 48 not implemented yet"); return;
-            //     // TODO
-            //     // - 2;{r};{g};{b}
-            //     // - 5;{id}
-            // case .BG_DEFAULT; bg_color = fg_default;
+            case .BG_BLACK;   res.bg_8bit = .BLACK;     res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_RED;     res.bg_8bit = .RED;       res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_GREEN;   res.bg_8bit = .GREEN;     res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_YELLOW;  res.bg_8bit = .YELLOW;    res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_BLUE;    res.bg_8bit = .BLUE;      res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_MAGENTA; res.bg_8bit = .MAGENTA;   res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_CYAN;    res.bg_8bit = .CYAN;      res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_WHITE;   res.bg_8bit = .WHITE;     res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_COLOR;
+                if cursor == argument_count break;
+                variant := arguments[cursor];
+                if variant == {
+                case 2;
+                    if cursor + 3 >= argument_count break;
+                    res.bg_24bit.r := arguments[cursor + 1];
+                    res.bg_24bit.g := arguments[cursor + 2];
+                    res.bg_24bit.b := arguments[cursor + 3];
+                    res.flags &= ~.BG_DEFAULT;
+                    res.flags |= .BG_24BIT;
+                    cursor += 4;
+                case 5;
+                    if cursor + 1 >= argument_count break;
+                    res.fg_8bit = xx arguments[cursor + 1];
+                    res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+                    cursor += 2;
+                case;
+                    continue;
+                }
+            case .BG_DEFAULT; res.flags |= .BG_DEFAULT; res.flags &= ~(.BG_24BIT);
 
-            // case .FG_BRIGHT_BLACK;   fg_color = color_gray;
-            // case .FG_BRIGHT_RED;     fg_color = color_red;     log_error_once("bright colors not supported yet");
-            // case .FG_BRIGHT_GREEN;   fg_color = color_green;   log_error_once("bright colors not supported yet");
-            // case .FG_BRIGHT_YELLOW;  fg_color = color_yellow;  log_error_once("bright colors not supported yet");
-            // case .FG_BRIGHT_BLUE;    fg_color = color_blue;    log_error_once("bright colors not supported yet");
-            // case .FG_BRIGHT_MAGENTA; fg_color = color_magenta; log_error_once("bright colors not supported yet");
-            // case .FG_BRIGHT_CYAN;    fg_color = color_cyan;    log_error_once("bright colors not supported yet");
-            // case .FG_BRIGHT_WHITE;   fg_color = color_white;   log_error_once("bright colors not supported yet");
+            case .FG_BRIGHT_BLACK;   res.fg_8bit = .FG_BRIGHT_BLACK;     res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_BRIGHT_RED;     res.fg_8bit = .FG_BRIGHT_RED;       res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_BRIGHT_GREEN;   res.fg_8bit = .FG_BRIGHT_GREEN;     res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_BRIGHT_YELLOW;  res.fg_8bit = .FG_BRIGHT_YELLOW;    res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_BRIGHT_BLUE;    res.fg_8bit = .FG_BRIGHT_BLUE;      res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_BRIGHT_MAGENTA; res.fg_8bit = .FG_BRIGHT_MAGENTA;   res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_BRIGHT_CYAN;    res.fg_8bit = .FG_BRIGHT_CYAN;      res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_BRIGHT_WHITE;   res.fg_8bit = .FG_BRIGHT_WHITE;     res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
 
-            // case .BG_BRIGHT_BLACK;   bg_color = color_gray;
-            // case .BG_BRIGHT_RED;     bg_color = color_red;     log_error_once("bright colors not supported yet");
-            // case .BG_BRIGHT_GREEN;   bg_color = color_green;   log_error_once("bright colors not supported yet");
-            // case .BG_BRIGHT_YELLOW;  bg_color = color_yellow;  log_error_once("bright colors not supported yet");
-            // case .BG_BRIGHT_BLUE;    bg_color = color_blue;    log_error_once("bright colors not supported yet");
-            // case .BG_BRIGHT_MAGENTA; bg_color = color_magenta; log_error_once("bright colors not supported yet");
-            // case .BG_BRIGHT_CYAN;    bg_color = color_cyan;    log_error_once("bright colors not supported yet");
-            // case .BG_BRIGHT_WHITE;   bg_color = color_white;   log_error_once("bright colors not supported yet");
-            // case; log_error("unknown command: %", command);
+            case .BG_BRIGHT_BLACK;   res.bg_8bit = .BG_BRIGHT_BLACK;     res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_BRIGHT_RED;     res.bg_8bit = .BG_BRIGHT_RED;       res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_BRIGHT_GREEN;   res.bg_8bit = .BG_BRIGHT_GREEN;     res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_BRIGHT_YELLOW;  res.bg_8bit = .BG_BRIGHT_YELLOW;    res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_BRIGHT_BLUE;    res.bg_8bit = .BG_BRIGHT_BLUE;      res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_BRIGHT_MAGENTA; res.bg_8bit = .BG_BRIGHT_MAGENTA;   res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_BRIGHT_CYAN;    res.bg_8bit = .BG_BRIGHT_CYAN;      res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_BRIGHT_WHITE;   res.bg_8bit = .BG_BRIGHT_WHITE;     res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+
+            case; log_error("unknown command: %", command);
         }
-        i += 1;
     }
 }
 
-parse_escape_sequence :: (s: string) -> Small_Escape_Sequence, bool {
+parse_escape_sequence :: (s: string) -> Small_Escape_Sequence, bool, offset: int {
     if s.count < 3 return .{}, false;
     if s[0] != #char "\e" return .{}, false;
     if s[1] != #char "[" return .{}, false;
@@ -6393,6 +6498,8 @@ parse_escape_sequence :: (s: string) -> Small_Escape_Sequence, bool {
     parsing_number := false;
     while cursor < s.count {
         c := s[cursor];
+        cursor += 1;
+
         if inline is_alpha(c) {
             if parsing_number then result.argument_count += 1;
             result.command_letter = c;
@@ -6407,11 +6514,10 @@ parse_escape_sequence :: (s: string) -> Small_Escape_Sequence, bool {
                 parsing_number = false;
             }
         }
-        cursor += 1;
     }
 
     assert(result.command_letter != 0);
-    return result, true;
+    return result, true, cursor;
 }
 
 // The first number after `\e[` in a sequence ending with `m`
@@ -6480,8 +6586,8 @@ Ansi_Style_Command :: enum {
     BG_BRIGHT_WHITE   :: 107;
 }
 
-// These are used in `\e[38;5;{Color_256}` command
-Color_256 :: enum u8 {
+// These are used in `\e[38;5;{Color_8bit}` command
+Color_8bit :: enum u8 {
 
     TRANSPARENT    :: 0;
     RED            :: 1;
@@ -6807,6 +6913,11 @@ last :: inline (array: [] $T) -> T {
     return array[array.count - 1];
 }
 
+last :: inline (array: *[] $T) -> *T {
+    if array.*.count == 0 return null;
+    return *array.*[array.*.count - 1];
+}
+
 last :: inline (s: string) -> u8 {
     return s[s.count - 1];
 }
@@ -7112,6 +7223,266 @@ test_print_braille :: () {
     print("%\n", s);
 }
 
+test_parse_shit :: () {
+    log("cwd: %\n", get_working_directory());
+    data, ok := my_read_entire_file("test.data");
+    if !ok {
+        code, message := get_error_value_and_string();
+        log("FAIL: % %", code, message);
+        assert(ok);
+    }
+
+    parser: Parse_State;
+    parser.raw_text = data;
+    parse_text_with_control_codes(*parser);
+
+    assert(data.count == 1, "%", data.count);
+}
+
+Parse_State :: struct {
+    raw_text: string;
+    only_text_storage: [..] u8;
+    parsed_up_to: int;
+
+    flags: enum { DIFF_MARKERS; };
+
+    line_offsets: [..] u32;
+    attribute_ranges: [..] Attribute_Range;
+
+    diff_markers: [..] Range;
+}
+
+Attribute_Range :: struct {
+    offset_in_only_text: u32;
+    range_count: u32;
+    union {
+        small_style: Small_Style;
+        color_24bit: Color_24bit;
+        index_in_storage: u32;
+    };
+    type: enum { SMALL_STYLE; COLOR_24BIT; IN_STORAGE; };
+}
+
+parse_text_with_control_codes :: (parser: *Parse_State) {
+    using parser;
+
+    unparsed_tail := raw_text;
+
+    if parsed_up_to == 0 {
+        // This is kinda retarded, but actually makes sense if you think about it
+        array_add(*line_offsets, 0);
+    } else {
+        unparsed_tail = advance(raw_text, parsed_up_to);
+    }
+
+    array_reserve(*only_text_storage, raw_text.count);
+
+    current_style: Style;
+
+    while !should_exit {
+        found:, line:, unparsed_tail = split_from_left(unparsed_tail, #char "\n");
+
+        auto_release_temp();
+
+        escape_sequences_in_line: [..] Small_Escape_Sequence_In_Text;
+        escape_sequences_in_line.allocator = temp;
+
+        current_backspace_sequence: Ansi_Style_Command;
+
+        cursor := 0;
+        while cursor < line.count {
+            c := line[cursor];
+            // Continue or start a new stupid fucking backspace sequence conversion
+            if c == #char "\x08" {
+                cursor += 1; // consume the '\x08'
+                if !only_text_storage {
+                    continue;
+                }
+                if cursor == line.count {
+                    break;
+                }
+
+                // Here we're handling the ancient hacks from back in the day
+                // when consoles would print on actual paper. The hack was to
+                // output something like `B\bBO\bOL\bLD\bD` which would result
+                // in `BOLD` being printed in bold-ish style, because the
+                // carriage would physically stamp the same letter twice. And
+                // also `_\bU_\bN_\bD_\bE_\bR` would become underlined `UNDER`.
+                // So basically `man` is still using these hacks instead of
+                // using the corresponding ANSI sequences `\e[1mBOLD` &
+                // `\e[4mUNDER`, so now I have to deal with this...
+
+                prev := only_text_storage[only_text_storage.count - 1];
+                next := line[cursor];
+                only_text_storage[only_text_storage.count - 1] = next;
+                cursor += 1; // consume the character after the '\x08'
+
+                if prev == next || prev == #char "_" {
+                    style: Ansi_Style_Command = ifx prev == next then .BOLD else .UNDERLINE;
+                    if current_backspace_sequence == style {
+                        // continue the current sequence
+                    } else {
+                        assert(!current_backspace_sequence);
+                        info := array_add(*escape_sequences_in_line);
+                        info.offset = xx (only_text_storage.count - 1);
+                        info.base = make_small_escape_sequence("m", xx style);
+                    }
+                }
+
+                continue;
+            }
+
+            // Finalize the stupid fucking backspace sequence conversion
+            if current_backspace_sequence {
+                info := array_add(*escape_sequences_in_line);
+                info.offset = xx only_text_storage.count;
+                off: Ansi_Style_Command = ifx current_backspace_sequence == .BOLD then .BOLD_FAINT_OFF
+                                                                                  else .UNDERLINE_OFF;
+                info.base = make_small_escape_sequence("m", xx off);
+                current_backspace_sequence = .RESET_ALL;
+            }
+
+            if c == #char "\e" {
+                sequence, ok, offset := parse_escape_sequence(line);
+                if ok {
+                    array_add(*escape_sequences_in_line, .{sequence, only_text_storage.count});
+                    cursor += offset;
+                    continue;
+                }
+                // @Incomplete FIXME \e actually makes the following character non-printable
+                cursor += 1; // consume the '\e'
+                continue;
+            }
+
+            // Handle the fucking tab character
+            if c == #char "\t" {
+                // TODO keep the tab character and do the fucking tabularization
+                array_add(*only_text_storage, "        "); // :automatic_tab_expansion:
+
+                cursor += 1; // consume the '\t'
+                continue;
+            }
+
+            // Regular old character
+            inline array_add(*only_text_storage, c);
+            cursor += 1; // consume the character
+        }
+
+        line_start := last(line_offsets);
+        line_end := only_text_storage.count;
+
+        handle_attribute_escape_sequences(parser, escape_sequences_in_line, line_start, xx line_end);
+
+        if !found break;
+
+        inline array_add(*only_text_storage, #char "\n");
+
+        array_add(*line_offsets, only_text_storage.count);
+
+        line_length := only_text_storage.count - line_start - 1;
+        only_text_line := array_view(only_text_storage, line_start, line_length);
+        if starts_with(xx only_text_line, "commit ") { // @diff_headers
+            array_add(*diff_markers, .{xx line_start, xx line_length});
+        }
+        diff_marker := starts_with(xx only_text_line, "diff --git");
+        if diff_marker { flags |= .DIFF_MARKERS; }
+        if diff_marker {
+            array_add(*diff_markers, .{xx line_start, xx line_length});
+        }
+        if (flags & .DIFF_MARKERS && starts_with(xx only_text_line, "@@ ")) {
+            array_add(*diff_markers, .{xx line_start, xx line_length});
+        }
+    }
+}
+
+Small_Escape_Sequence_In_Text :: struct {
+    #as using base: Small_Escape_Sequence;
+    offset: u32;
+}
+
+handle_attribute_escape_sequences :: (using parser: *Parse_State, escape_sequences_in_line: [] Small_Escape_Sequence_In_Text, line_start: u32, line_end: u32) {
+    curr_range_start := line_start;
+
+    if escape_sequences_in_line {
+        sequence := last(escape_sequences_in_line);
+        new_style := evaluate_style_sequence(sequence, current_style);
+        if (sequence.offset > curr_range_start)
+            && !is_default(current_style)
+            && !equals(new_style, current_style)
+        {
+            // @WRONG
+            // Close the continuing style from previous line
+            range := array_add(*attribute_ranges);
+            range.offset_in_only_text = curr_range_start;
+            range.range_count = sequence.offset - curr_range_start;
+            compress_style_attribute(parser, range, current_style);
+            curr_range_start = sequence.offset;
+        }
+    }
+    /*
+
+<RED>foo <RESET>bar<BLUE>bizz buzz<RESET>hey ho\n
+
+    */
+
+    for sequence: escape_sequences_in_line {
+        new_style := evaluate_style_sequence(sequence, current_style);
+        if equals(new_style, current_style) continue;
+        defer current_style = new_style;
+
+        if sequence.offset == curr_range_start {
+            // FIXME @WRONG
+            range := last(*attribute_ranges);
+            compress_style_attribute(parser, range, current_style);
+            continue;
+        }
+
+        assert(sequence.offset > curr_range_start, "% %", sequence.offset, curr_range_start);
+        if !is_default(current_style) {
+            // @WRONG
+            range := array_add(*attribute_ranges);
+            range.offset_in_only_text = curr_range_start;
+            range.range_count = sequence.offset - curr_range_start;
+            compress_style_attribute(parser, range, current_style);
+        }
+        curr_range_start = sequence.offset;
+    }
+
+    if (curr_range_start != line_end) && is_default() {
+
+    }
+}
+
+compress_style_attribute :: (parser: *Parse_State, range: *Attribute_Range, style: Style) {
+    fg_24bit := (style.flags & .FG_24BIT);
+    bg_24bit := (style.flags & .BG_24BIT);
+    if !(fg_24bit && bg_24bit) {
+        range.small_style.fg_color = style.fg_8bit;
+        range.small_style.bg_color = style.bg_8bit;
+        range.small_style.attributes = style.attributes;
+        range.type = .SMALL_STYLE;
+        return;
+    }
+
+    if fg_24bit && (style.flags & .BG_DEFAULT) && !style.attributes {
+        range.color_24bit = style.fg_24bit;
+        range.color_24bit.flags = .FOREGROUND;
+        range.type = .COLOR_24BIT;
+        return;
+    }
+
+    if bg_24bit && (style.flags & .FG_DEFAULT) && !style.attributes {
+        range.color_24bit = style.bg_24bit;
+        range.color_24bit.flags = .BACKGROUND;
+        range.type = .COLOR_24BIT;
+        return;
+    }
+
+    assert(false, "TODO %", style);
+
+    // TODO if not that's a TODO
+}
+
 run_tests :: () {
     t0 := seconds_since_init();
     log("running tests...");
@@ -7122,6 +7493,7 @@ run_tests :: () {
     log("test_parse_ascii_or_hex");                 test_parse_ascii_or_hex();
     log("test_print_pixel_value");                  test_print_pixel_value();
     log("test_print_braille");                      test_print_braille();
+    log("test_parse_shit");                         test_parse_shit();
 
     elapsed := seconds_since_init() - t0;
     log("\e[32mall tests passed!\e[0m elapsed: %", fmt(elapsed, 6));
