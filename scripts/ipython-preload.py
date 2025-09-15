@@ -4,6 +4,7 @@ import sys
 import shutil
 import time
 import random
+import datetime
 
 class progress:
     def __init__(self, iter, count=None):
@@ -70,8 +71,6 @@ def read_entire_file(filename, binary=False):
             return f.read()
 
 
-
-# TEMPORARY:
 modules_not_found = []
 
 try:
@@ -90,6 +89,10 @@ except ModuleNotFoundError as e:
 if modules_not_found:
     print(f"Couldn't import modules {modules_not_found}")
 
+# TEMPORARY:
+
+dcim_location = '/mnt/d/фото/с айфона 02.07.24/DCIM'
+photos_db_path = '/mnt/d/iphone-backup/Photos.sqlite'
 source_c = '/mnt/c/Users/james/Apple/MobileSync/Backup/00008110-001E49690A07801E/'
 source_d = '/mnt/d/Apple/MobileSync/Backup/00008110-001E49690A07801E/'
 
@@ -265,3 +268,63 @@ class Color_256:
     GRAY_6  = 238; GRAY_7  = 239; GRAY_8  = 240; GRAY_9  = 241; GRAY_10 = 242; GRAY_11 = 243;
     GRAY_12 = 244; GRAY_13 = 245; GRAY_14 = 246; GRAY_15 = 247; GRAY_16 = 248; GRAY_17 = 249;
     GRAY_18 = 250; GRAY_19 = 251; GRAY_20 = 252; GRAY_21 = 253; GRAY_22 = 254; GRAY_23 = 255;
+
+from PIL import Image
+from PIL.ExifTags import TAGS, GPSTAGS, IFD
+from pillow_heif import register_heif_opener
+
+register_heif_opener()
+
+def get_exif(img):
+    if isinstance(img, str):
+        img = Image.open(img)
+
+    res = {}
+    for k, v in img.getexif().items():
+        tag = TAGS.get(k, v)
+        assert tag not in res
+        res[tag] = v
+
+def get_img_files():
+    files = []
+    for d in progress(os.listdir(dcim_location)):
+        for f in os.listdir(os.path.join(dcim_location, d)):
+            files.append(os.path.join(dcim_location, d, f))
+    return files
+
+
+def creation_date_from_exiftool(filepath):
+    import subprocess
+    res = None
+    data = subprocess.check_output(['exiftool', filepath])
+    for l in data.splitlines():
+        if not l.startswith(b'Create Date'):
+            continue
+        _, payload = l.split(b':', maxsplit=1)
+        payload = payload.strip().decode()
+        if res is None or len(payload) > len(res):
+            res = payload
+    return res
+
+photos_conn = None
+def photos_sql(sql, *args, progress=True):
+    global photos_conn
+    if photos_conn is None:
+        photos_conn = sqlite3.connect(photos_db_path)
+    cursor = photos_conn.execute(sql, args)
+    if progress:
+        cursor = progress(cursor)
+    return list(cursor)
+
+def check_creation_dates(files):
+    res = []
+    for e in progress(files):
+        full_directory, f = os.path.split(e)
+        _, d = os.path.split(full_directory)
+        rows = photos_sql('select zdatecreated from zasset where zdirectory = ? and zfilename = ?', f'DCIM/{d}', f, progress=False)
+        [[timestamp]] = rows
+        date = datetime.datetime.fromtimestamp(timestamp)
+
+        from_exif = creation_date_from_exiftool(e)
+        res.append(f'{e}: {date}, {from_exif}')
+    return res
