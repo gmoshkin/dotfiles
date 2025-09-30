@@ -205,8 +205,14 @@ function rep {
 }
 
 function crep {
+    repeat_count=0
     [ "$#" = 0 ] && { echo provide a command pls; return 1; }
-    while $@; do
+    while true; do
+        repeat_count=$[repeat_count + 1]
+        echo "Attempt #${repeat_count}"
+
+        $@ || break
+
         clear
         tmux clear-history -t "$TMUX_PANE"
     done
