@@ -6261,7 +6261,7 @@ Small_Style :: struct {
     bg_color: Color_8bit;
     attributes: Style_Attributes;
 }
-#assert size_of(Small_Style) == 4;
+#assert size_of(Small_Style) == 3;
 
 Color_24bit :: struct {
     r: u8;
@@ -6286,7 +6286,7 @@ Style :: struct {
     flags: Flags;
     attributes: Style_Attributes;
 
-    Flags :: enum_flags {
+    Flags :: enum_flags u8 {
         FG_24BIT    :: 1 << 0;
         FG_DEFAULT  :: 1 << 1;
         FG_NOT_8BIT :: FG_24BIT | FG_DEFAULT;
@@ -6297,7 +6297,7 @@ Style :: struct {
 }
 #assert size_of(Style) == 10;
 
-is_default :: inline (using style: Style) {
+is_default :: inline (using style: Style) -> bool {
     return (flags & .FG_DEFAULT) && (flags & .BG_DEFAULT) && (attributes == 0);
 }
 
@@ -6355,14 +6355,14 @@ make_small_escape_sequence :: inline (command: u8, arguments: .. u8) -> Small_Es
     assert(arguments.count <= 6, "%", arguments);
     result: Small_Escape_Sequence;
     result.command_letter = command;
-    result.argument_count = arguments.count;
+    result.argument_count = xx arguments.count;
     memcpy(result.arguments.data, arguments.data, arguments.count);
     return result;
 }
 
 make_small_escape_sequence :: inline ($command: string, arguments: .. u8) -> Small_Escape_Sequence {
     #assert command.count == 1;
-    return make_small_escape_sequence(command[0], arguments);
+    return make_small_escape_sequence(command[0], ..arguments);
 }
 
 print :: (builder: *String_Builder, sequence: Small_Escape_Sequence) {
@@ -6405,23 +6405,23 @@ evaluate_style_sequence :: (using sequence: Small_Escape_Sequence, style: Style)
             case .HIDDEN_OFF;        res.attributes &= ~.HIDDEN;
             case .STRIKETHROUGH_OFF; res.attributes &= ~.STRIKETHROUGH;
 
-            case .FG_BLACK;   res.fg_8bit = .BLACK;     res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
-            case .FG_RED;     res.fg_8bit = .RED;       res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
-            case .FG_GREEN;   res.fg_8bit = .GREEN;     res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
-            case .FG_YELLOW;  res.fg_8bit = .YELLOW;    res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
-            case .FG_BLUE;    res.fg_8bit = .BLUE;      res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
-            case .FG_MAGENTA; res.fg_8bit = .MAGENTA;   res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
-            case .FG_CYAN;    res.fg_8bit = .CYAN;      res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
-            case .FG_WHITE;   res.fg_8bit = .WHITE;     res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_BLACK;   res.fg_8bit = .TRANSPARENT;   res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_RED;     res.fg_8bit = .RED;           res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_GREEN;   res.fg_8bit = .GREEN;         res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_YELLOW;  res.fg_8bit = .YELLOW;        res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_BLUE;    res.fg_8bit = .BLUE;          res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_MAGENTA; res.fg_8bit = .MAGENTA;       res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_CYAN;    res.fg_8bit = .CYAN;          res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_WHITE;   res.fg_8bit = .WHITE;         res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
             case .FG_COLOR;
                 if cursor == argument_count break;
                 variant := arguments[cursor];
                 if variant == {
                 case 2;
                     if cursor + 3 >= argument_count break;
-                    res.fg_24bit.r := arguments[cursor + 1];
-                    res.fg_24bit.g := arguments[cursor + 2];
-                    res.fg_24bit.b := arguments[cursor + 3];
+                    res.fg_24bit.r = arguments[cursor + 1];
+                    res.fg_24bit.g = arguments[cursor + 2];
+                    res.fg_24bit.b = arguments[cursor + 3];
                     res.flags &= ~.FG_DEFAULT;
                     res.flags |= .FG_24BIT;
                     cursor += 4;
@@ -6435,23 +6435,23 @@ evaluate_style_sequence :: (using sequence: Small_Escape_Sequence, style: Style)
                 }
             case .FG_DEFAULT; res.flags |= .FG_DEFAULT; res.flags &= ~(.FG_24BIT);
 
-            case .BG_BLACK;   res.bg_8bit = .BLACK;     res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
-            case .BG_RED;     res.bg_8bit = .RED;       res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
-            case .BG_GREEN;   res.bg_8bit = .GREEN;     res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
-            case .BG_YELLOW;  res.bg_8bit = .YELLOW;    res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
-            case .BG_BLUE;    res.bg_8bit = .BLUE;      res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
-            case .BG_MAGENTA; res.bg_8bit = .MAGENTA;   res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
-            case .BG_CYAN;    res.bg_8bit = .CYAN;      res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
-            case .BG_WHITE;   res.bg_8bit = .WHITE;     res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_BLACK;   res.bg_8bit = .TRANSPARENT;   res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_RED;     res.bg_8bit = .RED;           res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_GREEN;   res.bg_8bit = .GREEN;         res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_YELLOW;  res.bg_8bit = .YELLOW;        res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_BLUE;    res.bg_8bit = .BLUE;          res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_MAGENTA; res.bg_8bit = .MAGENTA;       res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_CYAN;    res.bg_8bit = .CYAN;          res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_WHITE;   res.bg_8bit = .WHITE;         res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
             case .BG_COLOR;
                 if cursor == argument_count break;
                 variant := arguments[cursor];
                 if variant == {
                 case 2;
                     if cursor + 3 >= argument_count break;
-                    res.bg_24bit.r := arguments[cursor + 1];
-                    res.bg_24bit.g := arguments[cursor + 2];
-                    res.bg_24bit.b := arguments[cursor + 3];
+                    res.bg_24bit.r = arguments[cursor + 1];
+                    res.bg_24bit.g = arguments[cursor + 2];
+                    res.bg_24bit.b = arguments[cursor + 3];
                     res.flags &= ~.BG_DEFAULT;
                     res.flags |= .BG_24BIT;
                     cursor += 4;
@@ -6465,33 +6465,35 @@ evaluate_style_sequence :: (using sequence: Small_Escape_Sequence, style: Style)
                 }
             case .BG_DEFAULT; res.flags |= .BG_DEFAULT; res.flags &= ~(.BG_24BIT);
 
-            case .FG_BRIGHT_BLACK;   res.fg_8bit = .FG_BRIGHT_BLACK;     res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
-            case .FG_BRIGHT_RED;     res.fg_8bit = .FG_BRIGHT_RED;       res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
-            case .FG_BRIGHT_GREEN;   res.fg_8bit = .FG_BRIGHT_GREEN;     res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
-            case .FG_BRIGHT_YELLOW;  res.fg_8bit = .FG_BRIGHT_YELLOW;    res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
-            case .FG_BRIGHT_BLUE;    res.fg_8bit = .FG_BRIGHT_BLUE;      res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
-            case .FG_BRIGHT_MAGENTA; res.fg_8bit = .FG_BRIGHT_MAGENTA;   res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
-            case .FG_BRIGHT_CYAN;    res.fg_8bit = .FG_BRIGHT_CYAN;      res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
-            case .FG_BRIGHT_WHITE;   res.fg_8bit = .FG_BRIGHT_WHITE;     res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_BRIGHT_BLACK;   res.fg_8bit = .BRIGHT_BLACK;     res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_BRIGHT_RED;     res.fg_8bit = .BRIGHT_RED;       res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_BRIGHT_GREEN;   res.fg_8bit = .BRIGHT_GREEN;     res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_BRIGHT_YELLOW;  res.fg_8bit = .BRIGHT_YELLOW;    res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_BRIGHT_BLUE;    res.fg_8bit = .BRIGHT_BLUE;      res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_BRIGHT_MAGENTA; res.fg_8bit = .BRIGHT_MAGENTA;   res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_BRIGHT_CYAN;    res.fg_8bit = .BRIGHT_CYAN;      res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+            case .FG_BRIGHT_WHITE;   res.fg_8bit = .BRIGHT_WHITE;     res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
 
-            case .BG_BRIGHT_BLACK;   res.bg_8bit = .BG_BRIGHT_BLACK;     res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
-            case .BG_BRIGHT_RED;     res.bg_8bit = .BG_BRIGHT_RED;       res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
-            case .BG_BRIGHT_GREEN;   res.bg_8bit = .BG_BRIGHT_GREEN;     res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
-            case .BG_BRIGHT_YELLOW;  res.bg_8bit = .BG_BRIGHT_YELLOW;    res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
-            case .BG_BRIGHT_BLUE;    res.bg_8bit = .BG_BRIGHT_BLUE;      res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
-            case .BG_BRIGHT_MAGENTA; res.bg_8bit = .BG_BRIGHT_MAGENTA;   res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
-            case .BG_BRIGHT_CYAN;    res.bg_8bit = .BG_BRIGHT_CYAN;      res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
-            case .BG_BRIGHT_WHITE;   res.bg_8bit = .BG_BRIGHT_WHITE;     res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_BRIGHT_BLACK;   res.bg_8bit = .BRIGHT_BLACK;     res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_BRIGHT_RED;     res.bg_8bit = .BRIGHT_RED;       res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_BRIGHT_GREEN;   res.bg_8bit = .BRIGHT_GREEN;     res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_BRIGHT_YELLOW;  res.bg_8bit = .BRIGHT_YELLOW;    res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_BRIGHT_BLUE;    res.bg_8bit = .BRIGHT_BLUE;      res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_BRIGHT_MAGENTA; res.bg_8bit = .BRIGHT_MAGENTA;   res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_BRIGHT_CYAN;    res.bg_8bit = .BRIGHT_CYAN;      res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
+            case .BG_BRIGHT_WHITE;   res.bg_8bit = .BRIGHT_WHITE;     res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
 
             case; log_error("unknown command: %", command);
         }
     }
+
+    return res;
 }
 
 parse_escape_sequence :: (s: string) -> Small_Escape_Sequence, bool, offset: int {
-    if s.count < 3 return .{}, false;
-    if s[0] != #char "\e" return .{}, false;
-    if s[1] != #char "[" return .{}, false;
+    if s.count < 3 return .{}, false, 0;
+    if s[0] != #char "\e" return .{}, false, 0;
+    if s[1] != #char "[" return .{}, false, 0;
 
     result: Small_Escape_Sequence;
     cursor := 2;
@@ -7318,7 +7320,7 @@ parse_text_with_control_codes :: (parser: *Parse_State) {
                 cursor += 1; // consume the character after the '\x08'
 
                 if prev == next || prev == #char "_" {
-                    style: Ansi_Style_Command = ifx prev == next then .BOLD else .UNDERLINE;
+                    style: Ansi_Style_Command = ifx prev == next then .BOLD_ON else .UNDERLINE_ON;
                     if current_backspace_sequence == style {
                         // continue the current sequence
                     } else {
@@ -7336,8 +7338,8 @@ parse_text_with_control_codes :: (parser: *Parse_State) {
             if current_backspace_sequence {
                 info := array_add(*escape_sequences_in_line);
                 info.offset = xx only_text_storage.count;
-                off: Ansi_Style_Command = ifx current_backspace_sequence == .BOLD then .BOLD_FAINT_OFF
-                                                                                  else .UNDERLINE_OFF;
+                off: Ansi_Style_Command = ifx current_backspace_sequence == .BOLD_ON then .BOLD_FAINT_OFF
+                                                                                     else .UNDERLINE_OFF;
                 info.base = make_small_escape_sequence("m", xx off);
                 current_backspace_sequence = .RESET_ALL;
             }
@@ -7345,7 +7347,7 @@ parse_text_with_control_codes :: (parser: *Parse_State) {
             if c == #char "\e" {
                 sequence, ok, offset := parse_escape_sequence(line);
                 if ok {
-                    array_add(*escape_sequences_in_line, .{sequence, only_text_storage.count});
+                    array_add(*escape_sequences_in_line, .{sequence, xx only_text_storage.count});
                     cursor += offset;
                     continue;
                 }
@@ -7357,7 +7359,7 @@ parse_text_with_control_codes :: (parser: *Parse_State) {
             // Handle the fucking tab character
             if c == #char "\t" {
                 // TODO keep the tab character and do the fucking tabularization
-                array_add(*only_text_storage, "        "); // :automatic_tab_expansion:
+                array_add(*only_text_storage, ..cast([] u8, "        ")); // :automatic_tab_expansion:
 
                 cursor += 1; // consume the '\t'
                 continue;
@@ -7377,7 +7379,7 @@ parse_text_with_control_codes :: (parser: *Parse_State) {
 
         inline array_add(*only_text_storage, #char "\n");
 
-        array_add(*line_offsets, only_text_storage.count);
+        array_add(*line_offsets, xx only_text_storage.count);
 
         line_length := only_text_storage.count - line_start - 1;
         only_text_line := array_view(only_text_storage, line_start, line_length);
@@ -7402,6 +7404,8 @@ Small_Escape_Sequence_In_Text :: struct {
 
 handle_attribute_escape_sequences :: (using parser: *Parse_State, escape_sequences_in_line: [] Small_Escape_Sequence_In_Text, line_start: u32, line_end: u32) {
     curr_range_start := line_start;
+
+    current_style: Style; // FIXME no idea about this, had to add this to make the code compile months after the original code was written....
 
     if escape_sequences_in_line {
         sequence := last(escape_sequences_in_line);
@@ -7448,9 +7452,11 @@ handle_attribute_escape_sequences :: (using parser: *Parse_State, escape_sequenc
         curr_range_start = sequence.offset;
     }
 
+/* FIXME
     if (curr_range_start != line_end) && is_default() {
 
     }
+    */
 }
 
 compress_style_attribute :: (parser: *Parse_State, range: *Attribute_Range, style: Style) {
