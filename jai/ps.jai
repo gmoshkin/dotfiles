@@ -12,6 +12,8 @@ State :: struct {
 
     tty_number_to_name: Table(s64, string);
 
+    name_part: string;
+
     maybe_roots: Table(Pid, void);
     parent_to_children: Table(Pid, Pid);
     process_infos: Table(Pid, Extended_Process_Info);
@@ -59,6 +61,15 @@ main :: () {
                 }
                 table_set(*state.maybe_roots, xx pid, Void);
                 state.go_up = true;
+
+            case "-n"; #through;
+            case "--grep-name";
+                cursor += 1;
+                if cursor >= args.count {
+                    print("Expected an argument after '%'\n", arg);
+                    exit(1);
+                }
+                state.name_part = copy_string(args[cursor]);
 
             case "-f"; #through;
             case "--full";
@@ -142,10 +153,17 @@ main :: () {
         info, not_found := find_or_add(*state.process_infos, pid);
         info.pid = pid;
 
-        ok = get_process_info(pid, info, clock_ticks_per_second=clock_ticks_per_second, log_errors=false, get_command_line=false);
+        get_command_line := (state.name_part.count != 0);
+        ok = get_process_info(pid, info, clock_ticks_per_second=clock_ticks_per_second, log_errors=false, get_command_line=get_command_line);
         if !ok continue;
 
         borrow_checker_my_ass := state.process_infos.entries.data;
+
+        if state.name_part {
+            if info.command_line && contains(info.command_line[0], state.name_part) {
+                table_set(*state.maybe_roots, pid, Void);
+            }
+        }
 
         if info.tty_number != 0 && info.tty_number != -1 {
             tty_name, not_found := find_or_add(*state.tty_number_to_name, info.tty_number);
