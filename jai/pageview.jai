@@ -5,6 +5,8 @@
 
   - FEATURE: do a fucking --help already!!!
 
+  - @BUG @scrollbar slider is wrong at the bottom of the screen!!!
+
   - IMPROVEMENT: scrollbar @text_search matches use braille or digits or something else to
     show how many matches there are, because screen row granularity sucks :c
 
@@ -257,6 +259,7 @@ State :: struct {
     main_window_buffer_changed_this_tick := false;
     main_window_renderred_times := 0;
     window_size_changed_this_tick := false;
+    main_window_buffer_source_changed := false;
 
     //
     // @scrollbar
@@ -895,6 +898,7 @@ main :: () {
         input_received_this_tick = false;
         main_window_buffer_changed_this_tick = false;
         window_size_changed_this_tick = false;
+        main_window_buffer_source_changed = false;
 
         // Handle IO events
         external_command_ready := false;
@@ -1007,6 +1011,7 @@ main :: () {
         //
 
         main_window_redraw_needed := input_received_this_tick
+            || main_window_buffer_source_changed
             || window_size_changed_this_tick
             || (main_window_buffer_changed_this_tick && current_shown_buffer_index == main_window_buffer_history.count - 1)
             || search.flags & .UNFINISHED
@@ -2545,6 +2550,7 @@ handle_piped_input_end :: () {
         time_next_command_run = frame_time;
         // XXX: not sure about this though..
         main_window_source = .EXTERNAL_COMMAND;
+        main_window_buffer_source_changed = true;
         log("main window source is now external command: %", command);
         return;
     }
@@ -2568,6 +2574,7 @@ handle_piped_input_end :: () {
         }
 
         main_window_source = .EXTERNAL_COMMAND;
+        main_window_buffer_source_changed = true;
         log("main window source is now external command: %", command);
     }
 
