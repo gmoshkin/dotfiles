@@ -255,8 +255,8 @@ tcp_server_handle_epoll_event :: (using server: *Http_Server_State, event: epoll
 }
 
 tcp_server_connection_on_input :: (using connection: *Http_Server_Connection) -> bool {
-    ok, has_new_data := read_all_available_data(peer_fd, *input_builder);
-    if !ok {
+    result, has_new_data := read_all_available_data(peer_fd, *input_builder);
+    if result == .ERROR {
         set_last_error_from_system(prepend=tprint("Failed reading from fd %: ", peer_fd));
         copy_last_error_info(connection);
         return false;
@@ -266,7 +266,9 @@ tcp_server_connection_on_input :: (using connection: *Http_Server_Connection) ->
     if has_new_data {
         if !http_server_on_input(connection)
             should_close_connection = true;
-    } else {
+    }
+
+    if result == .CLOSED {
         should_close_connection = true;
     }
 
@@ -514,7 +516,9 @@ get_buffer_slice :: inline (buffer: *String_Builder.Buffer) -> string {
     return string.{ data = data, count = buffer.count };
 }
 
-read_all_available_data :: (fd: s32, builder: *String_Builder) -> (success: bool, has_new_data: bool) {
+Read_Result :: enum { OK; ERROR; CLOSED; }
+
+read_all_available_data :: (fd: s32, builder: *String_Builder, $logging := false) -> (result: Read_Result, has_new_data: bool) {
     has_new_data := false;
     i := 0;
     while true {
@@ -522,13 +526,14 @@ read_all_available_data :: (fd: s32, builder: *String_Builder) -> (success: bool
         i += 1;
 
         read_count := read(fd, buffer.data, xx buffer.count);
+        #if logging then log("read(%, cap=%) -> %", fd, buffer.count, read_count);
         if read_count < 0 {
             code := get_error_value();
             if code == EINTR continue;
             #assert EAGAIN == EWOULDBLOCK;
-            if code == EWOULDBLOCK return true, has_new_data;
+            if code == EWOULDBLOCK return .OK, has_new_data;
 
-            return false, has_new_data;
+            return .ERROR, has_new_data;
         }
 
         if read_count > 0 {
@@ -538,7 +543,7 @@ read_all_available_data :: (fd: s32, builder: *String_Builder) -> (success: bool
             continue;
         }
 
-        return true, has_new_data;
+        return .CLOSED, has_new_data;
     }
 }
 

@@ -5,6 +5,8 @@
 
   - FEATURE: do a fucking --help already!!!
 
+  - set window name on start
+
   - @BUG @scrollbar slider is wrong at the bottom of the screen!!!
 
   - IMPROVEMENT: scrollbar @text_search matches use braille or digits or something else to
@@ -145,7 +147,8 @@ State :: struct {
     //
     // http server
     //
-    http_server_enabled := false;
+    http_server_enabled_explicitly := false;
+    http_server_disabled_explicitly := false;
     http_server: Http_Server_State;
 
     //
@@ -298,6 +301,16 @@ State :: struct {
     // copy to clipboard (tmux currently)
     //
     children_for_copying_to_clipboard: [..] struct { process: Process; name: string; };
+
+    tmux_env: string;
+    tmux_info_ready := false;
+    tmux_info_process_started := false;
+    tmux_info_process_finished := false;
+    tmux_info_command: [..] string;
+    tmux_info_process: Process;
+    tmux_info_builder: String_Builder;
+    tmux_pane_id: string;
+    tmux_pane_coordinates: string;
 
     //
     // stupid sexy particles
@@ -634,7 +647,10 @@ main :: () {
                     exit(1);
                 }
                 state.http_server.listen_port = xx port;
-                state.http_server_enabled = true;
+                state.http_server_enabled_explicitly = true;
+
+            case "--no-listen";
+                state.http_server_disabled_explicitly = true;
 
             // TODO: a flag to just watch a file's contents, so I don't have to
             // do `cat filename`
@@ -701,6 +717,10 @@ main :: () {
         print("Why would you redirect the output whithout even specifying a command?\n");
         exit(1);
     }
+
+    // Setup tmux
+    state.tmux_env = to_string(getenv("TMUX"));
+    state.tmux_pane_id = to_string(getenv("TMUX_PANE"));
 
     // Read history file
     read_history_file();
@@ -787,6 +807,45 @@ main :: () {
 
     if state.debug then getchar();
 
+    // Setup epoll
+    {
+        using state;
+        epoll_fd = epoll_create(1);
+        assert(epoll_fd != -1);
+
+        array_reserve(*epoll_events, 16);
+        for 1..epoll_events.allocated array_add(*epoll_events, .{});
+
+        event: epoll_event;
+
+        event.events = EPOLLIN;
+        event.data.fd = STDIN_FILENO;
+        rc := epoll_ctl(epoll_fd, .ADD, STDIN_FILENO, *event);
+        assert(rc == 0);
+
+        if main_window_source == .PIPED_INPUT || main_window_source == .EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN {
+            event.events = EPOLLIN;
+            event.data.fd = piped_input_fd;
+            rc = epoll_ctl(epoll_fd, .ADD, piped_input_fd, *event);
+            if rc != 0 {
+                code, message := get_error_value_and_string();
+                print("epoll_ctl failed: #% %\n", code, message);
+                exit(1);
+            }
+        }
+    }
+
+    // Initialize http server (must go after epoll, because we use the epoll_fd)
+    if !init_http_server() {
+        log_last_error(.WITH_STACK_TRACE);
+        if state.http_server_enabled_explicitly {
+            builder: String_Builder;
+            print_last_error(*builder, .WITH_STACK_TRACE);
+            write_builder(*builder);
+            exit(1);
+        }
+    }
+
     // Get terminal size
     rc := ioctl(STDIN_FILENO, TIOCGWINSZ, *state.terminal_size);
     assert(rc == 0);
@@ -807,37 +866,6 @@ main :: () {
         flags |= O_NONBLOCK;
         rc := fcntl(STDIN_FILENO, F_SETFL, flags);
         assert(rc != -1);
-    }
-
-    // Setup epoll
-    {
-        using state;
-        epoll_fd = epoll_create(1);
-        assert(epoll_fd != -1);
-
-        array_reserve(*epoll_events, 16);
-        for 1..epoll_events.allocated array_add(*epoll_events, .{});
-
-        event: epoll_event;
-
-        event.events = EPOLLIN;
-        event.data.fd = STDIN_FILENO;
-        rc = epoll_ctl(epoll_fd, .ADD, STDIN_FILENO, *event);
-        assert(rc == 0);
-
-        if main_window_source == .PIPED_INPUT || main_window_source == .EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN {
-            event.events = EPOLLIN;
-            event.data.fd = piped_input_fd;
-            rc = epoll_ctl(epoll_fd, .ADD, piped_input_fd, *event);
-            assert(rc == 0);
-        }
-    }
-
-    // Initialize http server (must go after epoll, because we use the epoll_fd)
-    if state.http_server_enabled {
-        if !init_http_server() {
-            log_last_error(.WITH_STACK_TRACE);
-        }
     }
 
     if state.main_window_source == .GAME_OF_LIFE {
@@ -2107,10 +2135,125 @@ is_file_path_char :: inline (char: u8) -> bool {
         || char == #char "." || char == #char "/" || char == #char ":";
 }
 
+//
+// tmux
+//
+
+http_server_print_tmux_info :: (builder: *String_Builder) {
+    using context.state;
+
+    // FIXME: add support for asynchronous tasks, so that we don't send the
+    // http response until the external command output is ready
+    if !tmux_info_ready {
+        if !tmux_env {
+            print(builder, "not running in tmux?!?");
+            return;
+        }
+
+        if !tmux_info_process_started {
+            ok := create_tmux_list_panes_process();
+            if !ok {
+                print(builder, "failed to start tmux process %!\n", tmux_info_command);
+                print_last_error(builder, .ONLY_MESSAGE);
+                print(builder, "\n");
+                return;
+            }
+            tmux_info_process_started = true;
+        }
+
+        if !tmux_info_process_finished {
+            ok, result := get_process_result(*tmux_info_process, timeout_ms=0);
+            if result.type != .STILL_RUNNING {
+                if result.exit_code != 0 {
+                    print(builder, "% exited with %", tmux_info_command, result.exit_code);
+                }
+
+                tmux_info_process_finished = true;
+            }
+        }
+
+        result := maybe_read_all_available_data_from_tmux_output();
+        if result == .ERROR {
+            print(builder, "failed to get tmux info: ");
+            print_last_error(builder, .ONLY_MESSAGE);
+            print(builder, "\n");
+
+            tmux_info_process_started = false;
+            tmux_info_process_finished = false;
+            return;
+        }
+
+        if result != .CLOSED {
+            print(builder, "tmux pane % info not ready yet\n", tmux_pane_id);
+            return;
+        }
+
+        log("tmux list panes output: '''%'''", to_string(*tmux_info_builder));
+        tmux_pane_coordinates = trim(to_string(*tmux_info_builder));
+        tmux_info_ready = true;
+    }
+
+    print(builder, "tmux pane: %\n", tmux_pane_coordinates);
+}
+
+parse_tmux_list_panes_output :: (data: string) {
+    using context.state;
+}
+
+create_tmux_list_panes_process :: () -> bool {
+    using,except.["command"] context.state;
+
+    process := *tmux_info_process;
+
+    if !tmux_info_command {
+        array_add(*tmux_info_command, "tmux", "list-panes", "-aF", "#S:#{window_index}.#P", "-f");
+        array_add(*tmux_info_command, sprint("#{==:#{pane_id},%}", tmux_pane_id));
+    }
+
+    Profile();
+
+    log("running %", tmux_info_command);
+    ok := create_process(process, ..tmux_info_command, capture_and_return_output = true);
+    if !ok {
+        set_last_error_from_system();
+        log_error("starting command % failed: #% %", tmux_info_command, context.last_error.code, context.last_error.message);
+        return false;
+    }
+
+    close(process.input.handle);
+    process.input.handle = -1;
+
+    return true;
+}
+
+maybe_read_all_available_data_from_tmux_output :: () -> Read_Result {
+    using context.state;
+
+    handle := *tmux_info_process.output.handle;
+    if handle.* == -1 return .CLOSED;
+
+    builder := *tmux_info_builder;
+    result, has_new_data := read_all_available_data(handle.*, builder);
+    if result == .ERROR {
+        set_last_error_from_system();
+        log_error("Failed reading tmux subprocess output stream: [%] %\n", context.last_error.code, context.last_error.message);
+
+        shutdown_fd(handle, epoll=false);
+        return .ERROR;
+    }
+
+    if result == .CLOSED {
+        shutdown_fd(handle, epoll=false);
+        return .CLOSED;
+    }
+
+    return .OK;
+}
+
 tmux_copy_to_clipboard :: (text: string) {
     using,except.["command"] context.state;
 
-    if !getenv("TMUX") return;
+    if !tmux_env return;
 
     command := string.["tmux", "set-buffer", text];
     log("running %", command);
@@ -2204,8 +2347,8 @@ read_some_from_external_command :: (output_closed: bool, error_closed: bool) {
     if process.output.handle != -1 {
         handle := *process.output.handle;
         builder := *external_command_output_builder;
-        ok, has_new_data := read_all_available_data(handle.*, builder);
-        if !ok {
+        result := read_all_available_data(handle.*, builder);
+        if result == .ERROR {
             code, message := get_error_value_and_string();
             log_error("Failed reading subprocess output: [%] %\n", code, message);
 
@@ -2221,8 +2364,8 @@ read_some_from_external_command :: (output_closed: bool, error_closed: bool) {
     if process.error.handle != -1 {
         handle := *external_command_process.error.handle;
         builder := *external_command_error_builder;
-        ok, has_new_data := read_all_available_data(handle.*, builder);
-        if !ok {
+        result := read_all_available_data(handle.*, builder);
+        if result == .ERROR {
             code, message := get_error_value_and_string();
             log_error("Failed reading subprocess error stream: [%] %\n", code, message);
 
@@ -2586,8 +2729,8 @@ read_all_available_data_from_piped_input :: () -> has_new_data: bool {
 
     if piped_input_fd == -1 return false;
 
-    ok, has_new_data := read_all_available_data(piped_input_fd, *piped_input_builder);
-    if !ok {
+    result, has_new_data := read_all_available_data(piped_input_fd, *piped_input_builder);
+    if result == .ERROR {
         code, message := get_error_value_and_string();
         append(*piped_input_builder, "\e[31m"); // color red
         print(*piped_input_builder, "Failed reading from stdin pipe: (%) %\n", code, message);
@@ -2599,16 +2742,18 @@ read_all_available_data_from_piped_input :: () -> has_new_data: bool {
     return has_new_data;
 }
 
-shutdown_fd :: (fd: *s32) {
+shutdown_fd :: (fd: *s32, epoll := true) {
     using context.state;
 
-    rc := epoll_ctl(epoll_fd, .DEL, fd.*, null);
-    if rc != 0 {
-        code, message := get_error_value_and_string();
-        log_error("epoll_ctl failed: [%] %", code, message);
+    if epoll {
+        rc := epoll_ctl(epoll_fd, .DEL, fd.*, null);
+        if rc != 0 {
+            code, message := get_error_value_and_string();
+            log_error("epoll_ctl failed: [%] %", code, message);
+        }
     }
 
-    rc = close(fd.*);
+    rc := close(fd.*);
     if rc != 0 {
         code, message := get_error_value_and_string();
         log_error("close failed: [%] %", code, message);
@@ -5940,9 +6085,15 @@ test_get_subfield_by_path :: () {
 
 init_http_server :: () -> bool {
     state := context.state;
+    if state.http_server_disabled_explicitly return true;
+
     server := *context.state.http_server;
     server.epoll_fd = *state.epoll_fd;
     server.http_request_handler = http_request_handler;
+
+    if !state.http_server_enabled_explicitly {
+        server.listen_port = 42069;
+    }
 
     if !init_tcp_server(server) return false;
     if !tcp_server_start_listenning(server) return false;
@@ -5982,6 +6133,8 @@ http_serve_resource :: (request: *Http_Request, data: *void) -> bool {
 }
 
 http_request_handler :: (request: *Http_Request, data: *void) -> bool {
+    using context.state;
+
     if !starts_with(request.uri, "/api") {
         return http_serve_resource(request, data);
     }
@@ -5989,7 +6142,6 @@ http_request_handler :: (request: *Http_Request, data: *void) -> bool {
     builder := get_response_body_builder(request);
 
     if starts_with(request.uri, "/api/text") {
-        using context.state;
         main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
         append(builder, main_window_buffer.raw_text_and_control_codes);
         return true;
@@ -6001,6 +6153,16 @@ http_request_handler :: (request: *Http_Request, data: *void) -> bool {
     date_time := to_calendar(current_time_consensus(), .LOCAL);
     print_date_time_for_log(builder, date_time);
     print(builder, "\n");
+
+    http_server_print_tmux_info(builder);
+
+    print(builder, "mode: %\n", main_window_source);
+    if main_window_source == .EXTERNAL_COMMAND {
+        print(builder, "external command: %\n", command);
+    }
+    if parent_process_command_line {
+        print(builder, "parent process: %\n", parent_process_command_line);
+    }
 
     if request.parameters {
         print(builder, "Parameters were: '%'\n", request.parameters);
