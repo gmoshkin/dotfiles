@@ -259,10 +259,8 @@ State :: struct {
     next_window_buffer_source_version: u64 = 1;
     current_shown_buffer_index: s64;
     show_latest_buffer := true;
-    main_window_buffer_changed_this_tick := false;
     main_window_renderred_times := 0;
-    window_size_changed_this_tick := false;
-    main_window_buffer_source_changed := false;
+    main_window_render_requested := false;
 
     //
     // @scrollbar
@@ -285,6 +283,7 @@ State :: struct {
     // Stores pointers into `last_shown_line_buffer_flat_pool`.
     last_shown_line_buffer: [..] string;
     last_shown_line_buffer_version: s64;
+    last_renderred_line_buffer: [] string;
     target_fps: s32 = 60;
     time_last_shown: float64;
     memory_pool_for_last_shown_line_buffer: Flat_Pool;
@@ -924,9 +923,6 @@ main :: () {
         epoll_events.count = rc;
 
         input_received_this_tick = false;
-        main_window_buffer_changed_this_tick = false;
-        window_size_changed_this_tick = false;
-        main_window_buffer_source_changed = false;
 
         // Handle IO events
         external_command_ready := false;
@@ -974,7 +970,8 @@ main :: () {
         // changed and only redraw given lines... This is very very sad...
         if window_size_changed {
             window_size_changed = false;
-            window_size_changed_this_tick = true;
+            log("render requested: window size changed");
+            main_window_render_requested = true;
             redraw_once = true;
 
             // Get terminal size
@@ -995,6 +992,8 @@ main :: () {
         state.delayed_actions.count = 0;
         if input_received_this_tick {
             parse_and_handle_input();
+            log("render requested: input received");
+            main_window_render_requested = true;
         }
 
         main_window_buffer: *Window_Buffer;
@@ -1008,15 +1007,18 @@ main :: () {
 
         Profile();
 
+        game_of_life_ticked := false;
         if main_window_source == .GAME_OF_LIFE {
             if !game_of_life_paused {
                 while next_tick_time <= frame_time {
                     next_tick_time += tick_period;
                     tick_game_of_life();
+                    game_of_life_ticked = true;
                 }
             } else if game_of_life_tick_needed {
                 game_of_life_tick_needed = false;
                 tick_game_of_life();
+                game_of_life_ticked = true;
             }
         }
 
@@ -1027,6 +1029,10 @@ main :: () {
 
         // @text_search
         maybe_update_search_matches(main_window_buffer);
+        if search.flags & .UNFINISHED {
+            log("render requested: text search unfinished");
+            main_window_render_requested = true;
+        }
 
         Profile();
 
@@ -1038,80 +1044,73 @@ main :: () {
         // Main window
         //
 
-        main_window_redraw_needed := input_received_this_tick
-            || main_window_buffer_source_changed
-            || window_size_changed_this_tick
-            || (main_window_buffer_changed_this_tick && current_shown_buffer_index == main_window_buffer_history.count - 1)
-            || search.flags & .UNFINISHED
-            ;
-
-        line_buffer: [] string; // temporary storage
-        if #complete main_window_source == {
-            case .EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN; #through;
-                // TODO: read stderr and update it interactively
-            case .EXTERNAL_COMMAND; #through;
-            case .PIPED_INPUT;
-                if main_window_redraw_needed || last_shown_line_buffer.count == 0
-                    line_buffer = build_line_buffer_for_main_window(main_window_buffer);
-                else
-                    line_buffer = last_shown_line_buffer;
-
-            case .DRAWING_MODE;
-                line_buffer = build_line_buffer_for_pixel_buffer();
-
-            case .GAME_OF_LIFE;
-                line_buffer = build_line_buffer_for_game_of_life();
-
-            case .NONE;
-        }
-
-        changed := false;
-        if line_buffer.count != last_shown_line_buffer.count {
-            changed = true;
-        } else {
-            for 0..line_buffer.count-1 {
-                if last_shown_line_buffer[it] != line_buffer[it] {
-                    changed = true;
-                    break;
-                }
-            }
-        }
-
-        now := seconds_since_init();
         min_period := 1.0 / target_fps;
-        its_time := now - time_last_shown > min_period;
+        its_time := frame_time - time_last_shown > min_period;
 
-        if its_time && changed || redraw_once {
-            time_last_shown = now;
-            redraw_once = false;
-            write_string("\e[0J");
-            if line_buffer.count > 0 {
-                all_but_last_line := line_buffer;
-                all_but_last_line.count -= 1;
-                write_strings(..all_but_last_line);
+        if its_time {
+            line_buffer: [] string; // temporary storage
+            changed := false;
+            if #complete main_window_source == {
+                case .EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN; #through;
+                    // TODO: read stderr and update it interactively
+                case .EXTERNAL_COMMAND; #through;
+                case .PIPED_INPUT;
+                    if main_window_render_requested || last_shown_line_buffer.count == 0 {
+                        log("last_shown_line_buffer.count: %", last_shown_line_buffer.count);
+                        line_buffer = build_line_buffer_for_main_window(main_window_buffer);
+                        main_window_render_requested = false;
+                        changed = true;
+                    } else {
+                        line_buffer = last_renderred_line_buffer;
+                    }
 
-                last_line := line_buffer[line_buffer.count - 1];
-                if last_line[last_line.count - 1] == #char "\n" last_line.count -= 1;
-                write_string(last_line);
+                case .DRAWING_MODE;
+                    line_buffer = build_line_buffer_for_pixel_buffer();
+                    changed = true;
+
+                case .GAME_OF_LIFE;
+                    line_buffer = build_line_buffer_for_game_of_life();
+                    changed = true;
+
+                case .NONE;
             }
 
-            // Save last shown line buffer
-            memory_pool_allocator: Allocator;
-            memory_pool_allocator.proc = flat_pool_allocator_proc;
-            memory_pool_allocator.data = *memory_pool_for_last_shown_line_buffer;
-
-            memory_pool_for_last_shown_line_buffer_high_water_mark = max(memory_pool_for_last_shown_line_buffer_high_water_mark, flat_pool_allocated(*memory_pool_for_last_shown_line_buffer));
-            reset(*memory_pool_for_last_shown_line_buffer);
-            last_shown_line_buffer.allocator = memory_pool_allocator;
-            array_reset(*last_shown_line_buffer);
-
-            array_reserve(*last_shown_line_buffer, line_buffer.count);
-            for line_buffer {
-                line := copy_string(it,, memory_pool_allocator);
-                array_add(*last_shown_line_buffer, line);
+            if changed {
+                changed = !array_equals(line_buffer, last_shown_line_buffer);
             }
-            last_shown_line_buffer_version += 1;
-            memory_pool_for_last_shown_line_buffer_high_water_mark = max(memory_pool_for_last_shown_line_buffer_high_water_mark, flat_pool_allocated(*memory_pool_for_last_shown_line_buffer));
+
+            if changed || redraw_once {
+                time_last_shown = frame_time;
+                redraw_once = false;
+                write_string("\e[0J");
+                if line_buffer.count > 0 {
+                    all_but_last_line := line_buffer;
+                    all_but_last_line.count -= 1;
+                    write_strings(..all_but_last_line);
+
+                    last_line := line_buffer[line_buffer.count - 1];
+                    if last_line[last_line.count - 1] == #char "\n" last_line.count -= 1;
+                    write_string(last_line);
+                }
+
+                // Save last shown line buffer
+                memory_pool_allocator: Allocator;
+                memory_pool_allocator.proc = flat_pool_allocator_proc;
+                memory_pool_allocator.data = *memory_pool_for_last_shown_line_buffer;
+
+                memory_pool_for_last_shown_line_buffer_high_water_mark = max(memory_pool_for_last_shown_line_buffer_high_water_mark, flat_pool_allocated(*memory_pool_for_last_shown_line_buffer));
+                reset(*memory_pool_for_last_shown_line_buffer);
+                last_shown_line_buffer.allocator = memory_pool_allocator;
+                array_reset(*last_shown_line_buffer);
+
+                array_reserve(*last_shown_line_buffer, line_buffer.count);
+                for line_buffer {
+                    line := copy_string(it,, memory_pool_allocator);
+                    array_add(*last_shown_line_buffer, line);
+                }
+                last_shown_line_buffer_version += 1;
+                memory_pool_for_last_shown_line_buffer_high_water_mark = max(memory_pool_for_last_shown_line_buffer_high_water_mark, flat_pool_allocated(*memory_pool_for_last_shown_line_buffer));
+            }
         }
 
         Profile();
@@ -1274,6 +1273,8 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
     if main_window_height == 0 return .[];
 
     main_window_renderred_times += 1;
+    // log("main_window_renderred_times: %", main_window_renderred_times);
+    // log("main_window_render_requested: %", main_window_render_requested);
 
     // `line_buffer` stores pointers into `window_buffer` or temporary storage
     line_buffer: [..] string;
@@ -2445,7 +2446,12 @@ maybe_handle_external_command_output :: () {
     do_external_command_backoff(got_change=true);
     smart_backoff_change_counter += 1;
 
-    main_window_buffer_changed_this_tick = true;
+    if current_shown_buffer_index == main_window_buffer_history.count - 1 {
+        // log("render requested: external command output");
+        main_window_render_requested = true;
+    } else {
+        // log("render request skipped: not showing latest buffer");
+    }
 
     Profile();
     init_window_buffer(*new_window_buffer, raw_text_and_control_codes);
@@ -2643,7 +2649,9 @@ read_some_from_piped_input :: () {
     has_new_data := read_all_available_data_from_piped_input();
     if !has_new_data return;
 
-    main_window_buffer_changed_this_tick = true;
+    // log("render requested: piped input");
+    main_window_render_requested = true;
+
     window_buffer := *main_window_buffer_history[current_shown_buffer_index];
     window_buffer.source = main_window_source;
     window_buffer.time_generated = current_time_consensus();
@@ -2693,7 +2701,7 @@ handle_piped_input_end :: () {
         time_next_command_run = frame_time;
         // XXX: not sure about this though..
         main_window_source = .EXTERNAL_COMMAND;
-        main_window_buffer_source_changed = true;
+        main_window_render_requested = true;
         log("main window source is now external command: %", command);
         return;
     }
@@ -2717,7 +2725,7 @@ handle_piped_input_end :: () {
         }
 
         main_window_source = .EXTERNAL_COMMAND;
-        main_window_buffer_source_changed = true;
+        main_window_render_requested = true;
         log("main window source is now external command: %", command);
     }
 

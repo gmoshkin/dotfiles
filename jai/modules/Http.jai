@@ -526,15 +526,19 @@ read_all_available_data :: (fd: s32, builder: *String_Builder, $logging := false
         i += 1;
 
         read_count := read(fd, buffer.data, xx buffer.count);
-        #if logging then log("read(%, cap=%) -> %", fd, buffer.count, read_count);
         if read_count < 0 {
             code := get_error_value();
+
+            #if logging then log("read(%, cap=%) -> % [%]", fd, buffer.count, read_count, code);
+
             if code == EINTR continue;
             #assert EAGAIN == EWOULDBLOCK;
             if code == EWOULDBLOCK return .OK, has_new_data;
 
             return .ERROR, has_new_data;
         }
+
+        #if logging then log("read(%, cap=%) -> % '''%'''", fd, buffer.count, read_count, to_string(buffer.data, read_count));
 
         if read_count > 0 {
             advance_through_ensured_space(builder, xx read_count);
