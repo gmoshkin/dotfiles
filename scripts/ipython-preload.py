@@ -86,6 +86,12 @@ try:
 except ModuleNotFoundError as e:
     modules_not_found.append(e.name)
 
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ModuleNotFoundError as e:
+    modules_not_found.append(e.name)
+
 if modules_not_found:
     print(f"Couldn't import modules {modules_not_found}")
 
@@ -269,13 +275,10 @@ class Color_256:
     GRAY_12 = 244; GRAY_13 = 245; GRAY_14 = 246; GRAY_15 = 247; GRAY_16 = 248; GRAY_17 = 249;
     GRAY_18 = 250; GRAY_19 = 251; GRAY_20 = 252; GRAY_21 = 253; GRAY_22 = 254; GRAY_23 = 255;
 
-from PIL import Image
-from PIL.ExifTags import TAGS, GPSTAGS, IFD
-from pillow_heif import register_heif_opener
-
-register_heif_opener()
-
 def get_exif(img):
+    from PIL import Image
+    from PIL.ExifTags import TAGS
+
     if isinstance(img, str):
         img = Image.open(img)
 
