@@ -71,6 +71,26 @@ def read_entire_file(filename, binary=False):
             return f.read()
 
 
+def pretty_size(s):
+    if s < 1000:
+        return f'{s}B'
+
+    if s < 1000 * 1000:
+        k = s / 1000
+        return f'{k:.1f}K'
+
+    if s < 1000 * 1000 * 1000:
+        m = s / 1000 / 1000
+        return f'{m:.1f}M'
+
+    if s < 1000 * 1000 * 1000 * 1000:
+        g = s / 1000 / 1000 / 1000
+        return f'{g:.1f}G'
+
+    t = s / 1000 / 1000 / 1000 / 1000
+    return f'{t:.1f}T'
+
+
 modules_not_found = []
 
 try:
