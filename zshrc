@@ -137,5 +137,15 @@ export LUA_CPATH="./target/debug/lib?.so;./target/release/lib?.so;$HOME/.cargo-t
 export PYTHONPATH="$DOTFILES/scripts"
 export DISPLAY_PROXY="$(/sbin/ip route | awk '/^default/ { print $3 }'):0"
 
+#
+# Bun
+#
+
+# completions
+[ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
+# PATH
+export BUN_INSTALL="$HOME/.bun"
+appendToPath "$HOME/.bun/bin"
+
 # Dump the function-level profiling info.
 # zprof > /tmp/prof-func.$$
