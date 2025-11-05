@@ -48,13 +48,13 @@ set_last_error :: (format: string, args: .. Any) -> bool {
 }
 
 // Returns `false` for convenience so that you can do `return set_last_error(...);`
-set_last_error :: (code: $T, format: string, args: .. Any) -> bool {
+set_last_error :: (code: $T, format: string, args: .. Any, skip_stack_frames := 1) -> bool {
     info := *context.last_error;
     info.code = xx code;
     info.error_code_type = type_info(T);
     free(info.message);
     info.message = sprint(format, .. args);
-    get_stack_trace(*info.stack_trace);
+    get_stack_trace(*info.stack_trace, skip=skip_stack_frames);
 
     #if LOG_ERRORS_ON_CREATION != .NONE {
         log_last_error(LOG_ERRORS_ON_CREATION);
@@ -66,7 +66,7 @@ set_last_error :: (code: $T, format: string, args: .. Any) -> bool {
 // Returns `false` for convenience so that you can do `return set_last_error(...);`
 set_last_error_from_system :: (prepend: string = "") -> bool {
     code, message := my_get_error_value_and_string();
-    return inline set_last_error(code, "%1%2", prepend, message);
+    return inline set_last_error(code, "%1%2", prepend, message, skip_stack_frames=2);
 }
 
 print_last_error :: (builder: *String_Builder, mode := Error_Info_Log_Mode.WITH_SOURCE_LOCATION) {
@@ -76,8 +76,10 @@ print_last_error :: (builder: *String_Builder, mode := Error_Info_Log_Mode.WITH_
         case .ONLY_MESSAGE;
             print_message_with_code(builder, info);
         case .WITH_SOURCE_LOCATION;
-            node := info.stack_trace[0];
-            print(builder, "%:%: ", node.info.location.fully_pathed_filename, node.line_number);
+            if info.stack_trace {
+                node := info.stack_trace[0];
+                print(builder, "%:%: ", node.info.location.fully_pathed_filename, node.line_number);
+            }
             print_message_with_code(builder, info);
         case .WITH_STACK_TRACE;
             print_message_with_code(builder, info);
@@ -98,6 +100,11 @@ log_last_error :: (mode := Error_Info_Log_Mode.WITH_SOURCE_LOCATION, loc := #cal
     print_last_error(*builder, mode);
 
     log_error("%", builder_to_string(*builder,, temp), loc=loc);
+}
+
+log_system_error :: (loc := #caller_location) {
+    set_last_error_from_system();
+    log_last_error(.ONLY_MESSAGE, loc=loc);
 }
 
 print_message_with_code :: inline (builder: *String_Builder, info: *Error_Info) {

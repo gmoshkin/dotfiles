@@ -788,6 +788,17 @@ my_file_length :: (file: File) -> (length: s64, success: bool) {
     return len, true;
 }
 
+my_file_length :: (fd: s32) -> (length: s64, success: bool) {
+    old_offset := lseek(fd, 0, SEEK_CUR);
+    if (old_offset == -1)  return 0, false;
+
+    length := lseek(fd, 0, SEEK_END);
+    if (length == -1)  return 0, false;
+
+    lseek(fd, old_offset, SEEK_SET);
+    return length, true;
+}
+
 //
 // color
 //

@@ -26,6 +26,8 @@ my_logger :: (message: string, data: *void, info: Log_Info) {
     write_builder(*builder);
 }
 
+#scope_file
+
 print_time_for_log :: (builder: *String_Builder, date_time: Calendar_Time) {
     using date_time;
     print(builder, "%:%:%.%", FormatInt.{value = hour,        minimum_digits = 2},
