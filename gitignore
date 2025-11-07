@@ -9,6 +9,7 @@ cscope.*
 .gitreview
 .vscode
 .clangd
+.build
 tags
 Cargo.lock
 .cache/clangd
