@@ -13,6 +13,14 @@ function body {
     head -$(($2 + $length)) $1 | tail -$length
 }
 
+function error {
+    >&2 echo -e "\x1b[31m$@\x1b[0m"
+}
+
+function warning {
+    >&2 echo -e "\x1b[33m$@\x1b[0m"
+}
+
 function hl {
     $@ --help | less
 }
@@ -227,3 +235,51 @@ function wpath {
     echo $1 | sed 's|^/mnt/d|D:|g;s|^/mnt/c|C:|g;s|/|\\\\|g'
 }
 
+function install_picodata {
+    TAG="$1"
+    [ -n "$TAG" ] || { error "usage '$0 <version>'"; return 1; }
+    git status > /dev/null || { error "looks like you're not inside a git repository"; return 1; }
+
+    git checkout "$TAG" || { error "'git checkout \"$TAG\"' failed"; return 1; }
+
+    PAGER= git show -s --format="%B" "$TAG" | cat
+
+    git submodule update --init --recursive || { error "'git submodule update --init --recursive' failed"; return 1; }
+    touch tarantool-sys
+
+    cargo_metadata=$(mktemp)
+    cargo metadata --format-version=1 --no-deps --frozen > "$cargo_metadata"
+    t=$(jq -r '.packages[]|select(.name == "picodata")' < "$cargo_metadata")
+    [ -n "$t" ] || { error "looks like you're not in the picodata repository"; return 1; }
+
+    target_directory=$(jq -r '.target_directory' < "$cargo_metadata")
+
+    echo 'doing the debug build'
+    echo
+
+    cargo build || { error "'cargo build' failed"; return 1; }
+
+    debug_binary="$HOME/.local/bin/picodata-$TAG-debug"
+    cp "$target_directory/debug/picodata" "$debug_binary" || { error "failed to copy '$debug_binary'"; return 1; }
+    echo "copied binary '$debug_binary'"
+
+    default_binary="$HOME/.local/bin/picodata-$TAG"
+    ln -sf "$debug_binary" "$default_binary" || { error "failed to symlink '$default_binary'"; return 1; }
+    echo "created a symlink '$default_binary' ->  '$debug_binary'"
+
+    echo 'doing the release build'
+    echo
+
+    release_binary="$HOME/.local/bin/picodata-$TAG-release"
+    cargo build --release && {
+        cp "$target_directory/release/picodata" "$release_binary" || { error "failed to copy '$release_binary'"; return 1; }
+        echo "copied binary '$release_binary'"
+        return 0;
+    }
+
+    warning "'cargo build --release' failed, going to try fast-release"
+    cargo build --profile=fast-release || { error "'cargo build --profile=fast-release' failed"; return 1; }
+
+    cp "$target_directory/fast-release/picodata" "$release_binary" || { error "failed to copy '$release_binary'"; return 1; }
+    echo "copied binary '$release_binary'"
+}
