@@ -1,0 +1,7 @@
+{
+    "build_root": "build.jai",
+    "intermediate_path": "tmp/",
+    "local_modules": [
+        "modules"
+    ]
+}
