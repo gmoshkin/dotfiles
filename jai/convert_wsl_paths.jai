@@ -3,6 +3,7 @@ main :: () {
 
     to_dos := false;
     remove_line_breaks := false;
+    add_quotes: enum { IF_NEEDED; ALWAYS; NEVER; } = .IF_NEEDED;
 
     cursor := 1;
     while cursor < args.count {
@@ -15,8 +16,17 @@ main :: () {
             remove_line_breaks = true;
         } else if arg == "-dont-remove-line-breaks" {
             remove_line_breaks = false;
+        } else if arg == "-add-quotes" {
+            add_quotes = .ALWAYS;
+        } else if arg == "-dont-add-quotes" {
+            add_quotes = .NEVER;
+        } else if arg == "-maybe-add-quotes" {
+            add_quotes = .IF_NEEDED;
         } else if starts_with(arg, "-") {
-            print("unknown option '%', expected '-to-dos', '-to-wsl', '-remove-line-breaks' or '-dont-remove-line-breaks'\n", arg, to_standard_error=true);
+            known_options :: string.[
+                "-to-dos", "-to-wsl", "-remove-line-breaks", "-dont-remove-line-breaks", "-add-quotes", "-dont-add-quotes", "-maybe-add-quotes",
+            ];
+            print("unknown option '%', expected one of %\n", arg, known_options, to_standard_error=true);
             exit(1);
         } else {
             break;
@@ -53,7 +63,25 @@ main :: () {
         result = replace(result, "\n", "");
     }
 
-    print("%\n", result);
+    // 1 trailing newline is always removed
+    if result && result[result.count - 1] == #char "\n" && !contains(slice(result, 0, result.count - 1), #char "\n") {
+        result = slice(result, 0, result.count - 1);
+    }
+
+    need_quotes := false;
+    if add_quotes == {
+    case .IF_NEEDED;
+        need_quotes = contains(result, #char " ") && isatty(STDOUT_FILENO);
+    case .ALWAYS;
+        need_quotes = true;
+    case .NEVER;
+        need_quotes = false;
+    }
+    if need_quotes {
+        print("\"%\"\n", result);
+    } else {
+        print("%\n", result);
+    }
 }
 
 convert_windows_path_to_wsl :: (path: string) -> string {
