@@ -1,3 +1,5 @@
+JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
+
 #run {
     set_build_options_dc(.{do_output = false});
 
@@ -9,7 +11,7 @@
     cursor := 0;
     options := get_build_options();
     args := options.compile_time_command_line;
-    while cursor < args.count {
+    while next_arg := cursor < args.count {
         arg: string;
         take_argument(args, *cursor, *arg);
         if arg == {
@@ -52,19 +54,24 @@
                         die("unknown sub command '%'", sub_command);
                 }
 
-
-            case "pageview";              program = .PAGEVIEW;
-            case "ps";                    program = .PS;
-            case "status-line";           program = .STATUS_LINE;
-            case "convert_wsl_paths";     program = .CONVERT_WSL_PATHS;
-            case "windows_get_env";       program = .WINDOWS_GET_ENV;
-            case "clipboard";             program = .CLIPBOARD;
-            case "aliases";               program = .SHELL_ALIASES;
-            case "find_windows_dev_kit";  program = .FIND_WINDOWS_DEV_KIT;
-            case "all";                   program = .ALL;
+            case "-l"; #through;
+            case "--list";
+                programs: [..] string;
+                for type_info(Program).values if it != xx Program.ALL {
+                    array_add(*programs, get_program_info(xx it).arg_name);
+                }
+                print("list of programs you may build: %\n", programs);
+                exit(0);
 
             case;
-                die("unknown argument '%'", arg);
+                for type_info(Program).values if it != xx Program.ALL {
+                    if arg == get_program_info(xx it).arg_name {
+                        program = xx it;
+                        continue next_arg;
+                    }
+                }
+
+                die("unknown argument '%' (run with --list for list of programs)", arg);
         }
     }
 
@@ -82,21 +89,21 @@
     Strategy_Pattern_My_Ass :: (program: Program) #expand {
         if `mode == {
             case .COMPILE;
-                if program == .PAGEVIEW && !compile_parameters.debug_build {
+                #if !JAILS if program == .PAGEVIEW && !compile_parameters.debug_build {
                     debug_parameters := compile_parameters;
                     debug_parameters.debug_build = true;
 
                     print("Compiling a debug version...\n");
                     if !build_program(program, debug_parameters) exit(1);
 
-                    exe_name, exe_path := get_program_info(program, debug=true);
+                    using info := get_program_info(program, debug=true);
 
                     print("\n");
                     command := string.[tprint("%/%", exe_path, exe_name), "--run-tests"];
                     process_result := run_command(..command);
 
                     if process_result.exit_code != 0 {
-                        print("Error: Command % failed (Exit code %)\n", command, process_result.exit_code);
+                        print("\x1b[31mError: Command % failed (Exit code %)\x1b[0m\n", command, process_result.exit_code);
                     }
                     print("\n");
 
@@ -107,6 +114,7 @@
         }
     }
 
+    #if JAILS program = .ALL;
     if program == .ALL {
         for type_info(Program).values {
             program = xx it;
@@ -153,35 +161,49 @@ Inspect_Parameters :: struct {
 
 windows_tools_directory: string;
 
-get_program_info :: (program: Program, debug := false) -> (exe_name: string, exe_path: string, source: string) {
+Program_Info :: struct {
     exe_name: string;
     exe_path: string;
     source: string;
+    arg_name: string;
+}
+
+get_program_info :: (program: Program, debug := false) -> Program_Info {
+    using info: Program_Info;
     if #complete program == {
+
         case .PAGEVIEW;
             exe_name = "pageview";
             exe_path = #filepath;
             source = "pageview.jai";
+
         case .PS;
             exe_name = "myps";
             exe_path = #filepath;
             source = "ps.jai";
+            arg_name = "ps";
+
         case .STATUS_LINE;
             exe_name = "status-line-linux";
             exe_path = sprint("%/../tmux/", #filepath);
             source = sprint("%/../tmux/status-line.jai", #filepath);
+            arg_name = "status-line";
+
         case .CONVERT_WSL_PATHS;
             exe_name = "convert_wsl_paths";
             exe_path = #filepath;
             source = "convert_wsl_paths.jai";
+
         case .WINDOWS_GET_ENV;
             exe_name = "windows_get_env";
             exe_path = windows_tools_directory;
             source = "windows_get_env.jai";
+
         case .CLIPBOARD;
             exe_name = "clipboard";
             exe_path = windows_tools_directory;
             source = "clipboard.jai";
+
         case .SHELL_ALIASES;
             #if OS == .WINDOWS {
                 exe_name = "aliases-msys";
@@ -190,6 +212,7 @@ get_program_info :: (program: Program, debug := false) -> (exe_name: string, exe
             }
             exe_path = #filepath;
             source = "aliases.jai";
+            arg_name = "aliases";
 
         case .FIND_WINDOWS_DEV_KIT;
             exe_name = "find_windows_dev_kit";
@@ -200,14 +223,16 @@ get_program_info :: (program: Program, debug := false) -> (exe_name: string, exe
             assert(false, "unreachable");
     }
 
+    if !arg_name arg_name = exe_name;
     if debug exe_name = tprint("%-debug", exe_name);
-    return exe_name, exe_path, source;
+
+    return info;
 }
 
 build_program :: (program: Program, parameters: Compile_Parameters) -> success: bool {
     using parameters;
 
-    exe_name, exe_path, source := get_program_info(program, debug_build);
+    using info := get_program_info(program, debug_build);
 
     builder: String_Builder;
     print(*builder, "Compiling \x1b[33m%\x1b[0m", exe_name);
@@ -226,6 +251,7 @@ build_program :: (program: Program, parameters: Compile_Parameters) -> success: 
         return false;
     }
 
+    #if JAILS options.output_type = .NO_OUTPUT;
     options.output_executable_name = exe_name;
     options.output_path = exe_path;
 
@@ -366,6 +392,8 @@ build_program :: (program: Program, parameters: Compile_Parameters) -> success: 
             using message := cast(*Message_Phase) base_message;
 
             if phase == .ALL_TARGET_CODE_BUILT {
+                #if JAILS return true;
+
                 if options.output_type != .NO_OUTPUT && options.backend == .LLVM
                     print("Front-end done, passing to LLVM...\n\n");
             }
@@ -566,7 +594,7 @@ db_file_path :: () -> string {
 }
 
 generate_source_info :: (program: Program) {
-    exe_name, exe_path, source := get_program_info(program);
+    using info := get_program_info(program);
 
     print("Parsing %...\n", source);
     t0 := seconds_since_init();

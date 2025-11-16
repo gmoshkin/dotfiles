@@ -5,6 +5,8 @@
 
   - FEATURE: do a fucking --help already!!!
 
+  - don't crash if window size is 0
+
   - set window name on start
 
   - @BUG @scrollbar slider is wrong at the bottom of the screen!!!
