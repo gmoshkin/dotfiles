@@ -1,16 +1,24 @@
 main :: () {
     args := get_command_line_arguments();
+    maybe_show_version_banner_and_exit();
+
+    subcommands :: struct { argument: string; proc: #type () -> (); }.[
+        .{ "status-line-left",  status_line_left, },
+        .{ "status-line-right", status_line_right, },
+    ];
+
     if args.count < 2 {
-        print("need argument");
-        return;
+        names: [..] string;
+        for subcommands array_add(*names, it.argument);
+        log("usage: % [--version] [%]", args[0], join(..names, "|"));
+        exit(1);
     }
-    if args[1] == {
-    case "left";
-        status_line_left();
-        return;
-    case "right";
-        status_line_right();
-        return;
+
+    for subcommands {
+        if args[1] == it.argument {
+            it.proc();
+            return;
+        }
     }
 }
 
@@ -292,3 +300,4 @@ Attr :: struct {
 #import "File";
 #import "File_Utilities";
 #import "System";
+#import "Version_Banner";
