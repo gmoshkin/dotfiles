@@ -1,10 +1,13 @@
+debug := false;
+
 main :: () {
     args := get_command_line_arguments();
     maybe_show_version_banner_and_exit();
 
-    subcommands :: struct { argument: string; proc: #type () -> (); }.[
+    subcommands :: struct { argument: string; proc: #type (args: [] string) -> (); }.[
         .{ "status-line-left",  status_line_left, },
         .{ "status-line-right", status_line_right, },
+        .{ "new-session",       new_session_subcommand, },
     ];
 
     if args.count < 2 {
@@ -16,13 +19,17 @@ main :: () {
 
     for subcommands {
         if args[1] == it.argument {
-            it.proc();
+            it.proc(advance(args, 2));
             return;
         }
     }
 }
 
-status_line_left :: () {
+//
+// subcommand: status-line-left
+//
+
+status_line_left :: (args: [] string) {
     segments_raw := Segment.[
         .{
             text = join(
@@ -62,7 +69,11 @@ status_line_left :: () {
     print("\n");
 }
 
-status_line_right :: () {
+//
+// subcommand: status-line-right
+//
+
+status_line_right :: (args: [] string) {
     segments_raw := Segment.[
         // maybe lan/wan address? do I need it even?
         .{ proc = battery },
@@ -89,6 +100,85 @@ status_line_right :: () {
     }
     write_builder(*sb);
     print("\n");
+}
+
+//
+// subcommand: new-session
+//
+
+new_session_subcommand :: (args: [] string) {
+    debug = contains(args, (a) => a == "-d" || a == "--debug");
+
+    ok, error := do_new_session();
+    if !ok {
+        log_error("%", error);
+        command("tmux", "display", error);
+    }
+}
+
+do_new_session :: () -> (ok: bool, error: string) {
+    // Read path from stdin
+    data, ok := my_read_entire_file(file_stdin());
+    if !ok {
+        return false, "failed to read stdin";
+    }
+
+    data = trim(data);
+    if !data {
+        return false, "empty file path";
+    }
+
+    // Get filename from path
+    full_path := data;
+    filename := path_filename(full_path);
+    if !filename {
+        return false, "empty file path";
+    }
+
+    // Get current tmux sessions and their paths
+    sessions, ok=, err := get_tmux_sessions();
+    if !ok {
+        return false, err;
+    }
+
+    session := filename;
+    found, path := table_find(*sessions, session);
+    if !found {
+        ok, err = command("tmux", "new-session", "-d", "-s", session, "-c", full_path);
+        if !ok return false, err;
+        ok, err = command("tmux", "switch-client", "-t", session);
+        if !ok return false, err;
+    } else if path == full_path {
+        ok, err = command("tmux", "switch-client", "-t", session);
+        if !ok return false, err;
+    } else {
+        return false, tprint("% != %", path, full_path);
+    }
+
+    return true, "";
+}
+
+get_tmux_sessions :: () -> (Table(string, string), bool, string) {
+    result: Table(string, string);
+    init(*result);
+
+    ok, output := command("tmux", "display", "-p", "#{S:#{P:#{?#{==:#P,0},#S:#{pane_current_path};,}}}");
+    if !ok {
+        return result, false, output;
+    }
+
+    tail := output;
+    while tail {
+        found:, line:, tail = split_from_left(tail, #char ";");
+        if !line continue;
+
+        found=, session, path := split_from_left(line, #char ":");
+        if !found continue;
+
+        table_add(*result, session, path);
+    }
+
+    return result, true, "";
 }
 
 //
@@ -260,6 +350,7 @@ weekday_short := string.[ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" ];
 pane_current_path: string = "";
 
 command :: (args: .. string, cwd := "") -> ok: bool, out: string {
+    if debug log("run_command(%, cwd='%')", args, cwd);
     res, out := run_command(..args, capture_and_return_output = true, working_directory = cwd);
     if res.type != .EXITED || res.exit_code != 0 return false, out;
     return true, trim(out);
@@ -300,4 +391,6 @@ Attr :: struct {
 #import "File";
 #import "File_Utilities";
 #import "System";
+#import "Hash_Table";
+#import "My_Util";
 #import "Version_Banner";

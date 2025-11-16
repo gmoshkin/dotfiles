@@ -93,6 +93,12 @@ print_last_error :: (builder: *String_Builder, mode := Error_Info_Log_Mode.WITH_
     }
 }
 
+last_error_to_string :: (mode := Error_Info_Log_Mode.WITH_SOURCE_LOCATION) -> string {
+    builder: String_Builder;
+    print_last_error(*builder, mode);
+    return builder_to_string(*builder);
+}
+
 log_last_error :: (mode := Error_Info_Log_Mode.WITH_SOURCE_LOCATION, loc := #caller_location) {
     builder: String_Builder;
     builder.allocator = temp;

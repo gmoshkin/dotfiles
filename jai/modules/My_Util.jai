@@ -7,9 +7,55 @@ f64 :: float64;
 // array utilities
 //
 
-array_find :: inline (array: [] $T, $predicate: (*T) -> bool) -> s64 {
+array_find :: inline (array: *[] $T, $predicate: (*T) -> bool) -> s64 {
     for *array if predicate(it) return it_index;
     return -1;
+}
+
+array_find :: inline (array: [] $T, $predicate: (T) -> bool) -> s64 {
+    for array if predicate(it) return it_index;
+    return -1;
+}
+
+contains :: inline (array: *[] $T, $predicate: (*T) -> bool) -> bool {
+    return array_find(array, predicate) != -1;
+}
+
+contains :: inline (array: [] $T, $predicate: (T) -> bool) -> bool {
+    return array_find(array, predicate) != -1;
+}
+
+array_equals :: (lhs: [] $T, rhs: [] T) -> bool {
+    if lhs.count != rhs.count return false;
+
+    for 0..lhs.count-1 {
+        if lhs[it] != rhs[it] return false;
+    }
+
+    return true;
+}
+
+advance :: inline (a: [] $T, amount: s64 = 1) -> [] T {
+    assert(amount >= 0);
+    assert(a.count >= amount);
+    return .{ data = a.data + amount, count = a.count - amount };
+}
+
+advance :: inline (a: *[] $T, amount: s64 = 1) {
+    assert(amount >= 0);
+    assert(a.count >= amount);
+    a.count -= amount;
+    a.data  += amount;
+}
+
+last :: inline (array: [] $T) -> T {
+    assert(array.count != 0);
+    return array[array.count - 1];
+}
+
+last :: inline (array: *[] $T) -> *T {
+    if array.*.count == 0 return null;
+    return *array.*[array.*.count - 1];
 }
 
 //
@@ -33,6 +79,10 @@ substring :: (s: string, start := 0, end := NOT_SPECIFIED, count := NOT_SPECIFIE
     assert(_start + _count <= s.count, "start: %, end: %, count: %", start, end, count);
 
     return string.{ data = s.data + _start, count = _count };
+}
+
+last :: inline (s: string) -> u8 {
+    return s[s.count - 1];
 }
 
 count_matches :: (text: string, c: u8) -> s64 {
@@ -731,10 +781,8 @@ my_read_entire_file :: (name: string, log_errors := true) -> string, bool {
 
 my_read_entire_file :: (f: File, zero_terminated := false, log_errors := true) -> string, bool {
     length, success := my_file_length(f);
-    if !success  return "", false;
 
-    assert(length >= 0);
-    if length == 0 {
+    if !success || length == 0 {
         // Maybe special linux "file"
         builder: String_Builder;
         builder.allocator = context.allocator;
@@ -797,6 +845,26 @@ my_file_length :: (fd: s32) -> (length: s64, success: bool) {
 
     lseek(fd, old_offset, SEEK_SET);
     return length, true;
+}
+
+file_stdin :: () -> File {
+    #if OS == .WINDOWS {
+        #import "Windows";
+
+        handle := GetStdHandle(STD_INPUT_HANDLE);
+        assert(handle != INVALID_HANDLE_VALUE);
+
+        return File.{ handle };
+    } else {
+        #import "POSIX";
+        libc :: #system_library "libc";
+        fdopen :: (fd: s32, mode: *u8) -> *FILE #foreign libc;
+
+        handle := fdopen(STDIN_FILENO, "r");
+        assert(handle != null);
+
+        return File.{ handle };
+    }
 }
 
 //

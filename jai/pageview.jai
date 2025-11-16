@@ -7029,16 +7029,6 @@ array_ordered_remove_range :: inline (array_pointer: *[] $T, start: s64, end: s6
     array_pointer.count -= count;
 }
 
-array_equals :: (lhs: [] $T, rhs: [] T) -> bool {
-    if lhs.count != rhs.count return false;
-
-    for 0..lhs.count-1 {
-        if lhs[it] != rhs[it] return false;
-    }
-
-    return true;
-}
-
 test_array_ordered_remove_range :: () {
     array: [..] int;
 
@@ -7061,27 +7051,6 @@ test_array_ordered_remove_range :: () {
     array_ordered_remove_range(*array, 0, 5);
     pretty_assert(array_equals(array, int.[6]));
     array_reset(*array);
-}
-
-advance :: inline (a: *[] $T, amount: s64 = 1) {
-    assert(amount >= 0);
-    assert(a.count >= amount);
-    a.count -= amount;
-    a.data  += amount;
-}
-
-last :: inline (array: [] $T) -> T {
-    assert(array.count != 0);
-    return array[array.count - 1];
-}
-
-last :: inline (array: *[] $T) -> *T {
-    if array.*.count == 0 return null;
-    return *array.*[array.*.count - 1];
-}
-
-last :: inline (s: string) -> u8 {
-    return s[s.count - 1];
 }
 
 //
