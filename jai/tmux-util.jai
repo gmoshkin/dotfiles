@@ -1,12 +1,3 @@
-#run {
-    #if OS == .LINUX {
-        set_build_options_dc(.{ output_executable_name = "status-line-linux" });
-    } else {
-        #assert false, "not implemented";
-    }
-    #import "Compiler";
-}
-
 main :: () {
     args := get_command_line_arguments();
     if args.count < 2 {

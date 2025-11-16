@@ -136,7 +136,7 @@ Program :: enum {
     ALL;
     PAGEVIEW;
     PS;
-    STATUS_LINE;
+    TMUX_UTIL;
     CONVERT_WSL_PATHS;
     WINDOWS_GET_ENV;
     CLIPBOARD;
@@ -192,11 +192,11 @@ get_program_info :: (program: Program, debug := false) -> Program_Info {
             arg_name = "ps";
             os = .LINUX;
 
-        case .STATUS_LINE;
-            source = sprint("%/../tmux/status-line.jai", #filepath);
-            exe_name = "status-line-linux";
+        case .TMUX_UTIL;
+            source = "tmux-util.jai";
+            exe_name = "tmux-util-linux";
             exe_path = sprint("%/../tmux/", #filepath);
-            arg_name = "status-line";
+            arg_name = "tmux-util";
             os = .LINUX;
 
         case .CONVERT_WSL_PATHS;
