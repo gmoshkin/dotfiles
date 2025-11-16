@@ -171,7 +171,7 @@ main :: () {
                 driver_number := cast(u8) ((info.tty_number >> 8) & 0xff);
                 // TODO: sometimes there's a index part in higher bits?
                 tty_index := info.tty_number & 0xff;
-                driver_name, ok := table_find(*state.tty_drivers, driver_number);
+                ok, driver_name := table_find(*state.tty_drivers, driver_number);
                 if ok {
                     if driver_name == "/dev/tty" {
                         tty_name.* = sprint("/dev/tty%", tty_index);
