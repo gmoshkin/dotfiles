@@ -46,6 +46,11 @@ main :: () {
     while cursor < args.count {
         arg := args[cursor];
         if arg == {
+            case "-v"; #through;
+            case "--version";
+                show_version_banner();
+                return;
+
             case "-p"; #through;
             case "--pid";
                 cursor += 1;
@@ -542,3 +547,4 @@ sysconf :: (name: s32) -> s64 #foreign libc;
 #import "File";
 #import "File_Utilities";
 #import "My_Util";
+#import "Version_Banner";

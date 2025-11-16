@@ -22,6 +22,9 @@ main :: () {
             add_quotes = .NEVER;
         } else if arg == "-maybe-add-quotes" {
             add_quotes = .IF_NEEDED;
+        } else if arg == "-v" || arg == "--version" {
+            show_version_banner();
+            return;
         } else if starts_with(arg, "-") {
             known_options :: string.[
                 "-to-dos", "-to-wsl", "-remove-line-breaks", "-dont-remove-line-breaks", "-add-quotes", "-dont-add-quotes", "-maybe-add-quotes",
@@ -174,3 +177,4 @@ libc :: #system_library "libc";
 #import "String";
 System :: #import "System";
 #import "My_Util";
+#import "Version_Banner";

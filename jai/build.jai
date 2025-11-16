@@ -246,7 +246,7 @@ build_program :: (program: Program, parameters: Compile_Parameters) -> success: 
 
     add_build_string(tprint(#string CODE
 
-EXECUTABLE_NAME :: "%";
+#add_context EXECUTABLE_NAME :: "%";
 
     CODE, exe_name), workspace);
     add_build_file(source, workspace);
@@ -270,14 +270,25 @@ EXECUTABLE_NAME :: "%";
 
     add_build_string(tprint(#string CODE
 
-GIT_HASH :: "%";
-GIT_LAST_COMMIT_MESSAGE :: "%";
-DEBUG_OR_RELEASE :: "%";
-DYNAMIC_OR_STATIC :: "%";
-COMPILER_VERSION :: "%";
-BUILD_DATE_YEAR :: %;
-BUILD_DATE_MONTH :: %;
-BUILD_DATE_DAY :: %;
+#add_context build_info: struct {
+    GIT_HASH: string;
+    GIT_LAST_COMMIT_MESSAGE: string;
+    DEBUG_OR_RELEASE: string;
+    DYNAMIC_OR_STATIC: string;
+    COMPILER_VERSION: string;
+    BUILD_DATE_YEAR: s32;
+    BUILD_DATE_MONTH: u8;
+    BUILD_DATE_DAY: u8;
+} : .{
+    GIT_HASH = "%",
+    GIT_LAST_COMMIT_MESSAGE = "%",
+    DEBUG_OR_RELEASE = "%",
+    DYNAMIC_OR_STATIC = "%",
+    COMPILER_VERSION = "%",
+    BUILD_DATE_YEAR = %,
+    BUILD_DATE_MONTH = %,
+    BUILD_DATE_DAY = %,
+};
 
         CODE,
         git_hash,

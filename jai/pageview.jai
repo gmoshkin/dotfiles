@@ -6394,25 +6394,6 @@ scrollbar_search_matches_handle_window_resize :: () {
 }
 
 //
-// version banner
-//
-
-show_version_banner :: () {
-    builder: String_Builder;
-    builder.allocator = temp;
-    show_version_banner(*builder);
-    write_builder(*builder,, temp);
-}
-
-show_version_banner :: (builder: *String_Builder) {
-    MONTHS :: string.["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    build_month := MONTHS[BUILD_DATE_MONTH];
-    print(builder, "% % %, built on % % %\n", EXECUTABLE_NAME, DEBUG_OR_RELEASE, DYNAMIC_OR_STATIC, BUILD_DATE_DAY + 1, build_month, BUILD_DATE_YEAR);
-    print(builder, "git commit: % (%)\n", slice(GIT_HASH, 0, 8), GIT_LAST_COMMIT_MESSAGE);
-    print(builder, "compiler version: %\n", COMPILER_VERSION);
-}
-
-//
 // @style and ansi escape sequences
 //
 
@@ -7705,3 +7686,4 @@ Meow_Hash :: #import "meow_hash";
 // #import "Clipboard";
 System :: #import "System";
 Hash :: #import "Hash";
+#import "Version_Banner";
