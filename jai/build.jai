@@ -89,12 +89,18 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
     Strategy_Pattern_My_Ass :: (program: Program) #expand {
         if `mode == {
             case .COMPILE;
+                info := get_program_info(program, compile_parameters.debug_build);
+                if info.os != OS {
+                    print("Skipping \x1b[33m%\x1b[0m (it wants OS %)\n", info.exe_name, info.os);
+                    return;
+                }
+
                 #if !JAILS if program == .PAGEVIEW && !compile_parameters.debug_build {
                     debug_parameters := compile_parameters;
                     debug_parameters.debug_build = true;
 
                     print("Compiling a debug version...\n");
-                    if !build_program(program, debug_parameters) exit(1);
+                    if !build_program(info, debug_parameters) exit(1);
 
                     using info := get_program_info(program, debug=true);
 
@@ -108,7 +114,7 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
                     print("\n");
 
                 }
-                if !build_program(program, compile_parameters) exit(1);
+                if !build_program(info, compile_parameters) exit(1);
             case .GENERATE_SOURCE_INFO; generate_source_info(program);
             case .INSPECT_SOURCE_INFO;  inspect_source_info(program, inspect_parameters);
         }
@@ -166,73 +172,76 @@ Program_Info :: struct {
     exe_path: string;
     source: string;
     arg_name: string;
+    os: Operating_System_Tag;
 }
 
 get_program_info :: (program: Program, debug := false) -> Program_Info {
     using info: Program_Info;
+    // Any OS supported if not specified otherwise
+    os = OS;
+
     if #complete program == {
 
         case .PAGEVIEW;
-            exe_name = "pageview";
-            exe_path = #filepath;
             source = "pageview.jai";
+            os = .LINUX;
 
         case .PS;
-            exe_name = "myps";
-            exe_path = #filepath;
             source = "ps.jai";
+            exe_name = "myps";
             arg_name = "ps";
+            os = .LINUX;
 
         case .STATUS_LINE;
+            source = sprint("%/../tmux/status-line.jai", #filepath);
             exe_name = "status-line-linux";
             exe_path = sprint("%/../tmux/", #filepath);
-            source = sprint("%/../tmux/status-line.jai", #filepath);
             arg_name = "status-line";
+            os = .LINUX;
 
         case .CONVERT_WSL_PATHS;
-            exe_name = "convert_wsl_paths";
-            exe_path = #filepath;
             source = "convert_wsl_paths.jai";
+            os = .LINUX;
 
         case .WINDOWS_GET_ENV;
-            exe_name = "windows_get_env";
-            exe_path = windows_tools_directory;
             source = "windows_get_env.jai";
+            os = .WINDOWS;
 
         case .CLIPBOARD;
-            exe_name = "clipboard";
-            exe_path = windows_tools_directory;
             source = "clipboard.jai";
+            os = .WINDOWS;
 
         case .SHELL_ALIASES;
+            source = "aliases.jai";
             #if OS == .WINDOWS {
                 exe_name = "aliases-msys";
             } else {
                 exe_name = "aliases-linux";
             }
-            exe_path = #filepath;
-            source = "aliases.jai";
             arg_name = "aliases";
 
         case .FIND_WINDOWS_DEV_KIT;
-            exe_name = "find_windows_dev_kit";
-            exe_path = windows_tools_directory;
             source = "find_windows_dev_kit.jai";
+            os = .WINDOWS;
 
         case .ALL;
             assert(false, "unreachable");
     }
 
-    if !arg_name arg_name = exe_name;
-    if debug exe_name = tprint("%-debug", exe_name);
+    if !exe_name then exe_name = path_strip_extension(source);
+    if !exe_path {
+        #if OS == .LINUX        then exe_path = #filepath;
+        else #if OS == .WINDOWS then exe_path = windows_tools_directory;
+    }
+    if !arg_name then arg_name = exe_name;
+    if debug then exe_name = tprint("%-debug", exe_name);
 
     return info;
 }
 
-build_program :: (program: Program, parameters: Compile_Parameters) -> success: bool {
+build_program :: (info: Program_Info, parameters: Compile_Parameters) -> success: bool {
+    using info;
     using parameters;
-
-    using info := get_program_info(program, debug_build);
 
     builder: String_Builder;
     print(*builder, "Compiling \x1b[33m%\x1b[0m", exe_name);
