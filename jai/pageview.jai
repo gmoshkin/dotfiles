@@ -937,10 +937,10 @@ main :: () {
                 if it.events & EPOLLHUP handle_piped_input_end();
             } else if it.data.fd == external_command_process.output.handle {
                 external_command_ready = true;
-                external_command_output_closed ||= xx it.events & EPOLLHUP;
+                external_command_output_closed ||= cast(bool, it.events & EPOLLHUP);
             } else if it.data.fd == external_command_process.error.handle {
                 external_command_ready = true;
-                external_command_error_closed ||= xx it.events & EPOLLHUP;
+                external_command_error_closed ||= cast(bool, it.events & EPOLLHUP);
             } else {
                 ok, handled := tcp_server_handle_epoll_event(*http_server, it);
                 if !ok  log_last_error(.WITH_STACK_TRACE);
