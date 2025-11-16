@@ -209,7 +209,15 @@ build_program :: (program: Program, parameters: Compile_Parameters) -> success: 
 
     exe_name, exe_path, source := get_program_info(program, debug_build);
 
-    print("Compiling %\n", exe_name);
+    builder: String_Builder;
+    print(*builder, "Compiling \x1b[33m%\x1b[0m", exe_name);
+    print(*builder, " (");
+    if debug_build    then print(*builder, "debug");    else print(*builder, "release");
+    if dynamic_binary then print(*builder, " dynamic"); else print(*builder, " static");
+    print(*builder, ")");
+    print(*builder, "\n");
+    print(*builder, "\n");
+    write_builder(*builder);
 
     workspace := compiler_create_workspace(exe_name);
     options := get_build_options(workspace);
@@ -254,6 +262,7 @@ EXECUTABLE_NAME :: "%";
     log("```");
     log("%", git_last_commit_message);
     log("```");
+    log("\n");
     debug_or_release := ifx debug_build then "debug" else "release";
     dynamic_or_static := ifx dynamic_binary then "dynamic" else "static";
     compiler_version := compiler_get_version_info(null);
@@ -347,7 +356,7 @@ BUILD_DATE_DAY :: %;
 
             if phase == .ALL_TARGET_CODE_BUILT {
                 if options.output_type != .NO_OUTPUT && options.backend == .LLVM
-                    print("Front-end done, passing to LLVM...\n");
+                    print("Front-end done, passing to LLVM...\n\n");
             }
 
             if phase == .READY_FOR_CUSTOM_LINK_COMMAND {
@@ -509,10 +518,14 @@ get_git_commit_hash :: () -> string {
     command: [..] string;
     array_add(*command, "git", "rev-parse", "--verify", "HEAD"); // I have no idea what --verify does...
 
-    process_result, output := run_command(..command, capture_and_return_output=true);
+    process_result, output, error := run_command(..command, capture_and_return_output=true);
 
     if process_result.exit_code != 0 {
-        print("Error: command % failed (Exit code %)", command, process_result.exit_code);
+        print("Error: command % failed (Exit code %)\n", command, process_result.exit_code);
+        for split(error, "\n") {
+            print("    %\n", it);
+        }
+        print("\n");
         return "";
     }
 
@@ -523,10 +536,14 @@ get_git_last_commit_message :: () -> string {
     command: [..] string;
     array_add(*command, "git", "log", "--format=%B", "-n1", "HEAD");
 
-    process_result, output := run_command(..command, capture_and_return_output=true);
+    process_result, output, error := run_command(..command, capture_and_return_output=true);
 
     if process_result.exit_code != 0 {
-        print("Error: command % failed (Exit code %)", command, process_result.exit_code);
+        print("Error: command % failed (Exit code %)\n", command, process_result.exit_code);
+        for split(error, "\n") {
+            print("    %\n", it);
+        }
+        print("\n");
         return "";
     }
 
