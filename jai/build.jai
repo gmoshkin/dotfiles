@@ -60,6 +60,7 @@
             case "windows_get_env";       program = .WINDOWS_GET_ENV;
             case "clipboard";             program = .CLIPBOARD;
             case "aliases";               program = .SHELL_ALIASES;
+            case "find_windows_dev_kit";  program = .FIND_WINDOWS_DEV_KIT;
             case "all";                   program = .ALL;
 
             case;
@@ -125,6 +126,7 @@ Program :: enum {
     CONVERT_WSL_PATHS;
     WINDOWS_GET_ENV;
     CLIPBOARD;
+    FIND_WINDOWS_DEV_KIT;
     SHELL_ALIASES;
 }
 
@@ -188,6 +190,12 @@ get_program_info :: (program: Program, debug := false) -> (exe_name: string, exe
             }
             exe_path = #filepath;
             source = "aliases.jai";
+
+        case .FIND_WINDOWS_DEV_KIT;
+            exe_name = "find_windows_dev_kit";
+            exe_path = windows_tools_directory;
+            source = "find_windows_dev_kit.jai";
+
         case .ALL;
             assert(false, "unreachable");
     }
