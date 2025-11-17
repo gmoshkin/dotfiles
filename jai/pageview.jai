@@ -6282,7 +6282,7 @@ update_scollbar_info :: (window_buffer: *Window_Buffer) {
           W / B = s / W   (or am I retarded?)
             => s = (W * W) / B
     */
-    scrollbar_zoom_ratio = scrollbar_resolution / cast(float) window_buffer.line_offsets.count;
+    scrollbar_zoom_ratio = scrollbar_resolution / cast(float) window_buffer.line_offsets.count / 2;
     slider_effective_size := scrollbar_resolution * scrollbar_zoom_ratio;
     slider_size := min(scrollbar_resolution, xx ceil(slider_effective_size));
 
@@ -6314,7 +6314,7 @@ update_scollbar_info :: (window_buffer: *Window_Buffer) {
 
     */
 
-    slider_top_y := row_offset * scrollbar_zoom_ratio;
+    slider_top_y := row_offset * 2 * scrollbar_zoom_ratio;
     slider_top_row := cast(s64) floor(slider_top_y);
     slider_bottom_row := slider_top_row + slider_size;
 
