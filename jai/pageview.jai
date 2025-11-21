@@ -1003,7 +1003,12 @@ main :: () {
             main_window_buffer = *main_window_buffer_history[current_shown_buffer_index];
             // FIXME: this doesn't work in line-wrapping mode
             if stick_to_the_bottom {
-                row_offset = max(row_offset, main_window_buffer.line_offsets.count - main_window_height);
+                if row_offset < main_window_buffer.line_offsets.count - main_window_height {
+                    // XXX: not sure about the `+1`
+                    row_offset = main_window_buffer.line_offsets.count - main_window_height - 1;
+                } else if row_offset > main_window_buffer.line_offsets.count {
+                    row_offset = max(0, main_window_buffer.line_offsets.count - main_window_height);
+                }
             }
         }
 
@@ -4415,7 +4420,7 @@ navigate_window_to_bottom :: () {
     if !main_window_buffer_history return;
     main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
 
-    row_offset = main_window_buffer.line_offsets.count - main_window_height;
+    row_offset = main_window_buffer.line_offsets.count - main_window_height - 1;
     stick_to_the_bottom = true;
 }
 
