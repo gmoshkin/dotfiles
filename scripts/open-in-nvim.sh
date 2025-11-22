@@ -6,4 +6,4 @@ cargo \
     run --manifest-path ~/dotfiles/scripts/nvim-cli/Cargo.toml \
     -- open "$filename" \
     &>/dev/null
-    # &>>/tmp/open-in-nvim.log
+    # &>/tmp/open-in-nvim.log
