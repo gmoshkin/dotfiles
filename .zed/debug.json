@@ -1,0 +1,23 @@
+// Project-local debug tasks
+//
+// For more documentation on how to configure debug tasks,
+// see: https://zed.dev/docs/debugger
+[
+    {
+        "label": "pageview-debug --run-tests",
+        "adapter": "CodeLLDB",
+        "build": {
+            "command": "/home/gmoshkin/.local/bin/jai",
+            "args": [
+                "/home/gmoshkin/dotfiles/jai/build.jai",
+                "-",
+                "pageview",
+                "debug"
+            ]
+        },
+        "request": "launch",
+        "program": "/home/gmoshkin/dotfiles/jai/pageview-debug",
+        "args": ["--run-tests"],
+        "sourceLanguages": ["jai"]
+    }
+]
