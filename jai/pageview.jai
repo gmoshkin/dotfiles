@@ -160,6 +160,7 @@ State :: struct {
     log_file_name: string;
     log_file: File;
     log_file.handle = null;
+    log_to_stderr := false;
 
     error_log_builder: String_Builder;
 
@@ -5374,6 +5375,7 @@ init_commands :: () {
         array_add(*console_commands, make_command("anti_flicker_period", set_anti_flicker_period));
         array_add(*console_commands, make_command("show_state_field", show_state_field));
         array_add(*console_commands, make_command("debug_break", do_debug_break));
+        array_add(*console_commands, make_command("panic_now", do_panic_now));
         array_add(*console_commands, make_command("party_time_update_period", set_party_time_update_period));
         array_add(*console_commands, make_command("scrollbar", make_toggle("draw_scrollbar")));
         array_add(*console_commands, make_command("fg_rgb", set_current_pixel_fg_rgb));
@@ -5570,20 +5572,57 @@ clear_buffer_history_up_to :: (leading_count_to_delete: s64) -> (ok: bool, error
     return true, "";
 }
 
-save_current_buffer :: (filename: string) -> (ok := true, error_message := "") {
+save_current_buffer_to_temporary_file :: () {
+    using context.state;
+
+    timestamp := to_calendar(current_time_consensus(), .LOCAL);
+
+    if main_window_buffer_history.count != 0 {
+        builder: String_Builder;
+        builder.allocator = temp;
+
+        append(*builder, "/tmp/pageview-last-buffer-");
+
+        print_date_time_for_filename(*builder, timestamp);
+
+        append(*builder, ".out");
+
+        filename := builder_to_string(*builder,, temp);
+        ok, message := save_current_buffer(filename, overwrite=true);
+        if !ok {
+            log_error("Failed to save current buffer to '%': %", filename, message);
+        }
+
+        log("Saved the last buffer to \e[33m%\e[0m", filename);
+    }
+}
+
+print_date_time_for_filename :: (builder: *String_Builder, date_time: Calendar_Time) {
+    using date_time;
+    print(builder, "%-%-%-%-%-%", year,
+                                    FormatInt.{value = month_starting_at_0 + 1,        minimum_digits = 2},
+                                    FormatInt.{value = day_of_month_starting_at_0 + 1, minimum_digits = 2},
+                                    FormatInt.{value = hour,                           minimum_digits = 2},
+                                    FormatInt.{value = minute,                         minimum_digits = 2},
+                                    FormatInt.{value = second,                         minimum_digits = 2});
+}
+
+save_current_buffer :: (filename: string, overwrite := false) -> (ok := true, error_message := "") {
     using context.state;
 
     if current_shown_buffer_index < 0 || !main_window_buffer_history {
         return false, "current buffer is empty, nothing to save";
     }
 
-    file, ok := file_open(filename, log_errors=false);
-    if ok {
-        file_close(*file);
-        return false, tprint("file '%' already exists, overwriting isn't supported yet", filename);
+    if !overwrite {
+        file, ok := file_open(filename, log_errors=false);
+        if ok {
+            file_close(*file);
+            return false, tprint("file '%' already exists, overwriting isn't supported yet", filename);
+        }
     }
 
-    file, ok = file_open(filename, for_writing=true, log_errors=false);
+    file, ok := file_open(filename, for_writing=true, log_errors=false);
     if !ok {
         code, message := get_error_value_and_string();
         return false, tprint("failed creating file '%': #% %", filename, code, message);
@@ -5618,6 +5657,11 @@ do_debug_break :: () -> (ok := true, error_message := "") {
     return;
 }
 
+do_panic_now :: () -> (ok := true, error_message := "") {
+    assert(false, "explicit panic requested by user");
+    return;
+}
+
 set_current_pixel_fg_rgb :: (r: u8, g: u8, b: u8) -> (ok := true, error_message := "") {
     using context.state;
 
@@ -5625,6 +5669,8 @@ set_current_pixel_fg_rgb :: (r: u8, g: u8, b: u8) -> (ok := true, error_message 
     current_pixel_fg.r = r;
     current_pixel_fg.g = g;
     current_pixel_fg.b = b;
+
+    if main_window_source != .DRAWING_MODE return false, "this command is for DRAWING_MODE";
 
     return;
 }
@@ -5634,6 +5680,8 @@ set_current_pixel_fg_256 :: (number: u8) -> (ok := true, error_message := "") {
 
     current_pixel_fg.type = .COLOR_8BIT;
     current_pixel_fg._8bit = xx number;
+
+    if main_window_source != .DRAWING_MODE return false, "this command is for DRAWING_MODE";
 
     return;
 }
@@ -5646,6 +5694,8 @@ set_current_pixel_bg_rgb :: (r: u8, g: u8, b: u8) -> (ok := true, error_message 
     current_pixel_bg.g = g;
     current_pixel_bg.b = b;
 
+    if main_window_source != .DRAWING_MODE return false, "this command is for DRAWING_MODE";
+
     return;
 }
 
@@ -5654,6 +5704,8 @@ set_current_pixel_bg_256 :: (number: u8) -> (ok := true, error_message := "") {
 
     current_pixel_bg.type = .COLOR_8BIT;
     current_pixel_bg._8bit = xx number;
+
+    if main_window_source != .DRAWING_MODE return false, "this command is for DRAWING_MODE";
 
     return;
 }
@@ -5843,14 +5895,19 @@ my_logger :: (message: string, data: *void, info: Log_Info) {
         append(*state.error_log_builder, "\n");
     }
 
-    if !state.log_file.handle return;
+    if !state.log_file.handle && !state.log_to_stderr return;
 
     builder: String_Builder;
     print_date_time_for_log(*builder, to_calendar(current_time_consensus(), .LOCAL));
     filename := path_filename(info.location.fully_pathed_filename);
     print(*builder, ": [%:%] %\n", filename, info.location.line_number, message);
-    file_write(*state.log_file, builder_to_string(*builder,, temp));
-    fflush(state.log_file.handle);
+
+    if state.log_to_stderr {
+        write_builder(*builder, to_standard_error=true);
+    } else {
+        file_write(*state.log_file, builder_to_string(*builder,, temp));
+        fflush(state.log_file.handle);
+    }
 }
 
 //
@@ -7095,7 +7152,12 @@ init_terminal_settings :: () {
     using context.state;
 
     context.assertion_failed = (loc: Source_Code_Location, message: string) -> bool {
+        context.state.log_to_stderr = true;
+
         restore_terminal_settings();
+
+        save_current_buffer_to_temporary_file();
+
         return runtime_support_assertion_failed(loc, message);
     };
 
