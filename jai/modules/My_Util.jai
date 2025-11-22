@@ -1,4 +1,4 @@
-#module_parameters() (TEST := false);
+#module_parameters (TEST := false);
 
 f32 :: float32;
 f64 :: float64;
@@ -110,6 +110,148 @@ is_subslice :: inline (outer: string, inner: string) -> bool {
 }
 
 //
+// lines iterator
+//
+
+lines :: (text: *string, body: Code, flags: For_Flags) #expand {
+    #assert !(flags & .POINTER);
+    #assert !(flags & .REVERSE);
+
+    tail := text.*;
+    index := 0;
+    while tail {
+        found:, line:, tail = split_from_left(tail, #char "\n");
+
+        `it := line;
+        `it_index := index;
+        index += 1;
+
+        #insert body;
+    }
+}
+
+words :: (text: *string, body: Code, flags: For_Flags) #expand {
+    #assert !(flags & .POINTER);
+    #assert !(flags & .REVERSE);
+
+    tail := text.*;
+    index := 0;
+    while tail {
+        found:, line:, tail = split_from_left_by_any(tail, " \t\n\r");
+        if !line continue;
+
+        `it := line;
+        `it_index := index;
+        index += 1;
+
+        #insert body;
+    }
+}
+
+map :: (text: string, $cb: #type (*string, Code, For_Flags), $T: Type) -> [] T {
+    items: [..] T;
+
+    for :cb text {
+        array_add(*items, it);
+    }
+
+    return items;
+}
+
+
+#if TEST
+test_line_iterator :: () {
+    check_for_lines :: (s: string) -> [] string, [] int {
+        items: [..] string;
+        items.allocator = temp;
+
+        indexes: [..] int;
+        indexes.allocator = temp;
+
+        for :lines s {
+            array_add(*items, it);
+            array_add(*indexes, it_index);
+        }
+
+        return items, indexes;
+    }
+
+    items: [] string;
+    indexes: [] int;
+
+    items, indexes = check_for_lines("");
+    pretty_assert(array_equals(items, string.[]));
+    pretty_assert(array_equals(indexes, int.[]));
+
+    items, indexes = check_for_lines("line1");
+    pretty_assert(array_equals(items, string.["line1"]));
+    pretty_assert(array_equals(indexes, int.[0]));
+
+    items, indexes = check_for_lines("\n");
+    pretty_assert(array_equals(items, string.[""]));
+    pretty_assert(array_equals(indexes, int.[0]));
+
+    items, indexes = check_for_lines("\n\n");
+    pretty_assert(array_equals(items, string.["", ""]));
+    pretty_assert(array_equals(indexes, int.[0, 1]));
+
+    items, indexes = check_for_lines("line1\nline2\nline3\n");
+    pretty_assert(array_equals(items, string.["line1", "line2", "line3"]));
+    pretty_assert(array_equals(indexes, int.[0, 1, 2]));
+
+    items, indexes = check_for_lines("\n\nline1\nline2\n\nline3\n\n");
+    pretty_assert(array_equals(items, string.["", "", "line1", "line2", "", "line3", ""]));
+    pretty_assert(array_equals(indexes, int.[0, 1, 2, 3, 4, 5, 6]));
+
+    check_for_words :: (s: string) -> [] string, [] int {
+        items: [..] string;
+        items.allocator = temp;
+
+        indexes: [..] int;
+        indexes.allocator = temp;
+
+        for :words s {
+            array_add(*items, it);
+            array_add(*indexes, it_index);
+        }
+
+        return items, indexes;
+    }
+
+    items, indexes = check_for_words("");
+    pretty_assert(array_equals(items, string.[]));
+    pretty_assert(array_equals(indexes, int.[]));
+
+    items, indexes = check_for_words("word1");
+    pretty_assert(array_equals(items, string.["word1"]));
+    pretty_assert(array_equals(indexes, int.[0]));
+
+    items, indexes = check_for_words("\t ");
+    pretty_assert(array_equals(items, string.[]));
+    pretty_assert(array_equals(indexes, int.[]));
+
+    items, indexes = check_for_words(" \n ");
+    pretty_assert(array_equals(items, string.[]));
+    pretty_assert(array_equals(indexes, int.[]));
+
+    items, indexes = check_for_words("word1 word2 word3");
+    pretty_assert(array_equals(items, string.["word1", "word2", "word3"]));
+    pretty_assert(array_equals(indexes, int.[0, 1, 2]));
+
+    items, indexes = check_for_words("  word1\tword2 \n word3  \n\r");
+    pretty_assert(array_equals(items, string.["word1", "word2", "word3"]));
+    pretty_assert(array_equals(indexes, int.[0, 1, 2]));
+
+    items, indexes = check_for_words("  word1 ");
+    pretty_assert(array_equals(items, string.["word1"]));
+    pretty_assert(array_equals(indexes, int.[0]));
+
+    pretty_assert(array_equals(map("foo\n\nbar", lines, string), string.["foo", "", "bar"]));
+    pretty_assert(array_equals(map("foo\n\nbar", words, string), string.["foo", "bar"]));
+
+}
+
+//
 // unicode utilities
 //
 
@@ -167,6 +309,87 @@ trailing_bytes_for_utf8 :: u8.[
 	2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2, 3,3,3,3,3,3,3,3,4,4,4,4,5,5,5,5
 ];
 
+utf8 :: (utf8: *string, body: Code, flags: For_Flags) #expand {
+    #assert !(flags & .POINTER);
+    #assert !(flags & .REVERSE);
+
+    text := utf8.*;
+
+    count := 0;
+    cursor := 0;
+    while cursor < utf8.count {
+        trail := trailing_bytes_for_utf8[text[cursor]];
+        if cursor + trail >= utf8.count break;
+
+        `it := slice(text, cursor, trail + 1);
+        cursor += trail + 1;
+        `it_index := count;
+        count += 1;
+
+        #insert body;
+    }
+}
+
+first_byte_mask_for_utf8 :: u8.[ 0x7F, 0x1F, 0x0F, 0x07, 0x03, 0x01 ];
+
+utf8_chars :: (utf8: *string, body: Code, flags: For_Flags) #expand {
+    #assert !(flags & .POINTER);
+    #assert !(flags & .REVERSE);
+
+    text := utf8.*;
+
+    count := 0;
+    cursor := 0;
+    char: s64;
+    while cursor < utf8.count {
+        trail := trailing_bytes_for_utf8[text[cursor]];
+        if cursor + trail >= utf8.count break;
+
+        char = text[cursor] & first_byte_mask_for_utf8[trail];
+        cursor += 1;
+
+        for 1..trail {
+            char <<= 6;
+            // TODO: should probably add error checking
+            char |= text[cursor] & 0x3f;
+            cursor += 1;
+        }
+
+        `it_index := count;
+        `it := char;
+        count += 1;
+
+        #insert body;
+    }
+}
+
+#if TEST
+test_utf8_iterator :: () {
+    strings: [] string;
+    chars: [] s64;
+
+    strings = map("Здравствуй, Мир!", utf8, string);
+    pretty_assert(array_equals(strings, string.["З", "д", "р", "а", "в", "с", "т", "в", "у", "й", ",", " ", "М", "и", "р", "!"]));
+
+    chars = map("Здравствуй, Мир!", utf8_chars, s64);
+    pretty_assert(array_equals(chars, s64.[1047, 1076, 1088, 1072, 1074, 1089, 1090, 1074, 1091, 1081, 44, 32, 1052, 1080, 1088, 33]));
+
+
+    strings = map("╭⢾▄⡓╮", utf8, string);
+    pretty_assert(array_equals(strings, string.["╭", "⢾", "▄", "⡓", "╮"]));
+
+    chars = map("╭⢾▄⡓╮", utf8_chars, s64);
+    pretty_assert(array_equals(chars, s64.[9581, 10430, 9604, 10323, 9582]));
+
+
+    strings = map("🝏🞅Πツ", utf8, string);
+    pretty_assert(array_equals(strings, string.["🝏", "🞅", "Π", "ツ"]));
+
+    chars = map("🝏🞅Πツ", utf8_chars, s64);
+    pretty_assert(array_equals(chars, s64.[128847, 128901, 928, 12484]));
+
+}
+
 //
 // string builder utilities
 //
@@ -196,6 +419,7 @@ append_padding :: inline (builder: *String_Builder, count: s64, $padding := " ")
     append(builder, tail);
 }
 
+#if TEST
 test_append_padding :: () {
     Check :: ($n: int, $padding: string) #expand {
         builder: String_Builder;
@@ -494,7 +718,13 @@ pretty_assert :: (code: Code, loc := #caller_location) #expand {
         print_to_builder(*builder, " %) = false", #insert rhs);
         message = builder_to_string(*builder,, temporary_allocator);
     } else #if kind == .PROCEDURE_CALL {
-        message = tprint("(%) = (%(%, %)) = false", full_expr, proc_expr, #insert lhs, #insert rhs);
+        l := tprint("%", #insert lhs);
+        r := tprint("%", #insert rhs);
+        if l.count > 40 {
+            message = tprint("(\n    %\n) = (\n    %(\n        %,\n        %\n    )\n) = false", full_expr, proc_expr, #insert lhs, #insert rhs);
+        } else {
+            message = tprint("(%) = (%(%, %)) = false", full_expr, proc_expr, #insert lhs, #insert rhs);
+        }
     } else {
         message = tprint("(%) = false", full_expr);
     }

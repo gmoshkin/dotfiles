@@ -95,7 +95,11 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
                     return;
                 }
 
-                #if !JAILS if program == .PAGEVIEW && !compile_parameters.debug_build {
+                should_build_debug_and_run_tests := false;
+                if program == .PAGEVIEW && !compile_parameters.debug_build then should_build_debug_and_run_tests = true;
+                if program == .TESTS then should_build_debug_and_run_tests = true;
+
+                #if !JAILS if should_build_debug_and_run_tests {
                     debug_parameters := compile_parameters;
                     debug_parameters.debug_build = true;
 
@@ -104,8 +108,9 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
 
                     using info := get_program_info(program, debug=true);
 
-                    print("\n");
-                    command := string.[tprint("%/%", exe_path, exe_name), "--run-tests"];
+                    full_path := tprint("%1%2", exe_path, exe_name);
+                    print("Running tests: `% --run-tests`\n", full_path);
+                    command := string.[full_path, "--run-tests"];
                     process_result := run_command(..command);
 
                     if process_result.exit_code != 0 {
@@ -142,6 +147,7 @@ Program :: enum {
     CLIPBOARD;
     FIND_WINDOWS_DEV_KIT;
     SHELL_ALIASES;
+    TESTS;
 }
 
 Mode :: enum {
@@ -223,6 +229,9 @@ get_program_info :: (program: Program, debug := false) -> Program_Info {
         case .FIND_WINDOWS_DEV_KIT;
             source = "find_windows_dev_kit.jai";
             os = .WINDOWS;
+
+        case .TESTS;
+            source = "tests.jai";
 
         case .ALL;
             assert(false, "unreachable");
