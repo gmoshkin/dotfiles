@@ -103,10 +103,10 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
                     debug_parameters := compile_parameters;
                     debug_parameters.debug_build = true;
 
+                    using info := get_program_info(program, debug=true);
+
                     print("Compiling a debug version...\n");
                     if !build_program(info, debug_parameters) exit(1);
-
-                    using info := get_program_info(program, debug=true);
 
                     full_path := tprint("%1%2", exe_path, exe_name);
                     print("Running tests: `% --run-tests`\n", full_path);
@@ -114,7 +114,7 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
                     process_result := run_command(..command);
 
                     if process_result.exit_code != 0 {
-                        print("\x1b[31mError: Command % failed (Exit code %)\x1b[0m\n", command, process_result.exit_code);
+                        print("\n\x1b[31mError: Command % failed (Exit code %)\x1b[0m\n", command, process_result.exit_code);
                     }
                     print("\n");
 
@@ -325,7 +325,9 @@ build_program :: (info: Program_Info, parameters: Compile_Parameters) -> success
     BUILD_DATE_DAY: u8;
 } : .{
     GIT_HASH = "%",
-    GIT_LAST_COMMIT_MESSAGE = "%",
+    GIT_LAST_COMMIT_MESSAGE = #string END
+%
+END,
     DEBUG_OR_RELEASE = "%",
     DYNAMIC_OR_STATIC = "%",
     COMPILER_VERSION = "%",
@@ -357,6 +359,14 @@ build_program :: (info: Program_Info, parameters: Compile_Parameters) -> success
         if base_message.kind == .COMPLETE {
             using message := cast(*Message_Complete) base_message;
             compilation_success = (error_code == .NONE);
+            if compilation_success {
+                full_path := tprint("%1%2", exe_path, exe_name);
+                log("\n");
+                log("Compiled \x1b[33m%\x1b[0m", full_path);
+                log("\n");
+            } else {
+                log("\x1b[31mCompilation failed\x1b[0m");
+            }
             break;
         }
 
