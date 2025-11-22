@@ -527,6 +527,7 @@ main :: () {
     array_add(*my_struct_printer_data.variant_printers, .{ type_info(Human_Readable_Memory), human_readable_memory_printer });
     array_add(*my_struct_printer_data.variant_printers, .{ type_info(Mem_Dump), mem_dump_printer });
     array_add(*my_struct_printer_data.variant_printers, .{ type_info(Small_Bytes), small_bytes_printer });
+    array_add(*my_struct_printer_data.variant_printers, .{ type_info(Attribute_Range), attribute_range_printer });
 
     context.print_style.struct_printer = my_struct_printer;
     context.print_style.struct_printer_data = my_struct_printer_data;
@@ -6485,6 +6486,73 @@ Small_Style :: struct {
 }
 #assert size_of(Small_Style) == 3;
 
+operator == :: (l: Small_Style, r: Small_Style) -> bool {
+    return l.fg_color == r.fg_color && l.bg_color == r.bg_color && l.attributes == r.attributes;
+}
+
+small_style :: (fg := Color_8bit.TRANSPARENT, bg := Color_8bit.TRANSPARENT, attributes: Style_Attributes = 0) -> Small_Style {
+    return Small_Style.{ fg, bg, attributes };
+}
+
+open_style_sequence :: (builder: *String_Builder, using small: Small_Style) {
+    append(builder, "\e[");
+
+    need_semicolon := false;
+
+    if fg_color != .TRANSPARENT {
+
+        if fg_color >= .RED && fg_color <= .WHITE {
+            print(builder, "3%", cast(u8, fg_color));
+        } else if fg_color >= .BRIGHT_BLACK && fg_color <= .BRIGHT_WHITE {
+            print(builder, "%", 82 + cast(u8, fg_color));
+        } else if fg_color == .GRAY_0 {
+            append(builder, "30");
+        } else if fg_color >= .RGB_0_0_0 {
+            print(builder, "38;5;%", cast(u8, fg_color));
+        }
+
+        need_semicolon = true;
+    }
+
+    if bg_color != .TRANSPARENT {
+        if need_semicolon append(builder, ";");
+
+        if bg_color >= .RED && bg_color <= .WHITE {
+            print(builder, "4%", cast(u8, bg_color));
+            need_semicolon = true;
+        } else if bg_color >= .BRIGHT_BLACK && bg_color <= .BRIGHT_WHITE {
+            print(builder, "%", 92 + cast(u8, bg_color));
+            need_semicolon = true;
+        } else if bg_color == .GRAY_0 {
+            append(builder, "40");
+            need_semicolon = true;
+        } else if bg_color >= .RGB_0_0_0 {
+            print(builder, "48;5;%", cast(u8, bg_color));
+            need_semicolon = true;
+        }
+
+        need_semicolon = true;
+    }
+
+    Do_Attribute :: (command: Ansi_Style_Command) #expand {
+        if `need_semicolon append(`builder, ";");
+        print(`builder, "%", cast(u8, command));
+        `need_semicolon = true;
+    }
+
+    if attributes & .BOLD          then Do_Attribute(.BOLD_ON);
+    if attributes & .FAINT         then Do_Attribute(.FAINT_ON);
+    if attributes & .ITALIC        then Do_Attribute(.ITALIC_ON);
+    if attributes & .UNDERLINE     then Do_Attribute(.UNDERLINE_ON);
+    if attributes & .BLINKING      then Do_Attribute(.BLINKING_ON);
+    if attributes & .INVERSE       then Do_Attribute(.INVERSE_ON);
+    if attributes & .HIDDEN        then Do_Attribute(.HIDDEN_ON);
+    if attributes & .STRIKETHROUGH then Do_Attribute(.STRIKETHROUGH_ON);
+
+    append(builder, "m");
+}
+
+
 Color_24bit :: struct {
     r: u8;
     g: u8;
@@ -6496,6 +6564,10 @@ Color_24bit :: struct {
 }
 #assert size_of(Color_24bit) == 4;
 
+operator == :: (l: Color_24bit, r: Color_24bit) -> bool {
+    return l.r == r.r && l.g == r.g && l.b == r.b && l.flags == r.flags;
+}
+
 Style :: struct {
     union {
         fg_8bit: Color_8bit;
@@ -6505,7 +6577,7 @@ Style :: struct {
         bg_8bit: Color_8bit;
         bg_24bit: Color_24bit;
     }
-    flags: Flags;
+    flags: Flags = .FG_DEFAULT | .BG_DEFAULT;
     attributes: Style_Attributes;
 
     Flags :: enum_flags u8 {
@@ -6602,6 +6674,13 @@ evaluate_style_sequence :: (using sequence: Small_Escape_Sequence, style: Style)
     if command_letter != #char "m" return style;
     res := style;
 
+    if argument_count == 0 {
+        // Same as .RESET_ALL
+        res.flags = .FG_DEFAULT | .BG_DEFAULT;
+        res.attributes = 0;
+        return res;
+    }
+
     cursor := 0;
     while cursor < argument_count {
         command := cast(Ansi_Style_Command) arguments[cursor];
@@ -6655,7 +6734,10 @@ evaluate_style_sequence :: (using sequence: Small_Escape_Sequence, style: Style)
                 case;
                     continue;
                 }
-            case .FG_DEFAULT; res.flags |= .FG_DEFAULT; res.flags &= ~(.FG_24BIT);
+            case .FG_DEFAULT;
+                res.bg_8bit = .TRANSPARENT;
+                res.flags |= .FG_DEFAULT;
+                res.flags &= ~(.FG_24BIT);
 
             case .BG_BLACK;   res.bg_8bit = .TRANSPARENT;   res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
             case .BG_RED;     res.bg_8bit = .RED;           res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
@@ -6685,7 +6767,10 @@ evaluate_style_sequence :: (using sequence: Small_Escape_Sequence, style: Style)
                 case;
                     continue;
                 }
-            case .BG_DEFAULT; res.flags |= .BG_DEFAULT; res.flags &= ~(.BG_24BIT);
+            case .BG_DEFAULT;
+                res.bg_8bit = .TRANSPARENT;
+                res.flags |= .BG_DEFAULT;
+                res.flags &= ~(.BG_24BIT);
 
             case .FG_BRIGHT_BLACK;   res.fg_8bit = .BRIGHT_BLACK;     res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
             case .FG_BRIGHT_RED;     res.fg_8bit = .BRIGHT_RED;       res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
@@ -6808,6 +6893,10 @@ Ansi_Style_Command :: enum {
     BG_BRIGHT_MAGENTA :: 105;
     BG_BRIGHT_CYAN    :: 106;
     BG_BRIGHT_WHITE   :: 107;
+}
+
+make_text :: (code: Ansi_Style_Command) -> string {
+    return sprint("\x1b[%m", cast(u8, code));
 }
 
 // These are used in `\e[38;5;{Color_8bit}` command
@@ -7421,20 +7510,147 @@ test_print_braille :: () {
     print("%\n", s);
 }
 
-test_parse_shit :: () {
-    log("cwd: %\n", get_working_directory());
-    data, ok := my_read_entire_file("test.data");
+test_parse_text_with_control_codes :: () {
+    //
+    // simple case
+    //
+
+    {
+        parser: Parse_State;
+        parser.raw_text = "regular\x1b[31mred\x1b[33m\x1b[32mgreen\x1b[34mblue\x1b[0mdefault";
+        log("%", parser.raw_text);
+
+        parse_text_with_control_codes(*parser);
+
+        log("%", parser);
+
+        pretty_assert(cast(string, parser.only_text_storage) == "regularredgreenbluedefault");
+        pretty_assert(attribute_range_equals(
+            parser.attribute_ranges,
+            Attribute_Range.[
+                attribute_range(small_style(.RED),   7, 3),
+                attribute_range(small_style(.GREEN), 10, 5),
+                attribute_range(small_style(.BLUE),  15, 4),
+            ]
+        ));
+        pieces: [..] string;
+        for parser.attribute_ranges {
+            text := slice(xx parser.only_text_storage, it.offset_in_only_text, it.range_count);
+            array_add(*pieces, text);
+        }
+        pretty_assert(array_equals(pieces, string.["red", "green", "blue"]));
+    }
+
+    //
+    // overlaping ranges
+    //
+
+    {
+        parser: Parse_State;
+        parser.raw_text = tprint("aa%aa%aa%aa%aa%aa%aa%aa", make_text(.FG_RED), make_text(.BG_GREEN), make_text(.FG_BLUE), make_text(.BG_YELLOW), make_text(.FG_GREEN), make_text(.BG_DEFAULT), make_text(.FG_DEFAULT));
+        log("%", parser.raw_text);
+
+        parse_text_with_control_codes(*parser);
+
+        log("%", parser);
+
+        pretty_assert(cast(string, parser.only_text_storage) == "aaaaaaaaaaaaaaaa");
+        pretty_assert(attribute_range_equals(
+            parser.attribute_ranges,
+            Attribute_Range.[
+                attribute_range(small_style(.RED),             2, 2),
+                attribute_range(small_style(.RED, .GREEN),     4, 2),
+                attribute_range(small_style(.BLUE, .GREEN),    6, 2),
+                attribute_range(small_style(.BLUE, .YELLOW),   8, 2),
+                attribute_range(small_style(.GREEN, .YELLOW), 10, 2),
+                attribute_range(small_style(.GREEN),          12, 2),
+            ]
+        ));
+        pieces: [..] string;
+        for parser.attribute_ranges {
+            text := slice(xx parser.only_text_storage, it.offset_in_only_text, it.range_count);
+            array_add(*pieces, text);
+        }
+        pretty_assert(array_equals(pieces, string.["aa", "aa", "aa", "aa", "aa", "aa"]));
+    }
+
+    //
+    // multiline
+    //
+
+    {
+        parser: Parse_State;
+        parser.raw_text = tprint("line1%red\nline2%green%blue\nline3%default", make_text(.FG_RED), make_text(.FG_GREEN), make_text(.FG_BLUE), make_text(.RESET_ALL));
+        log("%", parser.raw_text);
+
+        parse_text_with_control_codes(*parser);
+
+        log("%", parser);
+
+        pretty_assert(cast(string, parser.only_text_storage) == "line1red\nline2greenblue\nline3default");
+        pretty_assert(attribute_range_equals(
+            parser.attribute_ranges,
+            Attribute_Range.[
+                attribute_range(small_style(.RED),   5, 3),
+                attribute_range(small_style(.RED),   9, 5),
+                attribute_range(small_style(.GREEN), 14, 5),
+                attribute_range(small_style(.BLUE),  19, 4),
+                attribute_range(small_style(.BLUE),  24, 5),
+            ]
+        ));
+        pieces: [..] string;
+        for parser.attribute_ranges {
+            text := slice(xx parser.only_text_storage, it.offset_in_only_text, it.range_count);
+            array_add(*pieces, text);
+        }
+        pretty_assert(array_equals(pieces, string.["red", "line2", "green", "blue", "line3"]));
+    }
+
+    //
+    // from file
+    //
+
+    test_data_file := tprint("%test.data", #filepath);
+    data, ok := my_read_entire_file(test_data_file);
     if !ok {
-        code, message := get_error_value_and_string();
-        log("FAIL: % %", code, message);
+        set_last_error_from_system(tprint("Couldn't open %: ", test_data_file));
+        log_last_error();
         assert(ok);
     }
 
-    parser: Parse_State;
-    parser.raw_text = data;
-    parse_text_with_control_codes(*parser);
+    {
+        parser: Parse_State;
+        parser.raw_text = data;
+        parse_text_with_control_codes(*parser);
 
-    assert(data.count == 1, "%", data.count);
+        log("\n");
+        log("parsed '%'", test_data_file);
+        log("raw size: %", parser.raw_text.count);
+        log("only text size: %", parser.only_text_storage.count);
+        log("number of ranges: %", parser.attribute_ranges.count);
+
+        line_i := 0;
+        for parser.attribute_ranges {
+            while true {
+                if line_i + 1 > parser.line_offsets.count break;
+                if parser.line_offsets[line_i + 1] > it.offset_in_only_text break;
+                line_i += 1;
+            }
+            line_start := parser.line_offsets[line_i];
+            pretty_assert(line_start <= it.offset_in_only_text);
+
+            line_no := line_i + 1;
+            column := it.offset_in_only_text - line_start + 1;
+
+            text := slice(xx parser.only_text_storage, it.offset_in_only_text, it.range_count);
+
+            open := open_style_sequence(*parser, it);
+            close := make_text(.RESET_ALL);
+            log("%:%,%: '%4%5%6'", test_data_file, line_no, column, open, text, close);
+
+            if line_i > 10 break;
+        }
+    }
 }
 
 Parse_State :: struct {
@@ -7442,13 +7658,19 @@ Parse_State :: struct {
     only_text_storage: [..] u8;
     parsed_up_to: int;
 
-    flags: enum { DIFF_MARKERS; };
+    current_style: Style;
+
+    flags: enum_flags { DIFF_MARKERS; };
 
     line_offsets: [..] u32;
     attribute_ranges: [..] Attribute_Range;
 
     diff_markers: [..] Range;
 }
+
+//
+// Attribute_Range
+//
 
 Attribute_Range :: struct {
     offset_in_only_text: u32;
@@ -7460,6 +7682,90 @@ Attribute_Range :: struct {
     };
     type: enum { SMALL_STYLE; COLOR_24BIT; IN_STORAGE; };
 }
+
+open_style_sequence :: (parser: *Parse_State, range: Attribute_Range) -> string {
+    builder: String_Builder;
+    builder.allocator = temp;
+
+    open_style_sequence(*builder, parser, range);
+
+    return builder_to_string(*builder);
+}
+
+open_style_sequence :: (builder: *String_Builder, parser: *Parse_State, range: Attribute_Range) {
+    if #complete range.type == {
+    case .SMALL_STYLE;
+        open_style_sequence(builder, range.small_style);
+    case .COLOR_24BIT;
+        assert(false, "not implemented");
+    case .IN_STORAGE;
+        assert(false, "not implemented");
+    }
+}
+
+operator == :: (l: Attribute_Range, r: Attribute_Range) -> bool {
+    if l.offset_in_only_text != r.offset_in_only_text
+        || l.range_count != r.range_count
+        || l.type != r.type
+        return false;
+
+    if #complete l.type == {
+    case .SMALL_STYLE; return l.small_style == r.small_style;
+    case .COLOR_24BIT; return l.color_24bit == r.color_24bit;
+    case .IN_STORAGE;  return l.index_in_storage == r.index_in_storage;
+    }
+
+    return true;
+}
+
+operator != :: (l: Attribute_Range, r: Attribute_Range) -> bool {
+    return !(l == r);
+}
+
+attribute_range_equals :: (l: [] Attribute_Range, r: [] Attribute_Range) -> bool {
+    if l.count != r.count return false;
+
+    for l {
+        if it != r[it_index] return false;
+    }
+
+    return true;
+}
+
+attribute_range :: (style: Small_Style, start: u32, count: u32) -> Attribute_Range {
+    using result: Attribute_Range;
+    offset_in_only_text = start;
+    range_count = count;
+    small_style = style;
+    type = .SMALL_STYLE;
+    return result;
+}
+
+print_attribute_range :: (builder: *String_Builder, range: Attribute_Range) {
+    append(builder, "{");
+    print(builder, "%, ", range.type);
+    if range.type == {
+    case .SMALL_STYLE; print(builder, "%, ", range.small_style);
+    case .COLOR_24BIT; print(builder, "%, ", range.color_24bit);
+    case .IN_STORAGE; print(builder, "%, ", range.index_in_storage);
+    }
+    print(builder, "%, ", range.offset_in_only_text);
+    print(builder, "%", range.range_count);
+    append(builder, "}");
+}
+
+attribute_range_printer :: (builder: *String_Builder, any: Any, struct_printer_data: *void) -> bool {
+    if any.type != type_info(Attribute_Range) return false;
+
+    s := << cast(*Attribute_Range) any.value_pointer;
+    print_attribute_range(builder, s);
+
+    return true;
+}
+
+//
+// parse_text_with_control_codes
+//
 
 parse_text_with_control_codes :: (parser: *Parse_State) {
     using parser;
@@ -7474,8 +7780,6 @@ parse_text_with_control_codes :: (parser: *Parse_State) {
     }
 
     array_reserve(*only_text_storage, raw_text.count);
-
-    current_style: Style;
 
     while !should_exit {
         found:, line:, unparsed_tail = split_from_left(unparsed_tail, #char "\n");
@@ -7541,7 +7845,7 @@ parse_text_with_control_codes :: (parser: *Parse_State) {
             }
 
             if c == #char "\e" {
-                sequence, ok, offset := parse_escape_sequence(line);
+                sequence, ok, offset := parse_escape_sequence(inline advance(line, cursor));
                 if ok {
                     array_add(*escape_sequences_in_line, .{sequence, xx only_text_storage.count});
                     cursor += offset;
@@ -7601,24 +7905,6 @@ Small_Escape_Sequence_In_Text :: struct {
 handle_attribute_escape_sequences :: (using parser: *Parse_State, escape_sequences_in_line: [] Small_Escape_Sequence_In_Text, line_start: u32, line_end: u32) {
     curr_range_start := line_start;
 
-    current_style: Style; // FIXME no idea about this, had to add this to make the code compile months after the original code was written....
-
-    if escape_sequences_in_line {
-        sequence := last(escape_sequences_in_line);
-        new_style := evaluate_style_sequence(sequence, current_style);
-        if (sequence.offset > curr_range_start)
-            && !is_default(current_style)
-            && !equals(new_style, current_style)
-        {
-            // @WRONG
-            // Close the continuing style from previous line
-            range := array_add(*attribute_ranges);
-            range.offset_in_only_text = curr_range_start;
-            range.range_count = sequence.offset - curr_range_start;
-            compress_style_attribute(parser, range, current_style);
-            curr_range_start = sequence.offset;
-        }
-    }
     /*
 
 <RED>foo <RESET>bar<BLUE>bizz buzz<RESET>hey ho\n
@@ -7628,31 +7914,37 @@ handle_attribute_escape_sequences :: (using parser: *Parse_State, escape_sequenc
     for sequence: escape_sequences_in_line {
         new_style := evaluate_style_sequence(sequence, current_style);
         if equals(new_style, current_style) continue;
-        defer current_style = new_style;
-
-        if sequence.offset == curr_range_start {
-            // FIXME @WRONG
-            range := last(*attribute_ranges);
-            compress_style_attribute(parser, range, current_style);
-            continue;
+        defer {
+            current_style = new_style;
+            curr_range_start = sequence.offset;
         }
 
-        assert(sequence.offset > curr_range_start, "% %", sequence.offset, curr_range_start);
-        if !is_default(current_style) {
-            // @WRONG
-            range := array_add(*attribute_ranges);
-            range.offset_in_only_text = curr_range_start;
-            range.range_count = sequence.offset - curr_range_start;
-            compress_style_attribute(parser, range, current_style);
-        }
-        curr_range_start = sequence.offset;
+        assert(sequence.offset >= curr_range_start, "% %", sequence.offset, curr_range_start);
+
+        // No point in adding a zero-length range, just override the current style
+        if sequence.offset == curr_range_start && attribute_ranges.count > 0 continue;
+
+        // No point in saving a range with no attributes
+        if is_default(current_style) continue;
+
+        //
+        // Close the previously started range
+        //
+        range := array_add(*attribute_ranges);
+        range.offset_in_only_text = curr_range_start;
+        range.range_count = sequence.offset - curr_range_start;
+
+        compress_style_attribute(parser, range, current_style);
     }
 
-/* FIXME
-    if (curr_range_start != line_end) && is_default() {
+    // Let's close the last unclosed range in the line
+    if (curr_range_start != line_end) && !is_default(current_style) {
+        range := array_add(*attribute_ranges);
+        range.offset_in_only_text = curr_range_start;
+        range.range_count = line_end - curr_range_start;
 
+        compress_style_attribute(parser, range, current_style);
     }
-    */
 }
 
 compress_style_attribute :: (parser: *Parse_State, range: *Attribute_Range, style: Style) {
@@ -7686,19 +7978,25 @@ compress_style_attribute :: (parser: *Parse_State, range: *Attribute_Range, styl
 }
 
 run_tests :: () {
+    context.assertion_failed = (loc: Source_Code_Location, message: string) -> bool {
+        write_string("\x1b[31m", to_standard_error=true);
+        defer write_string("\x1b[0m", to_standard_error=true);
+        return runtime_support_assertion_failed(loc, message);
+    };
+
     t0 := seconds_since_init();
     log("running tests...");
 
-    log("test_get_next_control_code_in_range");     test_get_next_control_code_in_range();
-    log("test_get_subfield_by_path");               test_get_subfield_by_path();
-    log("test_array_ordered_remove_range");         test_array_ordered_remove_range();
-    log("test_parse_ascii_or_hex");                 test_parse_ascii_or_hex();
-    log("test_print_pixel_value");                  test_print_pixel_value();
-    log("test_print_braille");                      test_print_braille();
-    log("test_parse_shit");                         test_parse_shit();
+    log("\n# test_get_next_control_code_in_range\n\n");     test_get_next_control_code_in_range();
+    log("\n# test_get_subfield_by_path\n\n");               test_get_subfield_by_path();
+    log("\n# test_array_ordered_remove_range\n\n");         test_array_ordered_remove_range();
+    log("\n# test_parse_ascii_or_hex\n\n");                 test_parse_ascii_or_hex();
+    log("\n# test_print_pixel_value\n\n");                  test_print_pixel_value();
+    log("\n# test_print_braille\n\n");                      test_print_braille();
+    log("\n# test_parse_text_with_control_codes\n\n");      test_parse_text_with_control_codes();
 
     elapsed := seconds_since_init() - t0;
-    log("\e[32mall tests passed!\e[0m elapsed: %", fmt(elapsed, 6));
+    log("\n\e[32mall tests passed!\e[0m elapsed: %", fmt(elapsed, 6));
 }
 
 #import "Basic"()(MEMORY_DEBUGGER=true);
