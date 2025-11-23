@@ -7580,14 +7580,14 @@ test_parse_text_with_control_codes :: () {
 
     {
         parser: Parse_State;
-        parser.raw_text = tprint("line1%red\nline2%green%blue\nline3%default", make_text(.FG_RED), make_text(.FG_GREEN), make_text(.FG_BLUE), make_text(.RESET_ALL));
+        parser.raw_text = tprint("line1%red\nline2%green%blue\nline3\nline4%default", make_text(.FG_RED), make_text(.FG_GREEN), make_text(.FG_BLUE), make_text(.RESET_ALL));
         log("%", parser.raw_text);
 
         parse_text_with_control_codes(*parser);
 
         log("%", parser);
 
-        pretty_assert(cast(string, parser.only_text_storage) == "line1red\nline2greenblue\nline3default");
+        pretty_assert(cast(string, parser.only_text_storage) == "line1red\nline2greenblue\nline3\nline4default");
         pretty_assert(attribute_range_equals(
             parser.attribute_ranges,
             Attribute_Range.[
@@ -7596,6 +7596,7 @@ test_parse_text_with_control_codes :: () {
                 attribute_range(small_style(.GREEN), 14, 5),
                 attribute_range(small_style(.BLUE),  19, 4),
                 attribute_range(small_style(.BLUE),  24, 5),
+                attribute_range(small_style(.BLUE),  30, 5),
             ]
         ));
         pieces: [..] string;
@@ -7603,7 +7604,7 @@ test_parse_text_with_control_codes :: () {
             text := slice(xx parser.only_text_storage, it.offset_in_only_text, it.range_count);
             array_add(*pieces, text);
         }
-        pretty_assert(array_equals(pieces, string.["red", "line2", "green", "blue", "line3"]));
+        pretty_assert(array_equals(pieces, string.["red", "line2", "green", "blue", "line3", "line4"]));
     }
 
     //
@@ -7630,12 +7631,77 @@ test_parse_text_with_control_codes :: () {
         log("number of ranges: %", parser.attribute_ranges.count);
 
         line_i := 0;
+        range_i := 0;
+
+        Get_Ranges :: () -> [] Attribute_Range #expand {
+            while true {
+                if range_i >= parser.attribute_ranges.count return .[];
+                if parser.attribute_ranges[range_i].offset_in_only_text >= `line_start break;
+                range_i += 1;
+            }
+            ranges_start := range_i;
+
+            while true {
+                range_i += 1;
+                if range_i >= parser.attribute_ranges.count break;
+                if parser.attribute_ranges[range_i].offset_in_only_text > `line_end break;
+            }
+            ranges_count := range_i - ranges_start;
+
+            return array_view(parser.attribute_ranges, ranges_start, ranges_count);
+        }
+
+        while true {
+            defer line_i += 1;
+            if line_i > parser.line_offsets.count - 1 break;
+            // if line_i > 10 break;
+
+            line_start := parser.line_offsets[line_i];
+            line_end := ifx line_i < parser.line_offsets.count then parser.line_offsets[line_i + 1] - 1 else parser.only_text_storage.count;
+
+            line := slice(xx parser.only_text_storage, line_start, line_end - line_start);
+
+            ranges := Get_Ranges();
+            if !ranges {
+                print("%\n", line);
+                continue;
+            }
+
+            last_piece_end := line_start;
+
+            for range: ranges {
+                piece_length := range.offset_in_only_text - last_piece_end;
+                if piece_length > 0 {
+                    piece := slice(xx parser.only_text_storage, last_piece_end, piece_length);
+                    print("%", piece);
+                }
+
+                piece := slice(xx parser.only_text_storage, range.offset_in_only_text, range.range_count);
+
+                last_piece_end = range.offset_in_only_text + range.range_count;
+
+                open := open_style_sequence(*parser, range);
+                close := make_text(.RESET_ALL);
+
+                print("%1%2%3", open, piece, close);
+            }
+
+            if last_piece_end != line_end {
+                tail := slice(xx parser.only_text_storage, last_piece_end, line_end - last_piece_end);
+                print("%\n", tail);
+            } else {
+                print("\n");
+            }
+        }
+
+        #if false
         for parser.attribute_ranges {
             while true {
                 if line_i + 1 > parser.line_offsets.count break;
                 if parser.line_offsets[line_i + 1] > it.offset_in_only_text break;
                 line_i += 1;
             }
+
             line_start := parser.line_offsets[line_i];
             pretty_assert(line_start <= it.offset_in_only_text);
 
@@ -7653,6 +7719,10 @@ test_parse_text_with_control_codes :: () {
     }
 }
 
+//
+// new text and ascii sequence parser
+//
+
 Parse_State :: struct {
     raw_text: string;
     only_text_storage: [..] u8;
@@ -7664,6 +7734,10 @@ Parse_State :: struct {
 
     line_offsets: [..] u32;
     attribute_ranges: [..] Attribute_Range;
+
+    // Not used yet
+    attribute_range_cursor: u32;
+    attribute_range_offsets: [..] struct { line_index: u32; range_offset: u32; };
 
     diff_markers: [..] Range;
 }
@@ -7782,6 +7856,8 @@ parse_text_with_control_codes :: (parser: *Parse_State) {
     array_reserve(*only_text_storage, raw_text.count);
 
     while !should_exit {
+        line_index := line_offsets.count - 1;
+
         found:, line:, unparsed_tail = split_from_left(unparsed_tail, #char "\n");
 
         auto_release_temp();
@@ -7872,6 +7948,10 @@ parse_text_with_control_codes :: (parser: *Parse_State) {
 
         line_start := last(line_offsets);
         line_end := only_text_storage.count;
+
+        if escape_sequences_in_line {
+            array_add(*attribute_range_offsets, .{xx line_index, xx attribute_ranges.count});
+        }
 
         handle_attribute_escape_sequences(parser, escape_sequences_in_line, line_start, xx line_end);
 
@@ -7976,6 +8056,10 @@ compress_style_attribute :: (parser: *Parse_State, range: *Attribute_Range, styl
 
     // TODO if not that's a TODO
 }
+
+//
+// run_tests
+//
 
 run_tests :: () {
     context.assertion_failed = (loc: Source_Code_Location, message: string) -> bool {
