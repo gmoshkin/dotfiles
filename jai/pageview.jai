@@ -2028,6 +2028,13 @@ build_line_buffer_for_game_of_life :: () -> [] string {
 }
 
 //
+// graphics
+//
+
+// Had an impulsive idea to make a software 3d renderrer, or at least port the
+// code from scripts/screensaver.py, but then I lost the motivation... Maybe later?
+
+//
 // delayed word selection
 //
 
@@ -6391,7 +6398,7 @@ line_index_to_scrollbar_element :: inline (line_index: s64) -> s64 {
     using context.state;
 
     // XXX Not sure if I need floor or ceil or what???
-    return xx floor(line_index * scrollbar_zoom_ratio);
+    return xx floor(line_index * 2 * scrollbar_zoom_ratio);
 }
 
 draw_scrollbar_piece_in_current_line :: (builder: *String_Builder) {
