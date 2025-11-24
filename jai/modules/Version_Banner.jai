@@ -18,7 +18,7 @@ show_version_banner :: (builder: *String_Builder) {
     print(builder, "% % %, built on % % %\n", context.EXECUTABLE_NAME, DEBUG_OR_RELEASE, DYNAMIC_OR_STATIC, BUILD_DATE_DAY + 1, build_month, BUILD_DATE_YEAR);
     git_hash := GIT_HASH;
     git_hash.count = 8;
-    print(builder, "git commit: % (%)\n", git_hash, GIT_LAST_COMMIT_MESSAGE);
+    print(builder, "git commit: % (%)\n", git_hash, trim(GIT_LAST_COMMIT_MESSAGE));
     print(builder, "compiler version: %\n", COMPILER_VERSION);
 }
 
@@ -39,6 +39,26 @@ maybe_show_version_banner_and_exit :: (values := string.["-v", "--version"], exi
         show_version_banner();
         exit(exit_code);
     }
+}
+
+#scope_file
+
+trim :: (s: string) -> string {
+    res := s;
+    while res.count > 0 {
+        c := res[0];
+        if c != #char " " && c != #char "\n" && c != #char "\t" && c != #char "\r" break;
+        res.data += 1;
+        res.count -= 1;
+    }
+
+    while res.count > 0 {
+        c := res[res.count - 1];
+        if c != #char " " && c != #char "\n" && c != #char "\t" && c != #char "\r" break;
+        res.count -= 1;
+    }
+
+    return res;
 }
 
 #import "Basic";
