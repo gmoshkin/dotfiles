@@ -5198,6 +5198,7 @@ set_info_message :: (format: string, args: .. Any, timeout := 3.0) {
     info_message_deadline = frame_time + timeout;
 } @PrintLike
 
+#if false
 test_proc :: () {
     defer {
         "block"; "inside"; "defer";

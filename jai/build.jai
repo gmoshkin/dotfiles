@@ -91,7 +91,7 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
             case .COMPILE;
                 info := get_program_info(program, compile_parameters.debug_build);
                 if info.os != OS {
-                    print("Skipping \x1b[33m%\x1b[0m (it wants OS %)\n", info.exe_name, info.os);
+                    print("Skipping \e[33m%\e[0m (it wants OS %)\n", info.exe_name, info.os);
                     return;
                 }
 
@@ -109,12 +109,12 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
                     if !build_program(info, debug_parameters) exit(1);
 
                     full_path := tprint("%1%2", exe_path, exe_name);
-                    print("Running tests: `% --run-tests`\n", full_path);
+                    print("\e[32mRunning tests:\e[0m \e[33m% --run-tests\e[0m\n", full_path);
                     command := string.[full_path, "--run-tests"];
                     process_result := run_command(..command);
 
                     if process_result.exit_code != 0 {
-                        print("\n\x1b[31mError: Command % failed (Exit code %)\x1b[0m\n", command, process_result.exit_code);
+                        print("\n\e[31mError: Command \e[33m%\e[31m failed (Exit code %)\e[0m\n", get_quoted_command_string(command), process_result.exit_code);
                     }
                     print("\n");
 
@@ -253,7 +253,7 @@ build_program :: (info: Program_Info, parameters: Compile_Parameters) -> success
     using parameters;
 
     builder: String_Builder;
-    print(*builder, "Compiling \x1b[33m%\x1b[0m", exe_name);
+    print(*builder, "\e[32mCompiling\e[0m \e[33m%\e[0m", exe_name);
     print(*builder, " (");
     if debug_build    then print(*builder, "debug");    else print(*builder, "release");
     if dynamic_binary then print(*builder, " dynamic"); else print(*builder, " static");
@@ -302,10 +302,10 @@ build_program :: (info: Program_Info, parameters: Compile_Parameters) -> success
     // Run this after starting the compilation because that way we don't block the compiler
     git_hash := get_git_commit_hash();
     git_last_commit_message := get_git_last_commit_message();
-    log("git_last_commit_message:");
-    log("```");
-    log("%", git_last_commit_message);
-    log("```");
+    log("\e[90mgit_last_commit_message:\e[0m");
+    log("\e[90m```\e[0m");
+    log("\e[90m%\e[0m", git_last_commit_message);
+    log("\e[90m```\e[0m");
     log("\n");
     debug_or_release := ifx debug_build then "debug" else "release";
     dynamic_or_static := ifx dynamic_binary then "dynamic" else "static";
@@ -362,10 +362,10 @@ END,
             if compilation_success {
                 full_path := tprint("%1%2", exe_path, exe_name);
                 log("\n");
-                log("Compiled \x1b[33m%\x1b[0m", full_path);
+                log("\e[32mCompiled\e[0m \e[33m%\e[0m", full_path);
                 log("\n");
             } else {
-                log("\x1b[31mCompilation failed\x1b[0m");
+                log("\e[31mCompilation failed\e[0m");
             }
             break;
         }
@@ -483,7 +483,7 @@ run_link_command_on_linux_with_musl :: (using message: *Message_Phase) -> bool {
     array_add(*command, sprint("%/modules/libc.a", #filepath));
     array_add(*command, sprint("%/modules/libexecinfo.a", #filepath));
 
-    print("Running linker: %\n", get_quoted_command_string(command));
+    print("\e[32mRunning linker:\e[0m %\n", get_quoted_command_string(command));
     process_result := run_command(..command);
 
     if process_result.exit_code != 0 {
@@ -588,7 +588,7 @@ get_git_commit_hash :: () -> string {
     process_result, output, error := run_command(..command, capture_and_return_output=true);
 
     if process_result.exit_code != 0 {
-        print("Error: command % failed (Exit code %)\n", command, process_result.exit_code);
+        print("Error: command % failed (Exit code %)\n", get_quoted_command_string(command), process_result.exit_code);
         for split(error, "\n") {
             print("    %\n", it);
         }
@@ -606,7 +606,7 @@ get_git_last_commit_message :: () -> string {
     process_result, output, error := run_command(..command, capture_and_return_output=true);
 
     if process_result.exit_code != 0 {
-        print("Error: command % failed (Exit code %)\n", command, process_result.exit_code);
+        print("Error: command % failed (Exit code %)\n", get_quoted_command_string(command), process_result.exit_code);
         for split(error, "\n") {
             print("    %\n", it);
         }
@@ -1187,15 +1187,15 @@ dump_proc_ast :: (proc: *Code_Procedure_Body) {
     new_context.print_style.struct_printer_data = *data;
     push_context,defer_pop new_context;
 
-    print("@DumpAst on procedure %\n", proc.header.name);
+    print("\e[90m@DumpAst on procedure %\e[0m\n", proc.header.name);
     // print("%\n", proc.block.*);
 }
 
 dump_ast :: (base_code: *Code_Node) {
     builder := String_Builder.{ allocator = temp };
-    print(*builder, "@DumpAst on ");
+    print(*builder, "\e[90m@DumpAst on ");
     print_base_code(*builder, base_code);
-    print(*builder, "\n");
+    print(*builder, "\e[0m\n");
     write_builder(*builder);
 }
 
@@ -1657,9 +1657,9 @@ take_argument :: (args: [] string, cursor: *int, result: *$T) -> bool {
 }
 
 die :: (format: string, args: .. Any) {
-    print("\x1b[31m");
+    print("\e[31m");
     print(format, ..args);
-    print("\x1b[0m\n");
+    print("\e[0m\n");
     exit(1);
 } @PrintLike
 
