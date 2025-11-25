@@ -1,10 +1,15 @@
 main :: () {
     t0 := seconds_since_init();
-    log("running tests...");
+    log("\e[32mRunning tests...\e[0m");
 
-    log("test_line_iterator");                      test_line_iterator();
-    log("test_append_padding");                     test_append_padding();
-    log("test_utf8_iterator");                      test_utf8_iterator();
+    Log_Header :: (test: string) #expand {
+        log("\n# \e[35m%\e[0m\n\n", test);
+    }
+
+    Log_Header("test_line_iterator");                      test_line_iterator();
+    Log_Header("test_append_padding");                     test_append_padding();
+    Log_Header("test_utf8_iterator");                      test_utf8_iterator();
+    Log_Header("test_parse_positive_number");              test_parse_positive_number();
 
     elapsed := seconds_since_init() - t0;
     log("\e[32mall tests passed!\e[0m elapsed: %", fmt(elapsed, 6));

@@ -109,6 +109,56 @@ is_subslice :: inline (outer: string, inner: string) -> bool {
     return (outer.data <= inner.data) && (inner.data + inner.count <= outer.data + outer.count);
 }
 
+parse_positive_number :: (text: string, $T: Type = int) -> T, tail: string
+#modify { return T == u8 || T == u16 || T == u32 || T == u64 || T == s8 || T == s16 || T == s32 || T == s64; }
+{
+    if !text return 0, text;
+
+    result: T = 0;
+    cursor := 0;
+    while cursor < text.count {
+        d := text[cursor];
+        if !inline is_digit(d) break;
+        cursor += 1;
+        result = result * 10 + (d - #char "0");
+    }
+
+    return result, advance(text, cursor);
+}
+
+#if TEST
+test_parse_positive_number :: () {
+    {
+        n, tail := parse_positive_number("");
+        pretty_assert(n == 0);
+        pretty_assert(tail == "");
+    }
+
+    {
+        n, tail := parse_positive_number("a");
+        pretty_assert(n == 0);
+        pretty_assert(tail == "a");
+    }
+
+    {
+        n, tail := parse_positive_number("1");
+        pretty_assert(n == 1);
+        pretty_assert(tail == "");
+    }
+
+    {
+        n, tail := parse_positive_number("2b");
+        pretty_assert(n == 2);
+        pretty_assert(tail == "b");
+    }
+
+    {
+        n, tail := parse_positive_number("42069");
+        pretty_assert(n == 42069);
+        pretty_assert(tail == "");
+    }
+}
+
 //
 // lines iterator
 //
