@@ -8079,13 +8079,17 @@ run_tests :: () {
     t0 := seconds_since_init();
     log("running tests...");
 
-    log("\n# test_get_next_control_code_in_range\n\n");     test_get_next_control_code_in_range();
-    log("\n# test_get_subfield_by_path\n\n");               test_get_subfield_by_path();
-    log("\n# test_array_ordered_remove_range\n\n");         test_array_ordered_remove_range();
-    log("\n# test_parse_ascii_or_hex\n\n");                 test_parse_ascii_or_hex();
-    log("\n# test_print_pixel_value\n\n");                  test_print_pixel_value();
-    log("\n# test_print_braille\n\n");                      test_print_braille();
-    log("\n# test_parse_text_with_control_codes\n\n");      test_parse_text_with_control_codes();
+    Log_Header :: (test: string) #expand {
+        log("\n# \e[35m%\e[0m\n\n", test);
+    }
+
+    Log_Header("test_get_next_control_code_in_range");     test_get_next_control_code_in_range();
+    Log_Header("test_get_subfield_by_path");               test_get_subfield_by_path();
+    Log_Header("test_array_ordered_remove_range");         test_array_ordered_remove_range();
+    Log_Header("test_parse_ascii_or_hex");                 test_parse_ascii_or_hex();
+    Log_Header("test_print_pixel_value");                  test_print_pixel_value();
+    Log_Header("test_print_braille");                      test_print_braille();
+    Log_Header("test_parse_text_with_control_codes");      test_parse_text_with_control_codes();
 
     elapsed := seconds_since_init() - t0;
     log("\n\e[32mall tests passed!\e[0m elapsed: %", fmt(elapsed, 6));
