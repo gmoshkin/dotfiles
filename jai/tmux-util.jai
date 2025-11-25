@@ -4,11 +4,12 @@ main :: () {
     args := get_command_line_arguments();
     maybe_show_version_banner_and_exit();
 
-    subcommands :: struct { argument: string; proc: #type (args: [] string) -> (); }.[
+    subcommands :: struct { argument: string; proc: #type (args: [] string) -> (bool, string); }.[
         .{ "status-line-left",  status_line_left, },
         .{ "status-line-right", status_line_right, },
         .{ "new-session",       new_session_subcommand, },
         .{ "crawl-locations",   crawl_locations_subcommand, },
+        .{ "capture-last-command-output",   capture_last_command_output_subcommand, },
     ];
 
     if args.count < 2 {
@@ -20,7 +21,12 @@ main :: () {
 
     for subcommands {
         if args[1] == it.argument {
-            it.proc(advance(args, 2));
+            ok, error := it.proc(advance(args, 2));
+            if !ok {
+                log_error("%", error);
+                command("tmux", "display", error);
+                exit(1);
+            }
             return;
         }
     }
@@ -30,7 +36,7 @@ main :: () {
 // subcommand: status-line-left
 //
 
-status_line_left :: (args: [] string) {
+status_line_left :: (args: [] string) -> (bool, string) {
     segments_raw := Segment.[
         .{
             text = join(
@@ -68,13 +74,15 @@ status_line_left :: (args: [] string) {
     }
     write_builder(*sb);
     print("\n");
+
+    return true, "";
 }
 
 //
 // subcommand: status-line-right
 //
 
-status_line_right :: (args: [] string) {
+status_line_right :: (args: [] string) -> (bool, string) {
     segments_raw := Segment.[
         // maybe lan/wan address? do I need it even?
         .{ proc = battery },
@@ -101,23 +109,17 @@ status_line_right :: (args: [] string) {
     }
     write_builder(*sb);
     print("\n");
+
+    return true, "";
 }
 
 //
 // subcommand: new-session
 //
 
-new_session_subcommand :: (args: [] string) {
+new_session_subcommand :: (args: [] string) -> (ok: bool, error: string) {
     debug = contains(args, (a) => a == "-d" || a == "--debug");
 
-    ok, error := do_new_session();
-    if !ok {
-        log_error("%", error);
-        command("tmux", "display", error);
-    }
-}
-
-do_new_session :: () -> (ok: bool, error: string) {
     // Read path from stdin
     data, ok := my_read_entire_file(file_stdin());
     if !ok {
@@ -186,16 +188,7 @@ get_tmux_sessions :: () -> (Table(string, string), bool, string) {
 // subcommand: crawl-locations
 //
 
-crawl_locations_subcommand :: (args: [] string) {
-    ok, error := do_crawl_locations(args);
-    if !ok {
-        log_error("%", error);
-        command("tmux", "display", error);
-        exit(1);
-    }
-}
-
-do_crawl_locations :: (args: [] string) -> (ok: bool, error: string) {
+crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
     if !args.count {
         return false, "expected a target pane specifier as first argument";
     }
@@ -231,31 +224,58 @@ do_crawl_locations :: (args: [] string) -> (ok: bool, error: string) {
         line_no: int;
         column_no: int;
         info: string;
+        info_type: u8;
     };
     locations: [..] Source_Location;
 
+    Same_Location :: (l: *Source_Location, r: *Source_Location) -> bool {
+        return l.filename == r.filename && l.line_no == r.line_no && l.column_no == r.column_no;
+    }
+
+    // Remeber, we're going in reverese line order, so next line is the one we've seen previously
+    next_line_is_rust_location := false;
     line_count := 0;
     for :reverse_lines line: output {
         // Only look for locations in last command's output.
         // @Incomplete make this more general
         if !crawl_the_whole_history && locations.count > 0 && starts_with(line, "╭(gmoshkin@") break;
 
+        if next_line_is_rust_location {
+            next_line_is_rust_location = false;
+
+            location := last(*locations);
+            location.info = line;
+            if starts_with(line, "error") {
+                location.info_type = #char "E";
+            } else if starts_with(line, "warning") {
+                location.info_type = #char "W";
+            }
+            continue;
+        }
+
+        prev_word: string;
+
+        // TODO: maybe I only want locations at start of line???
         for :words word: line {
+            defer prev_word = word;
 
             filename, line_no, column_no := parse_source_location(word);
             if !filename continue;
             if need_line && line_no <= 0 continue;
 
-            tail := trim(advance(line, word.count));
+            info := trim(advance(line, word.data - line.data + word.count));
 
-            info: string;
-            if starts_with_ignoring_case(tail, "error") {
-                info = tail;
-            } else if starts_with_ignoring_case(tail, "warning") {
-                info = tail;
+            location := Source_Location.{ filename, line_no, column_no, info, 0 };
+
+            prev_location := last(*locations);
+            if prev_location && Same_Location(prev_location, *location) {
+                // Remeber we're going in reverse line order
+                prev_location.info = sprint("%\\n%", info, prev_location.info);
+            } else {
+                array_add(*locations, location);
             }
 
-            array_add(*locations, .{ filename, line_no, column_no, info });
+            if prev_word == "-->" then next_line_is_rust_location = true;
 
             // Only one source location per line
             break;
@@ -274,6 +294,9 @@ do_crawl_locations :: (args: [] string) -> (ok: bool, error: string) {
             print(builder, "\"filename\": \"%\", \"lnum\": %, \"col\": %", filename, line_no, column_no);
         }
         if info print(builder, ", \"text\": \"%\"", info);
+
+        type: [1] u8 = .[info_type];
+        if info_type print(builder, ", \"type\": \"%\"", cast(string, type));
     }
 
     if output_json {
@@ -341,11 +364,11 @@ parse_source_location :: (text: string) -> (filename: string, line_no: int, colu
 
     tail := advance(text, cursor);
 
-    if cursor == text.count return filename, 0, 0;
-
-    assert(tail[0] == #char ":");
+    if !tail return filename, 0, 0;
+    if tail[0] != #char ":" return filename, 0, 0;
     tail = advance(tail, 1);
 
+    if !tail return filename, 0, 0;
     if !(inline is_digit(tail[0])) return filename, 0, 0;
     line_no:, tail = parse_positive_number(tail);
 
@@ -354,6 +377,7 @@ parse_source_location :: (text: string) -> (filename: string, line_no: int, colu
     }
     tail = advance(tail, 1);
 
+    if !tail return filename, line_no, 0;
     if !(inline is_digit(tail[0])) return filename, line_no, 0;
     column_no:, tail = parse_positive_number(tail);
 
@@ -364,6 +388,71 @@ is_file_path_char :: (char: u8) -> bool {
     return (inline is_alpha(char)) || (inline is_digit(char))
         || char == #char "-" || char == #char "_" || char == #char "~"
         || char == #char "." || char == #char "/";
+}
+
+//
+// subcommand: capture-last-command-output
+//
+
+capture_last_command_output_subcommand :: (args: [] string) -> (ok: bool, error: string) {
+    target_pane: string;
+
+    num_matches_to_skip := 1;
+
+    cursor := 0;
+    while cursor < args.count {
+        arg := args[cursor];
+        cursor += 1;
+        if arg == {
+        case "-t";
+            if cursor >= args.count return false, sprint("expected argument after `%`", arg);
+            target_pane = args[cursor];
+            cursor += 1;
+        case "--skip";
+            if cursor >= args.count return false, sprint("expected argument after `%`", arg);
+            value := args[cursor];
+            cursor += 1;
+
+            num_matches_to_skip=, tail := parse_positive_number(value);
+            if tail == value || trim(tail) != "" return false, sprint("expected a positive number after `%`, got `%`", arg, value);
+        }
+    }
+
+    cmd: [..] string;
+    cmd.allocator = temp;
+    array_add(*cmd, "tmux", "capture-pane", "-epJS-");
+    if target_pane then array_add(*cmd, "-t", target_pane);
+
+    ok, output := command(..cmd);
+    if !ok {
+        return false, sprint("error: %", output);
+    }
+
+    t0 := seconds_since_init();
+
+    matches := 0;
+    last_seen_line: string;
+    for :reverse_lines line: output {
+        defer last_seen_line = line;
+
+        auto_release_temp();
+
+        if !contains(line, #char "@") continue;
+        if !contains(line, "gmoshkin") continue;
+
+        only_text := only_visible_text(line);
+        if starts_with(only_text, "╭(gmoshkin@") {
+            matches += 1;
+            if matches > num_matches_to_skip break;
+        }
+    }
+
+    elapsed := seconds_since_init() - t0;
+
+    result := advance(output, last_seen_line.data - output.data);
+    write_string(result);
+
+    return true, "";
 }
 
 //
