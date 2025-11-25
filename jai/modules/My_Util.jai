@@ -169,6 +169,7 @@ lines :: (text: *string, body: Code, flags: For_Flags) #expand {
 
     tail := text.*;
     index := 0;
+
     while tail {
         found:, line:, tail = split_from_left(tail, #char "\n");
 
@@ -178,6 +179,36 @@ lines :: (text: *string, body: Code, flags: For_Flags) #expand {
 
         #insert body;
     }
+}
+
+reverse_lines :: (text: *string, body: Code, flags: For_Flags) #expand {
+    #assert !(flags & .POINTER);
+    #assert !(flags & .REVERSE);
+
+    head := text.*;
+    if !head return;
+
+    index := 0;
+    found := false;
+    first := true;
+
+    while head || found {
+        found=, head=, line := split_from_right(head, #char "\n");
+
+        if first {
+            first = false;
+            // Skip first empty line (already checked the input is not empty)
+            if !line continue;
+        }
+
+        `it := line;
+        `it_index := index;
+        index += 1;
+
+        #insert body;
+    }
+
+    return;
 }
 
 words :: (text: *string, body: Code, flags: For_Flags) #expand {
@@ -211,17 +242,23 @@ map :: (text: string, $cb: #type (*string, Code, For_Flags), $T: Type) -> [] T {
 
 #if TEST
 test_line_iterator :: () {
-    check_for_lines :: (s: string) -> [] string, [] int {
+    check_for_lines :: (s: string, $reverse := false) -> [] string, [] int {
         items: [..] string;
         items.allocator = temp;
 
         indexes: [..] int;
         indexes.allocator = temp;
 
-        for :lines s {
-            array_add(*items, it);
-            array_add(*indexes, it_index);
-        }
+        #if !reverse
+            for :lines s {
+                array_add(*items, it);
+                array_add(*indexes, it_index);
+            }
+        else
+            for :reverse_lines s {
+                array_add(*items, it);
+                array_add(*indexes, it_index);
+            }
 
         return items, indexes;
     }
@@ -251,6 +288,34 @@ test_line_iterator :: () {
 
     items, indexes = check_for_lines("\n\nline1\nline2\n\nline3\n\n");
     pretty_assert(array_equals(items, string.["", "", "line1", "line2", "", "line3", ""]));
+    pretty_assert(array_equals(indexes, int.[0, 1, 2, 3, 4, 5, 6]));
+
+    //
+    // reverese
+    //
+
+    items, indexes = check_for_lines("", reverse=true);
+    pretty_assert(array_equals(items, string.[]));
+    pretty_assert(array_equals(indexes, int.[]));
+
+    items, indexes = check_for_lines("line1", reverse=true);
+    pretty_assert(array_equals(items, string.["line1"]));
+    pretty_assert(array_equals(indexes, int.[0]));
+
+    items, indexes = check_for_lines("\n", reverse=true);
+    pretty_assert(array_equals(items, string.[""]));
+    pretty_assert(array_equals(indexes, int.[0]));
+
+    items, indexes = check_for_lines("\n\n", reverse=true);
+    pretty_assert(array_equals(items, string.["", ""]));
+    pretty_assert(array_equals(indexes, int.[0, 1]));
+
+    items, indexes = check_for_lines("line1\nline2\nline3\n", reverse=true);
+    pretty_assert(array_equals(items, string.["line3", "line2", "line1"]));
+    pretty_assert(array_equals(indexes, int.[0, 1, 2]));
+
+    items, indexes = check_for_lines("\n\nline1\nline2\n\nline3\n\n", reverse=true);
+    pretty_assert(array_equals(items, string.["", "line3", "", "line2", "line1", "", ""]));
     pretty_assert(array_equals(indexes, int.[0, 1, 2, 3, 4, 5, 6]));
 
     check_for_words :: (s: string) -> [] string, [] int {
