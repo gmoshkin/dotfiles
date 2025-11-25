@@ -8,6 +8,7 @@ main :: () {
         .{ "status-line-left",  status_line_left, },
         .{ "status-line-right", status_line_right, },
         .{ "new-session",       new_session_subcommand, },
+        .{ "crawl-locations",   crawl_locations_subcommand, },
     ];
 
     if args.count < 2 {
@@ -182,6 +183,190 @@ get_tmux_sessions :: () -> (Table(string, string), bool, string) {
 }
 
 //
+// subcommand: crawl-locations
+//
+
+crawl_locations_subcommand :: (args: [] string) {
+    ok, error := do_crawl_locations(args);
+    if !ok {
+        log_error("%", error);
+        command("tmux", "display", error);
+        exit(1);
+    }
+}
+
+do_crawl_locations :: (args: [] string) -> (ok: bool, error: string) {
+    if !args.count {
+        return false, "expected a target pane specifier as first argument";
+    }
+
+    output_json := false;
+    crawl_the_whole_history := false;
+    need_line := false;
+
+    target_pane: string;
+
+    cursor := 0;
+    while cursor < args.count {
+        arg := args[cursor];
+        cursor += 1;
+        if arg == {
+        case "--json"; output_json = true;
+        case "--all"; crawl_the_whole_history = true;
+        case "--need-line"; need_line = true;
+        case;
+            if starts_with(arg, "-") return false, tprint("Unexpected argument: `%`", arg);
+            target_pane = arg;
+            break;
+        }
+    }
+
+    ok, output := command("tmux", "capture-pane", "-pJS-", "-t", target_pane);
+    if !ok {
+        return false, tprint("error: %", output);
+    }
+
+    Source_Location :: struct {
+        filename: string;
+        line_no: int;
+        column_no: int;
+        info: string;
+    };
+    locations: [..] Source_Location;
+
+    line_count := 0;
+    for :reverse_lines line: output {
+        // Only look for locations in last command's output.
+        // @Incomplete make this more general
+        if !crawl_the_whole_history && locations.count > 0 && starts_with(line, "╭(gmoshkin@") break;
+
+        for :words word: line {
+
+            filename, line_no, column_no := parse_source_location(word);
+            if !filename continue;
+            if need_line && line_no <= 0 continue;
+
+            tail := trim(advance(line, word.count));
+
+            info: string;
+            if starts_with_ignoring_case(tail, "error") {
+                info = tail;
+            } else if starts_with_ignoring_case(tail, "warning") {
+                info = tail;
+            }
+
+            array_add(*locations, .{ filename, line_no, column_no, info });
+
+            // Only one source location per line
+            break;
+        }
+        line_count += 1;
+    }
+
+    builder: String_Builder;
+
+    Print_Location_Fields :: inline (builder: *String_Builder, using location: Source_Location) {
+        if line_no <= 0 {
+            print(builder, "\"filename\": \"%\"", filename);
+        } else if column_no <= 0 {
+            print(builder, "\"filename\": \"%\", \"lnum\": %", filename, line_no);
+        } else {
+            print(builder, "\"filename\": \"%\", \"lnum\": %, \"col\": %", filename, line_no, column_no);
+        }
+        if info print(builder, ", \"text\": \"%\"", info);
+    }
+
+    if output_json {
+        append(*builder, "[\n");
+        if locations {
+            it := locations[0];
+            print(*builder, "    {");
+            Print_Location_Fields(*builder, it);
+            append(*builder, "}");
+        }
+
+        for < array_view(locations, 1) {
+            using it;
+            print(*builder, ",\n    {");
+            Print_Location_Fields(*builder, it);
+            append(*builder, "}");
+        }
+
+        append(*builder, "\n]\n");
+    } else {
+        for < locations {
+            using it;
+            if line_no <= 0 {
+                print(*builder, "'%'", filename);
+            } else if column_no <= 0 {
+                print(*builder, "'%:%'", filename, line_no);
+            } else {
+                print(*builder, "'%:%:%'", filename, line_no, column_no);
+            }
+
+            if it.info print(*builder, ": %", it.info);
+
+            append(*builder, "\n");
+        }
+    }
+
+    write_builder(*builder);
+
+    return true, "";
+}
+
+parse_source_location :: (text: string) -> (filename: string, line_no: int, column_no: int) {
+    cursor := 0;
+    seen_slash := false;
+    seen_ext := false;
+    seen_other := false;
+    while cursor < text.count {
+        c := text[cursor];
+        if !inline is_file_path_char(c) break;
+        cursor += 1;
+
+        if c == #char "/" { seen_slash = true; seen_ext = false; continue; }
+        if c == #char "." { seen_ext = true; continue; }
+        seen_other = true;
+    }
+
+    if !(seen_other && (seen_slash || seen_ext)) return "", 0, 0;
+
+    filename := slice(text, 0, cursor);
+
+    if !seen_slash {
+        if filename[filename.count - 1] == #char "." return "", 0, 0;
+        if count_matches(filename, #char ".") > 1 return "", 0, 0;
+    }
+
+    tail := advance(text, cursor);
+
+    if cursor == text.count return filename, 0, 0;
+
+    assert(tail[0] == #char ":");
+    tail = advance(tail, 1);
+
+    if !(inline is_digit(tail[0])) return filename, 0, 0;
+    line_no:, tail = parse_positive_number(tail);
+
+    if !(tail && (tail[0] == #char ":" || tail[0] == #char ",")) {
+        return filename, line_no, 0;
+    }
+    tail = advance(tail, 1);
+
+    if !(inline is_digit(tail[0])) return filename, line_no, 0;
+    column_no:, tail = parse_positive_number(tail);
+
+    return filename, line_no, column_no;
+}
+
+is_file_path_char :: (char: u8) -> bool {
+    return (inline is_alpha(char)) || (inline is_digit(char))
+        || char == #char "-" || char == #char "_" || char == #char "~"
+        || char == #char "." || char == #char "/";
+}
+
+//
 // segments {{{
 //
 
@@ -351,8 +536,9 @@ pane_current_path: string = "";
 
 command :: (args: .. string, cwd := "") -> ok: bool, out: string {
     if debug log("run_command(%, cwd='%')", args, cwd);
-    res, out := run_command(..args, capture_and_return_output = true, working_directory = cwd);
-    if res.type != .EXITED || res.exit_code != 0 return false, out;
+    res, out, err := run_command(..args, capture_and_return_output = true, working_directory = cwd);
+    if res.type != .EXITED || res.exit_code != 0
+        return false, tprint("command `%` failed: %2%3", join(..args, " ",, temp), out, err);
     return true, trim(out);
 }
 

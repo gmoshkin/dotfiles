@@ -86,13 +86,13 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
         }
     }
 
-    Strategy_Pattern_My_Ass :: (program: Program) #expand {
+    Strategy_Pattern_My_Ass :: (program: Program) -> bool #expand {
         if `mode == {
             case .COMPILE;
                 info := get_program_info(program, compile_parameters.debug_build);
                 if info.os != OS {
                     print("Skipping \e[33m%\e[0m (it wants OS %)\n", info.exe_name, info.os);
-                    return;
+                    return true;
                 }
 
                 should_build_debug_and_run_tests := false;
@@ -115,6 +115,7 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
 
                     if process_result.exit_code != 0 {
                         print("\n\e[31mError: Command \e[33m%\e[31m failed (Exit code %)\e[0m\n", get_quoted_command_string(command), process_result.exit_code);
+                        if program == .TESTS return false;
                     }
                     print("\n");
 
@@ -123,6 +124,8 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
             case .GENERATE_SOURCE_INFO; generate_source_info(program);
             case .INSPECT_SOURCE_INFO;  inspect_source_info(program, inspect_parameters);
         }
+
+        return true;
     }
 
     #if JAILS program = .ALL;
@@ -130,7 +133,7 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
         for type_info(Program).values {
             program = xx it;
             if program == .ALL continue;
-            Strategy_Pattern_My_Ass(program);
+            if !Strategy_Pattern_My_Ass(program) break;
         }
     } else {
         Strategy_Pattern_My_Ass(program);
@@ -360,7 +363,7 @@ END,
             using message := cast(*Message_Complete) base_message;
             compilation_success = (error_code == .NONE);
             if compilation_success {
-                full_path := tprint("%1%2", exe_path, exe_name);
+                full_path := normalize_filepath(tprint("%1%2", exe_path, exe_name));
                 log("\n");
                 log("\e[32mCompiled\e[0m \e[33m%\e[0m", full_path);
                 log("\n");
@@ -1608,6 +1611,11 @@ tag_to_type :: (tag: Code_Node.Kind) -> Type {
 
 last_char :: inline (s: string) -> u8 {
     return s[s.count - 1];
+}
+
+normalize_filepath :: (filepath: string) -> string {
+    path := parse_path(filepath, reduce=true);
+    return path_to_string(path,, temp);
 }
 
 take_file_line_column_from_arguments :: (args: [] string, cursor: *int, file: *string, line: *int, column: *int) -> bool {

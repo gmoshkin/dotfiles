@@ -109,6 +109,16 @@ is_subslice :: inline (outer: string, inner: string) -> bool {
     return (outer.data <= inner.data) && (inner.data + inner.count <= outer.data + outer.count);
 }
 
+starts_with_ignoring_case :: (text: string, prefix: string) -> bool {
+    if text.count < prefix.count return false;
+
+    for prefix {
+        if (inline to_lower(text[it_index])) != (inline to_lower(it)) return false;
+    }
+
+    return true;
+}
+
 parse_positive_number :: (text: string, $T: Type = int) -> T, tail: string
 #modify { return T == u8 || T == u16 || T == u32 || T == u64 || T == s8 || T == s16 || T == s32 || T == s64; }
 {
