@@ -711,7 +711,7 @@ parse_elf_file :: () {
     line := get_section_data(elf, elf.debug_line_section);
     ok &= apply_relocations(elf, elf.debug_line_section_index, line); // @Stability: apply_relocations modifies the original data, so any subsequent call to get_section_data will get the relocated data
     str := get_section_data(elf, elf.debug_str_section);
-    debug_info:, ok = parse_dwarf_debug_info(info, abbrev, line, str, verbose = true);
+    debug_info:, ok = parse_dwarf_debug_info(info, abbrev, line, str, verbose = false);
     assert(ok);
     log("debug_info: %", debug_info);
 }
@@ -749,6 +749,32 @@ multi_map :: () {
     }
 }
 
+float_fuckery :: () {
+    {
+        a := 357603.625;
+        T := type_of(a);
+        log("%: %", a, T);
+        assert(T == float64, "%", T);
+
+        b := 1.0;
+        T = type_of(b);
+        log("%: %", b, T);
+        assert(T == float32, "%", T);
+    }
+
+    a: float32 = xx 357603.625;
+    b: float32 = xx 357603.59375;
+    log("a %, b %", a, b);
+    log("a == b: %", a == b);
+    t1 := (b - a);
+    log("(b - a): %", t1);
+    t2 := t1 * 0.5;
+    log("(b - a) * 0.5: %", t2);
+    a1 := a + t2;
+    log("a + (b - a) * 0.5: %", a1);
+    log("a + (b - a) * 0.5 == a: %", a == a1);
+}
+
 main :: () {
     context.print_style.default_format_struct.use_newlines_if_long_form = true;
     print("\n### type_of_null:\n\n");                   type_of_null();
@@ -779,6 +805,7 @@ main :: () {
     print("\n### parse_elf_file:\n\n");                 parse_elf_file();
     print("\n### multi_map:\n\n");                      multi_map();
     print("\n### for_reverse_array:\n\n");              for_reverse_array();
+    print("\n### float_fuckery:\n\n");                  float_fuckery();
 }
 
 #import "Basic";
