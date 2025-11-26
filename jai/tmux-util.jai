@@ -271,13 +271,14 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
         for :words word: line {
             defer prev_word = word;
 
-            filename, line_no, column_no := parse_source_location(word);
+            offset_in_line := (word.data - line.data);
+            filename, line_no, column_no := parse_source_location(word, offset_in_line == 0);
             if !filename continue;
             if need_line && line_no <= 0 continue;
 
             info: string;
-            prefix := trim(slice(line, 0, word.data - line.data));
-            postfix := trim(advance(line, word.data - line.data + word.count));
+            prefix := trim(slice(line, 0, offset_in_line));
+            postfix := trim(advance(line, offset_in_line + word.count));
             if prefix && postfix {
                 info = sprint("%1 ... %2", prefix, postfix);
             } else if prefix {
@@ -363,24 +364,43 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
     return true, "";
 }
 
-parse_source_location :: (text: string) -> (filename: string, line_no: int, column_no: int) {
+parse_source_location :: (text: string, line_start: bool) -> (filename: string, line_no: int, column_no: int) {
     cursor := 0;
     seen_slash := false;
-    seen_ext := false;
-    seen_other := false;
+    dot_count := 0;
+    digit_count := 0;
+    other_count := 0;
+
+    // @Incomplete support other stuff as well?
+    // if text[cursor] == #char "[" cursor += 1;
+
+    filename_start := cursor;
     while cursor < text.count {
         c := text[cursor];
         if !inline is_file_path_char(c) break;
         cursor += 1;
 
-        if c == #char "/" { seen_slash = true; seen_ext = false; continue; }
-        if c == #char "." { seen_ext = true; continue; }
-        seen_other = true;
+        if c == #char "/" {
+            seen_slash = true;
+            // These only count in filename (not path)
+            dot_count = 0;
+            digit_count = 0;
+            other_count = 0;
+            continue;
+        }
+
+        if c == #char "." { dot_count += 1; continue; }
+        if inline is_digit(c) { digit_count += 1; continue; }
+        other_count += 1;
     }
 
-    if !(seen_other && (seen_slash || seen_ext)) return "", 0, 0;
+    if !((other_count > 0) && (seen_slash || dot_count > 0)) return "", 0, 0;
+    if line_start && (digit_count > 0) && (dot_count > 1) && (other_count == 0) {
+        // Looks like something weird (probably ip address) ignore it
+        return "", 0, 0;
+    }
 
-    filename := slice(text, 0, cursor);
+    filename := slice(text, filename_start, cursor - filename_start);
 
     if !seen_slash {
         if filename[filename.count - 1] == #char "." return "", 0, 0;
