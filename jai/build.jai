@@ -1,12 +1,15 @@
 JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
 
 #run {
+    context.logger = my_logger;
+
     set_build_options_dc(.{do_output = false});
 
     program := Program.ALL;
     mode := Mode.COMPILE;
     compile_parameters: Compile_Parameters;
     inspect_parameters: Inspect_Parameters;
+    run_tests_in_gdb := false;
 
     cursor := 0;
     options := get_build_options();
@@ -63,6 +66,9 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
                 print("list of programs you may build: %\n", programs);
                 exit(0);
 
+            case "--gdb";
+                run_tests_in_gdb = true;
+
             case;
                 for type_info(Program).values if it != xx Program.ALL {
                     if arg == get_program_info(xx it).arg_name {
@@ -108,13 +114,7 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
                     print("Compiling a debug version...\n");
                     if !build_program(info, debug_parameters) exit(1);
 
-                    full_path := tprint("%1%2", exe_path, exe_name);
-                    print("\e[32mRunning tests:\e[0m \e[33m% --run-tests\e[0m\n", full_path);
-                    command := string.[full_path, "--run-tests"];
-                    process_result := run_command(..command);
-
-                    if process_result.exit_code != 0 {
-                        print("\n\e[31mError: Command \e[33m%\e[31m failed (Exit code %)\e[0m\n", get_quoted_command_string(command), process_result.exit_code);
+                    if !run_test_process(exe_path, exe_name, run_tests_in_gdb) {
                         if program == .TESTS return false;
                     }
                     print("\n");
@@ -623,6 +623,90 @@ get_git_last_commit_message :: () -> string {
 db_file_path :: () -> string {
     return sprint("%/source_info.db", #filepath);
 }
+
+//
+// running tests
+//
+
+run_test_process :: (exe_path: string, exe_name: string, run_tests_in_gdb: bool) -> bool {
+    full_path := tprint("%1%2", exe_path, exe_name);
+    if run_tests_in_gdb {
+        command := string.["gdb", "--args", full_path, "--run-tests"];
+        print("\e[32mRunning tests:\e[0m gdb --args \e[33m% --run-tests\e[0m\n", full_path);
+        run_command_with_stdin(..command);
+        return false;
+    }
+
+    print("\e[32mRunning tests:\e[0m \e[33m% --run-tests\e[0m\n", full_path);
+    command := string.[full_path, "--run-tests"];
+    process_result := run_command(..command);
+
+    if process_result.exit_code != 0 {
+        print("\n\e[31mError: Command \e[33m%\e[31m failed (Exit code %)\e[0m\n", get_quoted_command_string(command), process_result.exit_code);
+        return false;
+    }
+
+    return true;
+}
+
+#if OS != .WINDOWS
+run_command_with_stdin :: (command: .. string) -> s32 {
+    #import "POSIX";
+
+    pid := fork();
+    if pid < 0 {
+        set_last_error_from_system();
+        log_last_error();
+        exit(1);
+    }
+
+    if pid == 0 {
+        // Child
+        args := NewArray(command.count, *u8);
+        for command args[it_index] = to_c_string(it);
+        execvp(command[0].data, args.data);
+
+        set_last_error_from_system();
+        log_last_error();
+        exit(1);
+    }
+
+    // Parent
+    status: s32;
+    while true {
+        rc := waitpid(pid, *status, 0);
+        if rc == -1 {
+            if get_error_value() == EINTR continue;
+
+            set_last_error_from_system();
+            log_last_error();
+            exit(1);
+        }
+
+        assert(rc == pid);
+    }
+
+    if WIFEXITED(status) {
+        return WEXITSTATUS(status);
+    }
+
+    if WIFSIGNALED(status) {
+        return WTERMSIG(status);
+    }
+
+    assert(WIFEXITED(status) || WIFSIGNALED(status));
+    return -1;
+}
+
+#if OS == .WINDOWS
+run_command_with_stdin :: (command: .. string) -> s32 {
+    print("\e[31mrun_command_with_stdin not implemented on WINDOWS");
+    exit(1);
+}
+
+//
+// source info
+//
 
 generate_source_info :: (program: Program) {
     using info := get_program_info(program);
@@ -1670,6 +1754,18 @@ die :: (format: string, args: .. Any) {
     print("\e[0m\n");
     exit(1);
 } @PrintLike
+
+//
+// logging
+//
+
+my_logger :: (message: string, data: *void, info: Log_Info) {
+    if info.common_flags & .ERROR {
+        print("\e[31m%\e[0m\n", message);
+    } else {
+        print("%\n", message);
+    }
+}
 
 Void: void;
 
