@@ -305,11 +305,11 @@ build_program :: (info: Program_Info, parameters: Compile_Parameters) -> success
     // Run this after starting the compilation because that way we don't block the compiler
     git_hash := get_git_commit_hash();
     git_last_commit_message := get_git_last_commit_message();
-    log("\e[90mgit_last_commit_message:\e[0m");
-    log("\e[90m```\e[0m");
-    log("\e[90m%\e[0m", git_last_commit_message);
-    log("\e[90m```\e[0m");
-    log("\n");
+    print("\e[90mgit_last_commit_message:\e[0m\n");
+    print("\e[90m```\e[0m\n");
+    print("\e[90m%\e[0m\n", git_last_commit_message);
+    print("\e[90m```\e[0m\n");
+    print("\n");
     debug_or_release := ifx debug_build then "debug" else "release";
     dynamic_or_static := ifx dynamic_binary then "dynamic" else "static";
     compiler_version := compiler_get_version_info(null);
@@ -364,11 +364,11 @@ END,
             compilation_success = (error_code == .NONE);
             if compilation_success {
                 full_path := normalize_filepath(tprint("%1%2", exe_path, exe_name));
-                log("\n");
-                log("\e[32mCompiled\e[0m \e[33m%\e[0m", full_path);
-                log("\n");
+                print("\n");
+                print("\e[32mCompiled\e[0m \e[33m%\e[0m\n", full_path);
+                print("\n");
             } else {
-                log("\e[31mCompilation failed\e[0m");
+                print("\e[31mCompilation failed\e[0m\n");
             }
             break;
         }

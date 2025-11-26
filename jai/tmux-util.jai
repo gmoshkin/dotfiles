@@ -1,21 +1,19 @@
 debug := false;
 
+subcommands :: struct { argument: string; proc: #type (args: [] string) -> (bool, string); }.[
+    .{ "status-line-left",  status_line_left, },
+    .{ "status-line-right", status_line_right, },
+    .{ "new-session",       new_session_subcommand, },
+    .{ "crawl-locations",   crawl_locations_subcommand, },
+    .{ "capture-last-command-output",   capture_last_command_output_subcommand, },
+];
+
 main :: () {
     args := get_command_line_arguments();
     maybe_show_version_banner_and_exit();
 
-    subcommands :: struct { argument: string; proc: #type (args: [] string) -> (bool, string); }.[
-        .{ "status-line-left",  status_line_left, },
-        .{ "status-line-right", status_line_right, },
-        .{ "new-session",       new_session_subcommand, },
-        .{ "crawl-locations",   crawl_locations_subcommand, },
-        .{ "capture-last-command-output",   capture_last_command_output_subcommand, },
-    ];
-
     if args.count < 2 {
-        names: [..] string;
-        for subcommands array_add(*names, it.argument);
-        log("usage: % [--version] [%]", args[0], join(..names, "|"));
+        show_usage();
         exit(1);
     }
 
@@ -30,6 +28,18 @@ main :: () {
             return;
         }
     }
+
+    log_error("Unknown subcommand '%'", args[1]);
+    show_usage();
+    exit(1);
+}
+
+show_usage :: () {
+    args := get_command_line_arguments();
+
+    names: [..] string;
+    for subcommands array_add(*names, it.argument);
+    log("usage: % [--version] [%]", args[0], join(..names, "|"));
 }
 
 //
@@ -249,6 +259,8 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
                 location.info_type = #char "E";
             } else if starts_with(line, "warning") {
                 location.info_type = #char "W";
+            } else if starts_with(line, "note") {
+                location.info_type = #char "N";
             }
             continue;
         }
@@ -263,7 +275,16 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
             if !filename continue;
             if need_line && line_no <= 0 continue;
 
-            info := trim(advance(line, word.data - line.data + word.count));
+            info: string;
+            prefix := trim(slice(line, 0, word.data - line.data));
+            postfix := trim(advance(line, word.data - line.data + word.count));
+            if prefix && postfix {
+                info = sprint("%1 ... %2", prefix, postfix);
+            } else if prefix {
+                info = sprint("% ...", prefix);
+            } else {
+                info = postfix;
+            }
 
             location := Source_Location.{ filename, line_no, column_no, info, 0 };
 
@@ -293,7 +314,11 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
         } else {
             print(builder, "\"filename\": \"%\", \"lnum\": %, \"col\": %", filename, line_no, column_no);
         }
-        if info print(builder, ", \"text\": \"%\"", info);
+        if info {
+            append(builder, ", \"text\": \"");
+            print_ascii_or_hex(builder, info);
+            append(builder, "\"");
+        }
 
         type: [1] u8 = .[info_type];
         if info_type print(builder, ", \"type\": \"%\"", cast(string, type));
@@ -302,13 +327,13 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
     if output_json {
         append(*builder, "[\n");
         if locations {
-            it := locations[0];
+            it := last(locations);
             print(*builder, "    {");
             Print_Location_Fields(*builder, it);
             append(*builder, "}");
         }
 
-        for < array_view(locations, 1) {
+        for < array_view(locations, 0, locations.count - 1) {
             using it;
             print(*builder, ",\n    {");
             Print_Location_Fields(*builder, it);
