@@ -6974,6 +6974,46 @@ Color_8bit :: enum u8 {
     GRAY_18 :: 250; GRAY_19 :: 251; GRAY_20 :: 252; GRAY_21 :: 253; GRAY_22 :: 254; GRAY_23 :: 255;
 }
 
+make_fg :: (fg_color: Color_8bit) -> string {
+    builder: String_Builder;
+    builder.allocator = temp;
+
+    make_fg(*builder, fg_color);
+    return builder_to_string(*builder);
+}
+
+make_fg :: (builder: *String_Builder, fg_color: Color_8bit) {
+    if fg_color >= .TRANSPARENT && fg_color <= .WHITE {
+        print(builder, "\e[3%m", cast(u8, fg_color));
+    } else if fg_color >= .BRIGHT_BLACK && fg_color <= .BRIGHT_WHITE {
+        print(builder, "\e[%m", 82 + cast(u8, fg_color));
+    } else if fg_color == .GRAY_0 {
+        append(builder, "\e[30m");
+    } else if fg_color >= .RGB_0_0_0 {
+        print(builder, "\e[38;5;%m", cast(u8, fg_color));
+    }
+}
+
+make_bg :: (bg_color: Color_8bit) -> string {
+    builder: String_Builder;
+    builder.allocator = temp;
+
+    make_bg(*builder, bg_color);
+    return builder_to_string(*builder);
+}
+
+make_bg :: (builder: *String_Builder, bg_color: Color_8bit) {
+    if bg_color >= .TRANSPARENT && bg_color <= .WHITE {
+        print(builder, "\e[4%m", cast(u8, bg_color));
+    } else if bg_color >= .BRIGHT_BLACK && bg_color <= .BRIGHT_WHITE {
+        print(builder, "\e[%m", 92 + cast(u8, bg_color));
+    } else if bg_color == .GRAY_0 {
+        append(builder, "\e[40m");
+    } else if bg_color >= .RGB_0_0_0 {
+        print(builder, "\e[48;5;%m", cast(u8, bg_color));
+    }
+}
+
 
 //
 // print utilities
@@ -7667,10 +7707,11 @@ test_parse_text_with_control_codes :: () {
 
 test_insert_range :: () {
     parser: Parse_State;
-    array_add(*parser.only_text_storage, ..cast([] u8) "################################");
+    array_add(*parser.only_text_storage, ..cast([] u8) "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
     array_add(*parser.line_offsets, 0);
     ranges: [..] Attribute_Range;
 
+    //
 
     insert_range(*ranges, attribute_range(10, 3, .RED));
 
@@ -7681,6 +7722,7 @@ test_insert_range :: () {
         attribute_range(10, 3, .RED),
     ]));
 
+    //
 
     insert_range(*ranges, attribute_range(4, 3, .GREEN));
 
@@ -7692,6 +7734,7 @@ test_insert_range :: () {
         attribute_range(10, 3, .RED),
     ]));
 
+    //
 
     insert_range(*ranges, attribute_range(14, 2, .BLUE));
 
@@ -7704,6 +7747,7 @@ test_insert_range :: () {
         attribute_range(14, 2, .BLUE),
     ]));
 
+    //
 
     insert_range(*ranges, attribute_range(13, 1, .YELLOW));
 
@@ -7717,6 +7761,7 @@ test_insert_range :: () {
         attribute_range(14, 2, .BLUE),
     ]));
 
+    //
 
     insert_range(*ranges, attribute_range(15, 4, .MAGENTA));
 
@@ -7731,6 +7776,7 @@ test_insert_range :: () {
         attribute_range(15, 4, .MAGENTA),
     ]));
 
+    //
 
     insert_range(*ranges, attribute_range(10, 3, .WHITE));
 
@@ -7745,6 +7791,7 @@ test_insert_range :: () {
         attribute_range(15, 4, .MAGENTA),
     ]));
 
+    //
 
     insert_range(*ranges, attribute_range(8, 4, .CYAN));
 
@@ -7760,6 +7807,7 @@ test_insert_range :: () {
         attribute_range(15, 4, .MAGENTA),
     ]));
 
+    //
 
     insert_range(*ranges, attribute_range(5, 1, .TRANSPARENT));
 
@@ -7777,6 +7825,7 @@ test_insert_range :: () {
         attribute_range(15, 4, .MAGENTA),
     ]));
 
+    //
 
     insert_range(*ranges, attribute_range(5, 1, .TRANSPARENT));
 
@@ -7794,6 +7843,7 @@ test_insert_range :: () {
         attribute_range(15, 4, .MAGENTA),
     ]));
 
+    //
 
     insert_range(*ranges, attribute_range(17, 4, .BRIGHT_RED));
 
@@ -7812,6 +7862,7 @@ test_insert_range :: () {
         attribute_range(17, 4, .BRIGHT_RED),
     ]));
 
+    //
 
     insert_range(*ranges, attribute_range(10, 9, .BRIGHT_BLUE));
 
@@ -7827,6 +7878,7 @@ test_insert_range :: () {
         attribute_range(19, 2, .BRIGHT_RED),
     ]));
 
+    //
 
     insert_range(*ranges, attribute_range(6, 13, .BRIGHT_BLACK));
 
@@ -7838,6 +7890,17 @@ test_insert_range :: () {
         attribute_range(5, 1, .TRANSPARENT),
         attribute_range(6, 13, .BRIGHT_BLACK),
         attribute_range(19, 2, .BRIGHT_RED),
+    ]));
+
+    //
+
+    insert_range(*ranges, attribute_range(0, 32, .RGB_4_3_2));
+
+    parser.attribute_ranges = ranges;
+    render_parsed(*parser);
+
+    pretty_assert(attribute_range_equals(ranges, Attribute_Range.[
+        attribute_range(0, 32, .RGB_4_3_2)
     ]));
 
 
@@ -8061,7 +8124,7 @@ Attribute_Range :: struct {
         --[ggg]---            .~~~.
 
         */
-insert_range :: (ranges: *[..] Attribute_Range, range: Attribute_Range, $DEBUG := true) {
+insert_range :: (ranges: *[..] Attribute_Range, range: Attribute_Range, $DEBUG := false) {
     #if DEBUG {
         original_ranges: [..] Attribute_Range;
         original_ranges.allocator = temp;
@@ -8127,7 +8190,7 @@ insert_range :: (ranges: *[..] Attribute_Range, range: Attribute_Range, $DEBUG :
 
     insert_at := cursor;
     #if DEBUG log("insert_at: %", insert_at);
-    #if DEBUG log("start: %, end: %", start, end);
+    #if DEBUG log("start: %, end: %", start, end-1);
 
     while true {
         if cursor + 1 >= ranges.count break;
@@ -8139,15 +8202,19 @@ insert_range :: (ranges: *[..] Attribute_Range, range: Attribute_Range, $DEBUG :
 
     #if DEBUG log("last: %: %", cursor, ifx cursor < ranges.count then ranges.*[cursor]);
 
-    if cursor < ranges.count && end < it_end {
-        difference := it_end - end;
-        #if DEBUG log("% (end: %, it_end: %)", ranges.*[cursor], end, it_end);
-        advance(*ranges.*[cursor], difference);
-        cursor -= 1;
+    if cursor < ranges.count {
+        it_start, it_end := get_bounds(ranges.*[cursor]);
+        if end < it_end {
+            difference := end - it_start;
+            #if DEBUG log("% (end: %, it_end: %)", ranges.*[cursor], end-1, it_end-1);
+            advance(*ranges.*[cursor], difference);
+            cursor -= 1;
+        }
     }
 
     last_to_remove := cursor;
     if last_to_remove > insert_at {
+        #if DEBUG log("removing %", array_view(ranges.*, insert_at, last_to_remove - insert_at + 1));
         array_ordered_remove_range(ranges, insert_at, last_to_remove + 1);
     }
 
@@ -8157,7 +8224,14 @@ insert_range :: (ranges: *[..] Attribute_Range, range: Attribute_Range, $DEBUG :
         prev_end := 0;
         for ranges.* {
             assert(it.range_count > 0, "% <- % => %", original_ranges, range, ranges.*);
-            assert(get_start(it) >= prev_end, "% <- % => %", original_ranges, range, ranges.*);
+            assert(get_start(it) >= prev_end, #string END
+
+was:    %
+inserting %
+became: %
+% is out of place
+END,
+                original_ranges, range, ranges.*, it);
             prev_end = get_end(it);
         }
     }
@@ -8264,8 +8338,8 @@ print_attribute_range :: (builder: *String_Builder, range: Attribute_Range) {
     if range.type == {
     case .SMALL_STYLE;
         using range.small_style;
-        if !(flags & .FG_DEFAULT) print(builder, " %", fg_color);
-        if !(flags & .BG_DEFAULT) print(builder, " %", bg_color);
+        if !(flags & .FG_DEFAULT) print(builder, " %1%2\e[0m", make_fg(fg_color), fg_color);
+        if !(flags & .BG_DEFAULT) print(builder, " %1%2\e[0m", make_bg(bg_color), bg_color);
         if attributes != 0 print(builder, " %", attributes);
 
     case .COLOR_24BIT; print(builder, " %", range.color_24bit);
