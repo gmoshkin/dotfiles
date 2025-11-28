@@ -4847,7 +4847,7 @@ maybe_update_search_matches :: (window_buffer: *Window_Buffer) {
         search.matches.count = 0;
         search.flags = 0;
         search.window_buffer_line_cursor = 0;
-        clear_all_bits(*scrollbar_search_matches); // @scrollbar
+        if scrollbar_search_matches.slots clear_all_bits(*scrollbar_search_matches); // @scrollbar
         do_update = true;
     }
 
@@ -4859,7 +4859,7 @@ maybe_update_search_matches :: (window_buffer: *Window_Buffer) {
         search.flags = 0;
         search.window_buffer_hash = window_buffer.hash;
         search.window_buffer_line_cursor = 0;
-        clear_all_bits(*scrollbar_search_matches); // @scrollbar
+        if scrollbar_search_matches.slots clear_all_bits(*scrollbar_search_matches); // @scrollbar
         do_update = true;
     }
 
