@@ -9,17 +9,35 @@ subcommands :: struct { argument: string; proc: #type (args: [] string) -> (bool
 ];
 
 main :: () {
+    context.logger = my_logger;
+
     args := get_command_line_arguments();
     maybe_show_version_banner_and_exit();
 
-    if args.count < 2 {
+    cursor := 1;
+    while cursor < args.count {
+        arg := args[cursor];
+        if arg == {
+        case "-d"; #through;
+        case "--debug";
+            debug = true;
+            cursor += 1;
+        case "-h"; #through;
+        case "--help";
+            show_usage();
+            exit(0);
+        case; break;
+        }
+    }
+
+    if cursor >= args.count {
         show_usage();
         exit(1);
     }
 
     for subcommands {
-        if args[1] == it.argument {
-            ok, error := it.proc(advance(args, 2));
+        if args[cursor] == it.argument {
+            ok, error := it.proc(advance(args, cursor + 1));
             if !ok {
                 log_error("%", error);
                 command("tmux", "display", error);
@@ -39,7 +57,7 @@ show_usage :: () {
 
     names: [..] string;
     for subcommands array_add(*names, it.argument);
-    log("usage: % [--version] [%]", args[0], join(..names, "|"));
+    log("usage: % [--version|--help|--debug] [%]", args[0], join(..names, "|"));
 }
 
 //
@@ -217,6 +235,8 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
         case "--json"; output_json = true;
         case "--all"; crawl_the_whole_history = true;
         case "--need-line"; need_line = true;
+        case "--debug"; debug = true;
+        case "-d";      debug = true;
         case;
             if starts_with(arg, "-") return false, tprint("Unexpected argument: `%`", arg);
             target_pane = arg;
@@ -267,18 +287,26 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
 
         prev_word: string;
 
-        // TODO: maybe I only want locations at start of line???
-        for :words word: line {
-            defer prev_word = word;
+        cursor := 0;
 
-            offset_in_line := (word.data - line.data);
-            filename, line_no, column_no := parse_source_location(word, offset_in_line == 0);
-            if !filename continue;
-            if need_line && line_no <= 0 continue;
+        // TODO: maybe I only want locations at start of line???
+        while cursor < line.count {
+            while cursor < line.count && (inline is_space(line[cursor])) cursor += 1;
+            if cursor >= line.count continue;
+
+            tail := advance(line, cursor);
+            cursor_offset, filename, line_no, column_no := parse_source_location(tail, cursor == 0);
+
+            if debug log("parse_source_location('%') -> '%', %, %", tail, filename, line_no, column_no);
+            if !filename || need_line && line_no <= 0 {
+                cursor += cursor_offset;
+                while cursor < line.count && (!inline is_file_path_char(line[cursor])) cursor += 1;
+                continue;
+            }
 
             info: string;
-            prefix := trim(slice(line, 0, offset_in_line));
-            postfix := trim(advance(line, offset_in_line + word.count));
+            prefix := trim(slice(line, 0, cursor));
+            postfix := trim(advance(line, cursor + cursor_offset));
             if prefix && postfix {
                 info = sprint("%1 ... %2", prefix, postfix);
             } else if prefix {
@@ -369,7 +397,7 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
     return true, "";
 }
 
-parse_source_location :: (text: string, line_start: bool) -> (filename: string, line_no: int, column_no: int) {
+parse_source_location :: (text: string, line_start: bool) -> (cursor: int, filename: string, line_no: int, column_no: int) {
     cursor := 0;
     seen_slash := false;
     dot_count := 0;
@@ -381,18 +409,27 @@ parse_source_location :: (text: string, line_start: bool) -> (filename: string, 
 
     filename_start := cursor;
 
-    if cursor <= text.count && is_windows_path(advance(text, cursor)) {
+    //
+    // optional windows style drive prefix
+    //
+
+    is_windows := is_windows_path(advance(text, cursor));
+    if cursor <= text.count && is_windows {
         // Windows style filepath, skip the drive prefix so that the colon
         // doesn't break the loop below
         cursor += 2;
     }
 
+    //
+    // filename
+    //
+
     while cursor < text.count {
         c := text[cursor];
-        if !inline is_file_path_char(c) break;
+        if (!inline is_file_path_char(c)) && !(is_windows && c == #char " ") break;
         cursor += 1;
 
-        if c == #char "/" {
+        if c == #char "/" || c == #char "\\" {
             seen_slash = true;
             // These only count in filename (not path)
             dot_count = 0;
@@ -406,45 +443,88 @@ parse_source_location :: (text: string, line_start: bool) -> (filename: string, 
         other_count += 1;
     }
 
-    if !((other_count > 0) && (seen_slash || dot_count > 0)) return "", 0, 0;
+    //
+    // filename heuristics
+    //
+
+    if !((other_count > 0) && (seen_slash || dot_count > 0)) {
+        if debug log("other_count: %, seen_slash: %, dot_count: %", other_count, seen_slash, dot_count);
+        return cursor, "", 0, 0;
+    }
     if line_start && (digit_count > 0) && (dot_count > 1) && (other_count == 0) {
+        if debug log("line_start: %, digit_count: %, dot_count: %, other_count: %", line_start, digit_count, dot_count, other_count);
         // Looks like something weird (probably ip address) ignore it
-        return "", 0, 0;
+        return cursor, "", 0, 0;
     }
 
     filename := slice(text, filename_start, cursor - filename_start);
 
     if !seen_slash {
-        if filename[filename.count - 1] == #char "." return "", 0, 0;
-        if count_matches(filename, #char ".") > 1 return "", 0, 0;
+        if filename[filename.count - 1] == #char "." return cursor, "", 0, 0;
+        if count_matches(filename, #char ".") > 1 return cursor, "", 0, 0;
+    }
+
+    // Stupid MSVC uses `C:\Program Files (x86)\Path to filename.ext(123):` format
+    // We have stopped here --------------------------------------------^
+    // So now we have to walk back over `(123)`
+    if filename[filename.count - 1] == #char ")" {
+        p := filename.count - 2;
+        seen_digit := false;
+        while p > 0 {
+            if !(inline is_digit(filename[p])) break;
+            seen_digit = true;
+            p -= 1;
+        }
+        if seen_digit && p > 0 && filename[p] == #char "(" {
+            filename.count -= (cursor - p);
+            cursor = p;
+        }
     }
 
     tail := advance(text, cursor);
+    if !tail return cursor, filename, 0, 0;
 
-    if !tail return filename, 0, 0;
-    if tail[0] != #char ":" return filename, 0, 0;
+    c := tail[0];
+    // MSVC uses `C:\path\to\filename.ext(123):`
+    if c != #char ":" && c != #char "(" return cursor, filename, 0, 0;
+
     tail = advance(tail, 1);
+    cursor += 1;
+    if !tail return cursor, filename, 0, 0;
 
-    if !tail return filename, 0, 0;
-    if !(inline is_digit(tail[0])) return filename, 0, 0;
+    //
+    // line number
+    //
+
+    if !(inline is_digit(tail[0])) return cursor, filename, 0, 0;
+
     line_no:, tail = parse_positive_number(tail);
+    cursor = ifx tail then tail.data - text.data else text.count;
 
     if !(tail && (tail[0] == #char ":" || tail[0] == #char ",")) {
-        return filename, line_no, 0;
+        return cursor, filename, line_no, 0;
     }
+
     tail = advance(tail, 1);
+    cursor += 1;
+    if !tail return cursor, filename, line_no, 0;
 
-    if !tail return filename, line_no, 0;
-    if !(inline is_digit(tail[0])) return filename, line_no, 0;
+    //
+    // column number
+    //
+
+    if !(inline is_digit(tail[0])) return cursor, filename, line_no, 0;
+
     column_no:, tail = parse_positive_number(tail);
+    cursor = ifx tail then tail.data - text.data else text.count;
 
-    return filename, line_no, column_no;
+    return cursor, filename, line_no, column_no;
 }
 
 is_file_path_char :: (char: u8) -> bool {
     return (inline is_alpha(char)) || (inline is_digit(char))
-        || char == #char "-" || char == #char "_" || char == #char "~"
-        || char == #char "." || char == #char "/";
+        || char == #char "-" || char == #char "_" || char == #char "~" || char == #char "(" || char == #char ")"
+        || char == #char "." || char == #char "/" || char == #char "\\";
 }
 
 is_windows_path :: (path: string) -> bool {
@@ -749,3 +829,4 @@ Attr :: struct {
 #import "Hash_Table";
 #import "My_Util";
 #import "Version_Banner";
+#import "My_Logger";
