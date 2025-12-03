@@ -308,13 +308,18 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
     builder: String_Builder;
 
     Print_Location_Fields :: inline (builder: *String_Builder, using location: Source_Location) {
-        if line_no <= 0 {
-            print(builder, "\"filename\": \"%\"", filename);
-        } else if column_no <= 0 {
-            print(builder, "\"filename\": \"%\", \"lnum\": %", filename, line_no);
+        append(builder, "\"filename\": \"");
+
+        if OS == .LINUX && is_windows_path(filename) {
+            convert_windows_path_to_wsl(builder, filename);
         } else {
-            print(builder, "\"filename\": \"%\", \"lnum\": %, \"col\": %", filename, line_no, column_no);
+            append(builder, filename);
         }
+        append(builder, "\"");
+
+        if line_no > 0 then   print(builder, ", \"lnum\": %", line_no);
+        if column_no > 0 then print(builder, ", \"col\": %", column_no);
+
         if info {
             append(builder, ", \"text\": \"");
             print_ascii_or_hex(builder, info);
@@ -375,6 +380,13 @@ parse_source_location :: (text: string, line_start: bool) -> (filename: string, 
     // if text[cursor] == #char "[" cursor += 1;
 
     filename_start := cursor;
+
+    if cursor <= text.count && is_windows_path(advance(text, cursor)) {
+        // Windows style filepath, skip the drive prefix so that the colon
+        // doesn't break the loop below
+        cursor += 2;
+    }
+
     while cursor < text.count {
         c := text[cursor];
         if !inline is_file_path_char(c) break;
@@ -434,6 +446,29 @@ is_file_path_char :: (char: u8) -> bool {
         || char == #char "-" || char == #char "_" || char == #char "~"
         || char == #char "." || char == #char "/";
 }
+
+is_windows_path :: (path: string) -> bool {
+    if path.count < 2 return false;
+    c := path[0];
+    return (c >= #char "A") && (c <= #char "Z") && (path[1] == #char ":");
+}
+
+convert_windows_path_to_wsl :: (builder: *String_Builder, path: string) {
+    tail := path;
+    if tail.count > 1 && tail[1] == #char ":" {
+        append(builder, "/mnt/");
+        append(builder, to_lower(tail[0]));
+
+        tail = advance(tail, 2);
+    }
+
+    while tail {
+        found:, head:, tail = split_from_left(tail, #char "\\");
+        append(builder, head);
+        if found then append(builder, #char "/");
+    }
+}
+
 
 //
 // subcommand: capture-last-command-output
