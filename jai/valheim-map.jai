@@ -1,5 +1,5 @@
 main :: () {
-    time_start_work:= get_time();
+    time_start_work := seconds_since_init();
 
     args := get_command_line_arguments();
     // filename := args[1];
@@ -93,7 +93,7 @@ main :: () {
     init_locations(locations_json);
 
     while !quit {
-        time_start_frame := get_time();
+        time_start_frame := seconds_since_init();
 
         /////////////////////////////////////////////////////////////////////////////////
         // Read input
@@ -234,7 +234,7 @@ main :: () {
                     #assert bitmap_size * bitmap_size == elements_per_map;
                     bitmap_data = NewArray(bitmap_size * bitmap_size, RGBA, initialized = false);
                     bitmap = Bitmap.{
-                        data = xx bitmap_data,
+                        data = cast,force([] u8) bitmap_data,
                         width = bitmap_size,
                         height = bitmap_size,
                         format = .RGBA8,
@@ -338,7 +338,7 @@ main :: () {
 
                 Simp.texture_load_from_bitmap(*texture, *bitmap);
 
-                status_message = tprint("generating bitmap, done %1%%", 100 * batch_index / n_batches);
+                status_message = tprint("generating bitmap, done %1\%", 100 * batch_index / n_batches);
 
             ////////////////////////////////////////////////////////////////////////////////////////////////////////////
             case .DONE;
@@ -451,7 +451,7 @@ main :: () {
 
         // uptime + status
         if state != .DONE && state != .DEBUG {
-            text := tprint("uptime: %", formatFloat(get_time() - time_start_work, trailing_width=2));
+            text := tprint("uptime: %", formatFloat(seconds_since_init() - time_start_work, trailing_width=2));
             GetRect.label(mrect, text, *get_rect_theme.label_theme);
             mrect.y -= 20;
 
@@ -680,7 +680,7 @@ main :: () {
             image_ofs_screen_space = image_ofs_unscaled * image_scale;
         }
 
-        time_end := get_time();
+        time_end := seconds_since_init();
         millis_spent_on_frame := 1000 * (time_end - time_start_frame);
         millis_expected_to_spend := 1000 / 60;
         millis_left_to_sleep := millis_expected_to_spend - millis_spent_on_frame;
