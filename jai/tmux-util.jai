@@ -285,8 +285,6 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
             continue;
         }
 
-        prev_word: string;
-
         cursor := 0;
 
         // TODO: maybe I only want locations at start of line???
@@ -325,7 +323,7 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
                 array_add(*locations, location);
             }
 
-            if prev_word == "-->" then next_line_is_rust_location = true;
+            if ends_with(trim_right(prefix), "-->") then next_line_is_rust_location = true;
 
             // Only one source location per line
             break;
