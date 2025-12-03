@@ -339,7 +339,7 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
             append(*builder, "}");
         }
 
-        for < array_view(locations, 0, locations.count - 1) {
+        if locations.count > 1 for < array_view(locations, 0, locations.count - 1) {
             using it;
             print(*builder, ",\n    {");
             Print_Location_Fields(*builder, it);
