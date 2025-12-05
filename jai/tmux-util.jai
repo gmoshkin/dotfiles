@@ -707,6 +707,22 @@ get_temperature :: (looking_for_name: string = "") -> [] Thermal_Info {
     return info;
 }
 
+is_wsl_global: enum { DONT_KNOW_YET; DEFINITELY_NOT; DEFINITELY_YES; } = .DONT_KNOW_YET;
+
+is_wsl :: () -> bool {
+    if is_wsl_global == .DONT_KNOW_YET {
+        ok, out := command("uname", "-r");
+        assert(ok);
+
+        if contains(out, "WSL") || contains(out, "wsl") {
+            is_wsl_global = .DEFINITELY_YES;
+        } else {
+            is_wsl_global = .DEFINITELY_NOT;
+        }
+    }
+
+    return is_wsl_global == .DEFINITELY_YES;
+}
 
 //
 // segments {{{
@@ -819,9 +835,17 @@ segment_current_path :: () -> string, Attr {
 
 battery :: () -> string, Attr {
     bat := "/sys/class/power_supply/BAT0";
-    if !file_exists(bat) {
+    exists := file_exists(bat);
+    if !exists {
         bat = "/sys/class/power_supply/BAT1";
-        if !file_exists(bat) return "", .{};
+        exists = file_exists(bat);
+    }
+
+    if !exists && is_wsl() {
+        ok, out := command("windows_battery.exe");
+        if !ok return out, .{ "red", "white" };
+
+        return out, .{"white", "red"};
     }
 
     // XXX: why reading this file fails? This is the only way I found to be able to read it :(
@@ -903,7 +927,7 @@ cpu_frequency :: () -> string, Attr {
     avg_GHz := avg_MHz / 1000;
 
     t := tprint("%", fmt(avg_GHz, 2));
-    return tprint("%GHz", trim(t)), .{ "colour240", "black" };
+    return tprint("%GHz", trim(t)), .{ "colour240", "default" };
 }
 
 fmt :: inline (v: float, digits_after_comma := -1, keep_zero := false) -> FormatFloat #expand {

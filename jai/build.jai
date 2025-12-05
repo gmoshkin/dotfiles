@@ -151,6 +151,8 @@ Program :: enum {
     FIND_WINDOWS_DEV_KIT;
     SHELL_ALIASES;
     TESTS;
+    VALHEIM_MAP;
+    WINDOWS_BATTERY;
 }
 
 Mode :: enum {
@@ -235,6 +237,13 @@ get_program_info :: (program: Program, debug := false) -> Program_Info {
 
         case .TESTS;
             source = "tests.jai";
+
+        case .VALHEIM_MAP;
+            source = "valheim-map.jai";
+
+        case .WINDOWS_BATTERY;
+            source = "windows_battery.jai";
+            os = .WINDOWS;
 
         case .ALL;
             assert(false, "unreachable");
@@ -363,7 +372,11 @@ END,
             using message := cast(*Message_Complete) base_message;
             compilation_success = (error_code == .NONE);
             if compilation_success {
-                full_path := normalize_filepath(tprint("%1%2", exe_path, exe_name));
+                full_path: string;
+                if last(exe_path) == #char "/"
+                    full_path = normalize_filepath(tprint("%1%2", exe_path, exe_name));
+                else
+                    full_path = normalize_filepath(tprint("%/%", exe_path, exe_name));
                 print("\n");
                 print("\e[32mCompiled\e[0m \e[33m%\e[0m\n", full_path);
                 print("\n");
@@ -442,7 +455,7 @@ END,
                     run_link_command_on_windows(message);
                 }
 
-                Compiler.compiler_custom_link_command_is_complete(workspace);
+                compiler_custom_link_command_is_complete(workspace);
             }
         }
     }
@@ -702,6 +715,7 @@ run_command_with_stdin :: (command: .. string) -> s32 {
 run_command_with_stdin :: (command: .. string) -> s32 {
     print("\e[31mrun_command_with_stdin not implemented on WINDOWS");
     exit(1);
+    return 0;
 }
 
 //
@@ -1680,6 +1694,7 @@ tag_to_type :: (tag: Code_Node.Kind) -> Type {
         case .DIRECTIVE_MODULE_PARAMETERS; return Code_Directive_Module_Parameters;
         case .DIRECTIVE_ADD_CONTEXT;       assert(false, "no type to cast to");
         case .DIRECTIVE_COMPILE_TIME;      assert(false, "no type to cast to");
+        case .DIRECTIVE_OVERLAY;           return Code_Directive_Overlay;
         case .COMPOUND_DECLARATION;        return Code_Compound_Declaration;
         case .DEFER;                       return Code_Defer;
         case .USING;                       return Code_Using;
