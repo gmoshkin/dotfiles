@@ -158,8 +158,7 @@ State :: struct {
     //
 
     log_file_name: string;
-    log_file: File;
-    log_file.handle = null;
+    log_file_fd: s32 = -1;
     log_to_stderr := false;
 
     error_log_builder: String_Builder;
@@ -544,7 +543,7 @@ main :: () {
     {
         log_file_name := getenv("PAGEVIEW_LOG_FILENAME");
         if log_file_name
-            state.log_file_name = copy_string(to_string(log_file_name));
+            state.log_file_name = copy_string_with_nul(log_file_name);
 
         if getenv("PAGEVIEW_DEBUG") {
             state.debug = true;
@@ -632,7 +631,7 @@ main :: () {
                     print("Expected a log file after '%'\n", arg);
                     exit(1);
                 }
-                state.log_file_name = copy_string(args[cursor]);
+                state.log_file_name = copy_string_with_nul(args[cursor]);
 
             case "--listen";
                 cursor += 1;
@@ -688,11 +687,7 @@ main :: () {
 
     // Setup logger
     state.error_log_builder.allocator = temp;
-    if state.log_file_name {
-        log_file, ok := file_open(state.log_file_name, for_writing = true, keep_existing_content = true);
-        assert(ok);
-        state.log_file = log_file;
-    }
+    open_log_file();
     context.logger = my_logger;
     context.logger_data = context.state;
 
@@ -974,7 +969,7 @@ main :: () {
         // changed and only redraw given lines... This is very very sad...
         if window_size_changed {
             window_size_changed = false;
-            log("render requested: window size changed");
+            // log("render requested: window size changed");
             main_window_render_requested = true;
             redraw_once = true;
 
@@ -996,7 +991,7 @@ main :: () {
         state.delayed_actions.count = 0;
         if input_received_this_tick {
             parse_and_handle_input();
-            log("render requested: input received");
+            // log("render requested: input received");
             main_window_render_requested = true;
         }
 
@@ -1039,7 +1034,7 @@ main :: () {
         // @text_search
         maybe_update_search_matches(main_window_buffer);
         if search.flags & .UNFINISHED {
-            log("render requested: text search unfinished");
+            // log("render requested: text search unfinished");
             main_window_render_requested = true;
         }
 
@@ -1065,7 +1060,7 @@ main :: () {
                 case .EXTERNAL_COMMAND; #through;
                 case .PIPED_INPUT;
                     if main_window_render_requested || last_shown_line_buffer.count == 0 {
-                        log("last_shown_line_buffer.count: %", last_shown_line_buffer.count);
+                        // log("last_shown_line_buffer.count: %", last_shown_line_buffer.count);
                         line_buffer = build_line_buffer_for_main_window(main_window_buffer);
                         main_window_render_requested = false;
                         changed = true;
@@ -5514,17 +5509,38 @@ set_log_file :: (new_log_file: string) -> (ok: bool, error_message: string) {
     if log_file_name == new_log_file return false, "nothing changed";
 
     free(log_file_name);
-    log_file_name = copy_string(new_log_file);
+    log_file_name = copy_string_with_nul(new_log_file);
 
-    if log_file.handle file_close(*log_file);
+    open_log_file();
 
-    log_file=, ok := file_open(log_file_name, for_writing = true, keep_existing_content = true, log_errors = false);
-    if !ok {
-        code, message := get_error_value_and_string();
-        return false, tprint("open('%'): (%) %", new_log_file, code, message);
-    }
     log("start logging");
     return true, "";
+}
+
+open_log_file :: () -> bool {
+    using context.state;
+
+    if !log_file_name return false;
+
+    if log_file_fd >= 0 {
+        while true {
+            rc := close(log_file_fd);
+            if rc == 0 break;
+            code := System.get_error_value();
+            if code == EINTR continue;
+
+            return set_last_error_from_system("failed to close log file: ");
+        }
+    }
+
+    assert(log_file_name.data[log_file_name.count] == 0);
+
+    log_file_fd = open(log_file_name.data, O_RDWR | O_APPEND | O_CREAT, Oct(644));
+    if log_file_fd < 0 {
+        return set_last_error_from_system(tprint("failed to open log file '%': ", log_file_name));
+    }
+
+    return true;
 }
 
 set_current_shown_buffer_index :: (number: s64) -> (ok: bool, error_message: string) {
@@ -5904,7 +5920,7 @@ my_logger :: (message: string, data: *void, info: Log_Info) {
         append(*state.error_log_builder, "\n");
     }
 
-    if !state.log_file.handle && !state.log_to_stderr return;
+    if (state.log_file_fd < 0) && !state.log_to_stderr return;
 
     builder: String_Builder;
     print_date_time_for_log(*builder, to_calendar(current_time_consensus(), .LOCAL));
@@ -5914,8 +5930,8 @@ my_logger :: (message: string, data: *void, info: Log_Info) {
     if state.log_to_stderr {
         write_builder(*builder, to_standard_error=true);
     } else {
-        file_write(*state.log_file, builder_to_string(*builder,, temp));
-        fflush(state.log_file.handle);
+        write_builder(state.log_file_fd, *builder);
+        fsync(state.log_file_fd);
     }
 }
 
@@ -6267,7 +6283,8 @@ read_history_file :: () {
     exe_dir := path_strip_filename(exe_path);
     assert(last(exe_dir) == #char "/");
 
-    history_filepath = sprint("%1%2", exe_dir, HISTORY_FILE_NAME);
+    history_filepath = sprint("%1%2\x00", exe_dir, HISTORY_FILE_NAME);
+    history_filepath.count -= 1;
 
     data, ok := my_read_entire_file(history_filepath, log_errors=true);
     if !ok return;
@@ -6290,7 +6307,7 @@ read_history_file :: () {
                 bytes := make_small_bytes(control_code);
                 table_add(*all_unique_control_codes, bytes, 0);
 
-            case; log_error("garbage in history file: '%'", line);
+            case; log_error("%:%: garbage in history file: '%'", history_filepath, line_no, line);
         }
     }
 }
@@ -6315,9 +6332,16 @@ maybe_append_command_line_to_history :: () {
 append_line_to_history_file :: (kind: History_File_Entry_Type, text: string) {
     using context.state;
 
-    file, ok := file_open(history_filepath, for_writing=true, keep_existing_content=true);
-    if !ok return;
-    defer file_close(*file);
+    if !history_filepath return;
+    assert(history_filepath.data[history_filepath.count] == 0);
+
+    file_fd := open(history_filepath.data, O_RDWR | O_APPEND | O_CREAT, Oct(644));
+    if file_fd < 0 {
+        set_last_error_from_system(tprint("failed to open '%': ", history_filepath));
+        log_last_error();
+        return;
+    }
+    defer close(file_fd);
 
     builder: String_Builder;
     builder.allocator = temp;
@@ -6332,8 +6356,8 @@ append_line_to_history_file :: (kind: History_File_Entry_Type, text: string) {
     }
     append(*builder, "\n");
 
-    data := builder_to_string(*builder,, temp);
-    file_write(*file, data.data, data.count);
+    write_builder(file_fd, *builder);
+    fsync(file_fd);
 }
 
 //

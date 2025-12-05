@@ -173,6 +173,66 @@ test_parse_positive_number :: () {
     }
 }
 
+Oct :: ($n: Code) -> u64 #expand {
+    return #run -> u64 {
+        node := compiler_get_nodes(n);
+        assert(node.kind == .LITERAL, "%", node.kind);
+        literal := cast(*Code_Literal) node;
+        assert(literal.value_type == .NUMBER, "%", literal.value_type);
+        assert(!(literal.value_flags & .MINUS_SIGN), "%", literal.value_flags);
+
+        octal, ok := decimal_to_octal(literal._u64);
+        assert(ok, "Failed to parse '%' as octal number", literal._u64);
+
+        return octal;
+    };
+}
+
+decimal_to_octal :: (decimal: u64) -> (octal: u64, ok: bool) {
+    Max_Power_10: u64 : 10000000000000000000;
+
+    out: u64 = 0;
+    t := decimal;
+    power := Max_Power_10;
+    while power {
+        d := (t / power) % 10;
+        if d >= 8 return 0, false;
+
+        power /= 10;
+
+        out = out * 8 + d;
+    }
+
+    return out, true;
+}
+
+#if TEST
+test_Oct :: () {
+    pretty_assert(Oct(000) == 0);
+    pretty_assert(Oct(001) == 1);
+    pretty_assert(Oct(002) == 2);
+    pretty_assert(Oct(010) == 8);
+    pretty_assert(Oct(777) == 511);
+    pretty_assert(Oct(231461471) == 40264505);
+    pretty_assert(Oct(12345670123456701234) == 188231454092395164);
+}
+
+copy_string_with_nul :: (s: string) -> string {
+    result := alloc_string(s.count + 1);
+    memcpy(result.data, s.data, s.count);
+    result[result.count - 1] = 0;
+    result.count -= 1;
+    return result;
+}
+
+copy_string_with_nul :: (p: *u8) -> string {
+    s := to_string(p);
+    result := alloc_string(s.count + 1);
+    memcpy(result.data, s.data, s.count + 1);
+    result.count -= 1;
+    return result;
+}
+
 //
 // lines iterator
 //
@@ -546,6 +606,38 @@ append_padding :: inline (builder: *String_Builder, count: s64, $padding := " ")
     tail := global_buffer;
     tail.count = count % global_buffer.count;
     append(builder, tail);
+}
+
+#if OS == .LINUX || OS == .MACOS
+write_builder :: (fd: s32, using builder: *String_Builder, do_reset := true) -> s64 {
+    buffer  := get_base_buffer(builder);
+    written := 0;
+    while buffer {
+        s: string = ---;
+        s.data  = get_buffer_data(buffer);
+        s.count = buffer.count;
+
+        while true {
+            rc := write(fd, s.data, xx s.count);
+            if rc < 0 {
+                code := System.get_error_value();
+                if code == EINTR continue;
+
+                return rc;
+            }
+
+            written += rc;
+            advance(*s, rc);
+
+            if s.count == 0 break;
+        }
+
+        buffer = buffer.next;
+    }
+
+    if do_reset reset(builder);
+
+    return written;
 }
 
 #if TEST
@@ -1278,3 +1370,4 @@ rgb_to_hsv :: (r: float, g: float, b: float) -> (h: float, s: float, v: float) {
 #import "Flat_Pool";
 #import "File";
 System :: #import "System";
+#if OS == .LINUX || OS == .MACOS #import "POSIX";
