@@ -848,18 +848,17 @@ battery :: () -> string, Attr {
         return out, .{"white", "red"};
     }
 
-    // XXX: why reading this file fails? This is the only way I found to be able to read it :(
-    ok, text := command("cat", tprint("%/energy_full", bat));
+    text, ok := my_read_entire_file(tprint("%/energy_full", bat));
     Check_Ok(ok);
     energy_full:, ok = string_to_int(text);
     Check_Ok(ok);
 
-    ok, text = command("cat", tprint("%/energy_now", bat));
+    text, ok = my_read_entire_file(tprint("%/energy_now", bat));
     Check_Ok(ok);
     energy_now:, ok = string_to_int(text);
     Check_Ok(ok);
 
-    ok=, status_text := command("cat", tprint("%/status", bat));
+    status_text:, ok = my_read_entire_file(tprint("%/status", bat));
     Check_Ok(ok);
 
     status := "";
@@ -887,12 +886,11 @@ date_time :: () -> string, Attr {
     return builder_to_string(*sb), .{ "colour15", "colour240" };
 }
 
+weekday_short :: string.[ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" ];
+
 f2 :: (v: int) -> FormatInt #expand {
     return FormatInt.{ value = v, minimum_digits = 2 };
 }
-
-
-weekday_short := string.[ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" ];
 
 cpu_temperature :: () -> string, Attr {
     // @Incomplete this only works on my machine
