@@ -6,6 +6,7 @@ subcommands :: struct { argument: string; proc: #type (args: [] string) -> (bool
     .{ "new-session",       new_session_subcommand, },
     .{ "crawl-locations",   crawl_locations_subcommand, },
     .{ "capture-last-command-output",   capture_last_command_output_subcommand, },
+    .{ "temperature",       temperature_subcommand, },
 ];
 
 main :: () {
@@ -113,6 +114,8 @@ status_line_left :: (args: [] string) -> (bool, string) {
 status_line_right :: (args: [] string) -> (bool, string) {
     segments_raw := Segment.[
         // maybe lan/wan address? do I need it even?
+        .{ proc = cpu_frequency },
+        .{ proc = cpu_temperature },
         .{ proc = battery },
         .{ proc = date_time },
     ];
@@ -614,6 +617,98 @@ capture_last_command_output_subcommand :: (args: [] string) -> (ok: bool, error:
 }
 
 //
+// subcommand: temperature
+//
+
+temperature_subcommand :: (args: [] string) -> (ok: bool, error: string) {
+    info := get_temperature();
+
+    max_name_length := 0;
+    for info max_name_length = max(max_name_length, it.zone_name.count);
+
+    builder: String_Builder;
+    for info {
+        using it;
+
+        append(*builder, zone_name);
+        append(*builder, ":");
+        append_padding(*builder, max_name_length - zone_name.count + 3);
+
+        degree := millidegree / 1000;
+        append(*builder, color_from_degrees(degree));
+        print(*builder, "%°\e[0m\n", f2(degree));
+    }
+    write_builder(*builder);
+
+    return true, "";
+}
+
+f1 :: (v: int) -> FormatInt #expand {
+    return FormatInt.{ value = v, minimum_digits = 1 };
+}
+
+color_from_degrees :: (degree: int, $ansii := true) -> string {
+
+    #if ansii {
+        if      degree >= 75  return "\e[31m";
+        else if degree >= 45  return "\e[33m";
+        else if degree >= 35  return "\e[32m";
+        else                  return "\e[34m";
+    } else {
+        if      degree >= 75  return "red";
+        else if degree >= 45  return "yellow";
+        else if degree >= 35  return "green";
+        else                  return "blue";
+    }
+}
+
+Thermal_Info :: struct {
+    zone_name: string;
+    millidegree: int;
+}
+
+get_temperature :: (looking_for_name: string = "") -> [] Thermal_Info {
+    thermal_zones: [..] string;
+    visitor :: (info: *File_Visit_Info, thermal_zones: *[..] string) {
+        if starts_with(info.short_name, "thermal_zone") {
+            array_add(thermal_zones, copy_string(info.short_name));
+        }
+    };
+    {
+        // Disable log_error, because this function doesn't take a log_errors parameter
+        saved_logger := context.logger;
+        defer context.logger = saved_logger;
+        context.logger = (_: string, _: *void, _: Log_Info) {};
+        ok := visit_files("/sys/class/thermal", recursive=false, user_data=*thermal_zones, proc=visitor, visit_files=false, visit_directories=true, visit_symlinks=true);
+        assert(ok);
+    }
+
+    info: [..] Thermal_Info;
+
+    for zone: thermal_zones {
+        name, ok := my_read_entire_file(tprint("/sys/class/thermal/%/type", zone));
+        if !ok continue;
+
+        name = trim(name);
+        if looking_for_name && name != looking_for_name continue;
+
+        temp:, ok = my_read_entire_file(tprint("/sys/class/thermal/%/temp", zone));
+        if !ok continue;
+
+        temp = trim(temp);
+        millidegree:, ok = parse_int(*temp);
+        if !ok continue;
+
+        array_add(*info, .{ name, millidegree });
+    }
+
+    quick_sort(info, (l, r) => compare_strings(l.zone_name, r.zone_name));
+
+    return info;
+}
+
+
+//
 // segments {{{
 //
 
@@ -775,6 +870,46 @@ f2 :: (v: int) -> FormatInt #expand {
 
 weekday_short := string.[ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" ];
 
+cpu_temperature :: () -> string, Attr {
+    // @Incomplete this only works on my machine
+    info := get_temperature("x86_pkg_temp");
+    if !info return "", .{ "black", "black" };
+
+    degree := info[0].millidegree / 1000;
+    return tprint("%°", f2(degree)), .{ color_from_degrees(degree, false), "black" };
+}
+
+cpu_frequency :: () -> string, Attr {
+    cpuinfo, ok := my_read_entire_file("/proc/cpuinfo");
+    if !ok return "", .{ "black", "black" };
+
+    sum: float;
+    count: int;
+
+    for :lines cpuinfo {
+        if !starts_with(it, "cpu MHz") continue;
+        ok, left, right := split_from_right(it, #char ":");
+        if !ok continue;
+
+        right = trim(right);
+        value:, ok = parse_float(*right);
+        if !ok continue;
+
+        sum += value;
+        count += 1;
+    }
+
+    avg_MHz := sum / count;
+    avg_GHz := avg_MHz / 1000;
+
+    t := tprint("%", fmt(avg_GHz, 2));
+    return tprint("%GHz", trim(t)), .{ "colour240", "black" };
+}
+
+fmt :: inline (v: float, digits_after_comma := -1, keep_zero := false) -> FormatFloat #expand {
+    return FormatFloat.{ value = v, trailing_width = digits_after_comma, zero_removal = ifx keep_zero then .NO else .YES };
+}
+
 //
 // }}} segments
 //
@@ -828,3 +963,4 @@ Attr :: struct {
 #import "My_Util";
 #import "Version_Banner";
 #import "My_Logger";
+#import "Sort";

@@ -35,6 +35,10 @@ array_equals :: (lhs: [] $T, rhs: [] T) -> bool {
     return true;
 }
 
+dynamic_memory_usage :: (array: [..] $T) -> s64 {
+    return array.allocated * size_of(T);
+}
+
 advance :: inline (a: [] $T, amount: s64 = 1) -> [] T {
     assert(amount >= 0);
     assert(a.count >= amount);
@@ -1167,7 +1171,10 @@ my_read_entire_file :: (f: File, zero_terminated := false, log_errors := true) -
         free(data);
         return "", false;
     }
-    assert(rc == xx length);
+    // This assertion fails when you try /sys/class/thermal/thermal_zone*/type
+    // assert(rc == xx length);
+    assert(rc <= xx length);
+    length = xx rc;
 
     s: string;
     s.count = length;
