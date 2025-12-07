@@ -3,6 +3,7 @@ set history size unlimited
 set logging enabled on
 set print pretty on
 set follow-fork-mode parent
+set disassembly-flavor intel
 
 source ~/dotfiles/gdbinit-gef.py
 
