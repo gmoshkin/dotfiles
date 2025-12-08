@@ -7322,6 +7322,8 @@ init_terminal_settings :: () {
         return runtime_support_assertion_failed(loc, message);
     };
 
+    terminal_restore_needed = true;
+
     //
     // special control codes
     //
@@ -7384,9 +7386,12 @@ init_terminal_settings :: () {
 
 global_teardown_control_codes: [] string;
 global_saved_termios: Termios;
+terminal_restore_needed := false;
 restore_terminal_settings :: () #c_call #no_context {
+    if !terminal_restore_needed return;
     write_strings(..global_teardown_control_codes);
     tcsetattr(STDIN_FILENO, TCSADRAIN, *global_saved_termios);
+    terminal_restore_needed = false;
 }
 
 term_exit :: (status: s32) {

@@ -17,6 +17,8 @@ init :: (handler: Signal_Handler = signal_handler) {
 signal_handler :: (sig: Signal, info: *siginfo_t, secret: *void) #c_call {
     eprint("\e[31m");
 
+    registers := get_register_dump(secret);
+
     if sig == SIGSEGV {
         // (Daniel) - August 4, 2023
         // Daniel: Documentation for SEGV_ACCERR
@@ -45,8 +47,6 @@ signal_handler :: (sig: Signal, info: *siginfo_t, secret: *void) #c_call {
             si_code = "SEGV_PKUERR";
         }
 
-        registers := get_register_dump(secret);
-
         if si_code {
             eprint("  si_code: ", si_code, "\n");
         } else {
@@ -60,34 +60,6 @@ signal_handler :: (sig: Signal, info: *siginfo_t, secret: *void) #c_call {
         eprint(", from address 0x");
         eprint(registers.rip, base=16);
         eprint("\n\n");
-
-        Print_Register :: (name: string, value: u64) #expand {
-            eprint("  ", name, " 0x");
-            eprint(value, base=16);
-            eprint("\n");
-        }
-
-        Print_Register("rax    ", registers.rax);
-        Print_Register("rbx    ", registers.rbx);
-        Print_Register("rcx    ", registers.rcx);
-        Print_Register("rdx    ", registers.rdx);
-        Print_Register("rdi    ", registers.rdi);
-        Print_Register("rsi    ", registers.rsi);
-        Print_Register("rsp    ", registers.rsp);
-        Print_Register("rbp    ", registers.rbp);
-        Print_Register("r8     ", registers.r8);
-        Print_Register("r9     ", registers.r9);
-        Print_Register("r10    ", registers.r10);
-        Print_Register("r11    ", registers.r11);
-        Print_Register("r12    ", registers.r12);
-        Print_Register("r13    ", registers.r13);
-        Print_Register("r14    ", registers.r14);
-        Print_Register("r15    ", registers.r15);
-        Print_Register("rip    ", registers.rip);
-        Print_Register("eflags ", registers.eflags);
-
-        eprint("\n");
-
     } else if sig == SIGTRAP {
         eprint("Breakpoint hit.\n");
     } else if sig == SIGFPE {
@@ -148,6 +120,35 @@ signal_handler :: (sig: Signal, info: *siginfo_t, secret: *void) #c_call {
         eprint(cast(u64) sig);
         eprint("\n");
     }
+
+    eprint("Registers:\n");
+
+    Print_Register :: (name: string, value: u64) #expand {
+        eprint("  ", name, " 0x");
+        eprint(value, base=16);
+        eprint("\n");
+    }
+
+    Print_Register("rax    ", registers.rax);
+    Print_Register("rbx    ", registers.rbx);
+    Print_Register("rcx    ", registers.rcx);
+    Print_Register("rdx    ", registers.rdx);
+    Print_Register("rdi    ", registers.rdi);
+    Print_Register("rsi    ", registers.rsi);
+    Print_Register("rsp    ", registers.rsp);
+    Print_Register("rbp    ", registers.rbp);
+    Print_Register("r8     ", registers.r8);
+    Print_Register("r9     ", registers.r9);
+    Print_Register("r10    ", registers.r10);
+    Print_Register("r11    ", registers.r11);
+    Print_Register("r12    ", registers.r12);
+    Print_Register("r13    ", registers.r13);
+    Print_Register("r14    ", registers.r14);
+    Print_Register("r15    ", registers.r15);
+    Print_Register("rip    ", registers.rip);
+    Print_Register("eflags ", registers.eflags);
+
+    eprint("\n");
 
 
     eprint("Stack trace:\n");
