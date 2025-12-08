@@ -498,6 +498,8 @@ run_link_command_on_linux_with_musl :: (using message: *Message_Phase) -> bool {
     array_add(*command, sprint("%/modules/crt1.o", #filepath));
     array_add(*command, sprint("%/modules/libc.a", #filepath));
     array_add(*command, sprint("%/modules/libexecinfo.a", #filepath));
+    array_add(*command, sprint("-L%/modules/Unwind", #filepath));
+    array_add(*command, "-lunwind-wrapper");
 
     print("\e[32mRunning linker:\e[0m %\n", get_quoted_command_string(command));
     process_result := run_command(..command);

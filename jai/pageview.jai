@@ -520,6 +520,9 @@ Completion_Menu :: struct {
 }
 
 main :: () {
+    tcgetattr(STDIN_FILENO, *global_saved_termios);
+    My_Crash_Handler.init(my_signal_handler);
+
     // Setup struct_printer
     my_struct_printer_data := New(My_Struct_Printer_Data);
     array_add(*my_struct_printer_data.variant_printers, .{ type_info(Ascii_Or_Hex), ascii_or_hex_printer });
@@ -7391,6 +7394,12 @@ term_exit :: (status: s32) {
     exit(status);
 }
 
+my_signal_handler :: (sig: My_Crash_Handler.Signal, info: *My_Crash_Handler.siginfo_t, secret: *void) #c_call {
+    restore_terminal_settings();
+
+    inline My_Crash_Handler.signal_handler(sig, info, secret);
+}
+
 //
 // terminfo
 //
@@ -8677,3 +8686,4 @@ Meow_Hash :: #import "meow_hash";
 System :: #import "System";
 Hash :: #import "Hash";
 #import "Version_Banner";
+My_Crash_Handler :: #import "My_Crash_Handler";
