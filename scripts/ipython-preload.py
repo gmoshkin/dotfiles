@@ -228,6 +228,23 @@ def color_fg_256(c):
 def color_bg_256(c):
     return f'\x1b[48;5;{c}m'
 
+def quantize_color_component(c: int) -> int:
+    if c >= 225:
+        return 5
+    elif c >= 195:
+        return 4
+    elif c >= 155:
+        return 3
+    elif c >= 115:
+        return 2
+    elif c >= 50:
+        return 1
+    else:
+        return 0
+
+def approximate_256(r: int, g: int, b: int) -> 'tuple[int, int, int]':
+    return quantize_color_component(r), quantize_color_component(g), quantize_color_component(b)
+
 class Color_256:
     TRANSPARENT    = 0;
     RED            = 1;
