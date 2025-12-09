@@ -451,6 +451,8 @@ Window_Buffer :: struct {
         DIFF_MARKERS; // @diff_headers
     }
 
+    parse_state: Parse_State;
+
     raw_text_and_control_codes: string;
     last_line_offset_in_raw_text: s64;
 
@@ -473,11 +475,17 @@ memory_usage :: (buffer: *Window_Buffer) -> (raw_text_usage: s64, rest_usage: s6
     raw_text_usage += buffer.raw_text_and_control_codes.count;
 
     rest_usage += size_of(Window_Buffer);
-    rest_usage += buffer.only_text_storage.allocated;
-    rest_usage += buffer.control_codes.allocated * size_of(Control_Code_Info);
-    rest_usage += buffer.line_offsets.allocated * size_of(s64);
-    rest_usage += buffer.unique_control_codes.allocated * size_of(Small_Bytes);
-    rest_usage += buffer.diff_markers.allocated * size_of(Range);
+    rest_usage += dynamic_memory_usage(buffer.only_text_storage);
+    rest_usage += dynamic_memory_usage(buffer.control_codes);
+    rest_usage += dynamic_memory_usage(buffer.line_offsets);
+    rest_usage += dynamic_memory_usage(buffer.unique_control_codes);
+    rest_usage += dynamic_memory_usage(buffer.diff_markers);
+
+    new_raw_text_usage, new_rest_usage := memory_usage(*buffer.parse_state, only_dynamic=true);
+    if buffer.parse_state.raw_text.data != buffer.raw_text_and_control_codes.data {
+        raw_text_usage += new_raw_text_usage;
+    }
+    rest_usage += new_rest_usage;
 
     return raw_text_usage, rest_usage;
 }
@@ -3628,6 +3636,8 @@ init_window_buffer :: (window_buffer: *Window_Buffer, raw_text: string) {
     window_buffer.raw_text_and_control_codes = raw_text;
     window_buffer.last_line_offset_in_raw_text = 0;
 
+    window_buffer.parse_state.raw_text = raw_text;
+
     window_buffer.only_text_storage.count = 0;
     window_buffer.line_offsets.count = 0;
     window_buffer.control_codes.count = 0;
@@ -6673,9 +6683,9 @@ Style_Attributes :: enum_flags u8 { BOLD; FAINT; ITALIC; UNDERLINE; BLINKING; IN
 Small_Escape_Sequence :: struct {
     command_letter: u8;
     argument_count: u8;
-    arguments: [6] u8;
+    arguments: [14] u8;
 }
-#assert size_of(Small_Escape_Sequence) == 8;
+#assert size_of(Small_Escape_Sequence) == 16;
 
 make_small_escape_sequence :: inline (command: u8, arguments: .. u8) -> Small_Escape_Sequence {
     assert(arguments.count <= 6, "%", arguments);
@@ -6859,6 +6869,17 @@ parse_escape_sequence :: (s: string) -> Small_Escape_Sequence, bool, offset: int
 
     assert(result.command_letter != 0);
     return result, true, cursor;
+}
+
+test_parse_escape_sequence :: () {
+    {
+        s := "\e[48;2;0;40;0;38;2;249;38;114m";
+        sequence, ok, offset := parse_escape_sequence(s);
+        pretty_assert(ok);
+        pretty_assert(sequence.command_letter == #char "m");
+        pretty_assert(sequence.argument_count == 10);
+        pretty_assert(array_equals(sequence.arguments, u8.[48, 2, 0, 40, 0, 38, 2, 249, 38, 114]));
+    }
 }
 
 // The first number after `\e[` in a sequence ending with `m`
@@ -7072,9 +7093,8 @@ my_struct_printer :: (builder: *String_Builder, any: Any, struct_printer_data: *
 
 Small_Bytes :: struct {
     count: u8;
-    first: u8;
-    #place first;
     data: [23] u8;
+    #overlay (data) first: u8;
 }
 #assert size_of(Small_Bytes) == 24;
 
@@ -7094,11 +7114,90 @@ to_string :: inline (using bytes: *Small_Bytes) -> string {
 
 make_small_bytes :: inline (data: string) -> Small_Bytes {
     result: Small_Bytes = ---;
-    assert(data.count <= result.data.count, "'%' (%)", cast(Ascii_Or_Hex) data, data.count);
+    if data.count > result.data.count {
+        return approximate_color_code(data);
+    }
 
     result.count = xx data.count;
     memcpy(result.data.data, data.data, data.count);
     return result;
+}
+
+approximate_color_code :: (data: string) -> Small_Bytes {
+    result: Small_Bytes;
+    w := 0;
+
+    sequence, ok := parse_escape_sequence(data);
+    assert(ok, "'%'", data);
+    assert(sequence.command_letter == #char "m", "%", sequence);
+
+    Write_String :: (s: string) #expand {
+        memcpy(*result.data[w], s.data, s.count); w += s.count;
+    }
+
+    Write_Number :: (n_: u8) #expand {
+        n := n_;
+        if n >= 100 {
+            result.data[w] = n / 100; w += 1;
+            n %= 100;
+        }
+        if n >= 10 {
+            result.data[w] = n / 10; w += 1;
+            n %= 10;
+        }
+        result.data[w] = n; w += 1;
+    }
+
+    Write_String("\e[");
+    need_semicolon := false;
+
+    using sequence;
+
+    cursor := 0;
+    while cursor < argument_count {
+        if cursor >= argument_count return result;
+        command := arguments[cursor]; cursor += 1;
+
+        if need_semicolon { Write_String(";"); need_semicolon = false; }
+        Write_Number(command);
+
+        if cast(Ansi_Style_Command) command == {
+        case .FG_COLOR; #through;
+        case .BG_COLOR;
+            if arguments[cursor] == 5 {
+                cursor += 1;
+                Write_String("5;");
+                Write_Number(arguments[cursor]); cursor += 1;
+                need_semicolon = true;
+            } else if arguments[cursor] == 2 {
+                cursor += 1;
+                Write_String("5;");
+                r := arguments[cursor]; cursor += 1;
+                g := arguments[cursor]; cursor += 1;
+                b := arguments[cursor]; cursor += 1;
+                r1 := quantize_color_component(r);
+                g1 := quantize_color_component(g);
+                b1 := quantize_color_component(b);
+                c := 36 * r1 + 6 * g1 + b1 + 16;
+                Write_Number(c);
+                need_semicolon = true;
+            }
+        }
+    }
+
+    Write_String("m");
+
+    result.count = xx w;
+    return result;
+}
+
+quantize_color_component :: (c: u8) -> u8 {
+    if c >= 225 return 5;
+    if c >= 195 return 4;
+    if c >= 155 return 3;
+    if c >= 115 return 2;
+    if c >= 50  return 1;
+    return 0;
 }
 
 small_bytes_printer :: (builder: *String_Builder, any: Any, struct_printer_data: *void) -> bool {
@@ -7967,6 +8066,21 @@ Parse_State :: struct {
     diff_markers: [..] Range;
 }
 
+memory_usage :: (using parser: *Parse_State, only_dynamic: bool) -> (raw_text_usage: s64, rest_usage: s64) {
+    raw_text_usage, rest_usage: s64;
+
+    raw_text_usage += raw_text.count;
+
+    if !only_dynamic rest_usage += size_of(Parse_State);
+    rest_usage += dynamic_memory_usage(only_text_storage);
+    rest_usage += dynamic_memory_usage(line_offsets);
+    rest_usage += dynamic_memory_usage(attribute_ranges);
+    rest_usage += dynamic_memory_usage(attribute_range_offsets);
+    rest_usage += dynamic_memory_usage(diff_markers);
+
+    return raw_text_usage, rest_usage;
+}
+
 get_line :: (using parser: *Parse_State, line_i: int) -> string, int {
     if line_i > line_offsets.count - 1 return "", -1;
     if line_i < 0 return "", -1;
@@ -8532,6 +8646,8 @@ parse_text_with_control_codes :: (parser: *Parse_State) {
 
         if !found break;
 
+        // TODO: parsed_up_to =
+
         inline array_add(*only_text_storage, #char "\n");
 
         array_add(*line_offsets, xx only_text_storage.count);
@@ -8662,6 +8778,7 @@ run_tests :: () {
     Log_Header("test_print_braille");                      test_print_braille();
     Log_Header("test_parse_text_with_control_codes");      test_parse_text_with_control_codes();
     Log_Header("test_insert_range");                       test_insert_range();
+    Log_Header("test_parse_escape_sequence");              test_parse_escape_sequence();
 
     elapsed := seconds_since_init() - t0;
     log("\n\e[32mall tests passed!\e[0m elapsed: %", fmt(elapsed, 6));
