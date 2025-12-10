@@ -6857,7 +6857,7 @@ parse_escape_sequence :: (s: string) -> Small_Escape_Sequence, bool, offset: int
             break;
         } else if inline is_digit(c) {
             arg := *result.arguments[result.argument_count];
-            arg.* = arg.* * 10 + c - #char "0";
+            arg.* = arg.* * 10 + (c - #char "0");
             parsing_number = true;
         } else if c == #char ";" {
             if parsing_number {
@@ -6878,7 +6878,8 @@ test_parse_escape_sequence :: () {
         pretty_assert(ok);
         pretty_assert(sequence.command_letter == #char "m");
         pretty_assert(sequence.argument_count == 10);
-        pretty_assert(array_equals(sequence.arguments, u8.[48, 2, 0, 40, 0, 38, 2, 249, 38, 114]));
+        arguments := array_view(sequence.arguments, 0, sequence.argument_count);
+        pretty_assert(array_equals(arguments, u8.[48, 2, 0, 40, 0, 38, 2, 249, 38, 114]));
     }
 }
 
