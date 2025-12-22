@@ -1,8 +1,9 @@
 {
     "rust-analyzer.procMacro.attributes.enable": true,
     "rust-analyzer.diagnostics.disabled": [
-        "unresolved-proc-macro"
+        "unresolved-proc-macro", "inactive-code", "unlinked-file"
     ],
+    "rust-analyzer.cfg.setMiri": false,
     "rust-analyzer.check.features": [ "all" ],
     "Lua.workspace.preloadFileSize": 1000,
     "Lua.runtime.version": "LuaJIT",
