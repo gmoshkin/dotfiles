@@ -6365,7 +6365,7 @@ append_line_to_history_file :: (kind: History_File_Entry_Type, text: string) {
         case .INVALID;           append(*builder, "<INVALID>"); append(*builder, text);
         case .SEEN_CONTROL_CODE;
             print_ascii_or_hex(*builder, text);
-            assert(to_string(*builder)[0] == #char "\\");
+            assert(to_string(*builder)[0] == #char "\\", "'%'", to_string(*builder));
     }
     append(*builder, "\n");
 
