@@ -152,7 +152,7 @@ get_stack_trace :: (result: *[..] Stack_Trace_Node, skip := 1) {
     array_reserve(result, node_count);
     node = head;
     while node {
-        array_add(result, << node);
+        array_add(result, node.*);
         node = node.next;
     }
 

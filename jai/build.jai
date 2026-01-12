@@ -1404,7 +1404,7 @@ code_struct_printer :: (builder: *String_Builder, any: Any, struct_printer_data:
         // }
         // data.skip_next_type = true;
 
-        type := << cast(**Type_Info) any.value_pointer;
+        type := cast(**Type_Info, any.value_pointer).*;
         if !type return false;
         print_type_to_builder(builder, type);
         return true;
@@ -1439,34 +1439,34 @@ code_struct_printer :: (builder: *String_Builder, any: Any, struct_printer_data:
 
     data.skip_next_code = true;
     if base_code.kind == {
-        case .BLOCK;                        print(builder, "%", << cast(*Code_Block) base_code);
-        case .USING;                        print(builder, "%", << cast(*Code_Using) base_code);
-        case .PROCEDURE_CALL;               print(builder, "%", << cast(*Code_Procedure_Call) base_code);
-        case .PROCEDURE_BODY;               print(builder, "%", << cast(*Code_Procedure_Body) base_code);
-        case .DECLARATION;                  print(builder, "%", << cast(*Code_Declaration) base_code);
-        case .COMPOUND_DECLARATION;         print(builder, "%", << cast(*Code_Compound_Declaration) base_code);
-        case .COMMA_SEPARATED_ARGUMENTS;    print(builder, "%", << cast(*Code_Comma_Separated_Arguments) base_code);
-        case .TYPE_DEFINITION;              print(builder, "%", << cast(*Code_Type_Definition) base_code);
-        case .TYPE_QUERY;                   print(builder, "%", << cast(*Code_Type_Query) base_code);
-        case .IF;                           print(builder, "%", << cast(*Code_If) base_code);
-        case .FOR;                          print(builder, "%", << cast(*Code_For) base_code);
-        case .WHILE;                        print(builder, "%", << cast(*Code_While) base_code);
-        case .UNARY_OPERATOR;               print(builder, "%", << cast(*Code_Unary_Operator) base_code);
-        case .BINARY_OPERATOR;              print(builder, "%", << cast(*Code_Binary_Operator) base_code);
-        case .CONTEXT;                      print(builder, "%", << cast(*Code_Context) base_code);
-        case .EXTRACT;                      print(builder, "%", << cast(*Code_Extract) base_code);
-        case .TYPE_INSTANTIATION;           print(builder, "%", << cast(*Code_Type_Instantiation) base_code);
-        case .IDENT;                        print(builder, "%", << cast(*Code_Ident) base_code);
-        case .LITERAL;                      print(builder, "%", << cast(*Code_Literal) base_code);
-        case .STRUCT;                       print(builder, "%", << cast(*Code_Struct) base_code);
-        case .ENUM;                         print(builder, "%", << cast(*Code_Enum) base_code);
-        case .RETURN;                       print(builder, "%", << cast(*Code_Return) base_code);
-        case .CAST;                         print(builder, "%", << cast(*Code_Cast) base_code);
-        case .MAKE_VARARGS;                 print(builder, "%", << cast(*Code_Make_Varargs) base_code);
-        case .DIRECTIVE_PLACE;      // print(builder, "%", << cast(*Code_Directive_Place) base_code);
+        case .BLOCK;                        print(builder, "%", cast(*Code_Block, base_code).*);
+        case .USING;                        print(builder, "%", cast(*Code_Using, base_code).*);
+        case .PROCEDURE_CALL;               print(builder, "%", cast(*Code_Procedure_Call, base_code).*);
+        case .PROCEDURE_BODY;               print(builder, "%", cast(*Code_Procedure_Body, base_code).*);
+        case .DECLARATION;                  print(builder, "%", cast(*Code_Declaration, base_code).*);
+        case .COMPOUND_DECLARATION;         print(builder, "%", cast(*Code_Compound_Declaration, base_code).*);
+        case .COMMA_SEPARATED_ARGUMENTS;    print(builder, "%", cast(*Code_Comma_Separated_Arguments, base_code).*);
+        case .TYPE_DEFINITION;              print(builder, "%", cast(*Code_Type_Definition, base_code).*);
+        case .TYPE_QUERY;                   print(builder, "%", cast(*Code_Type_Query, base_code).*);
+        case .IF;                           print(builder, "%", cast(*Code_If, base_code).*);
+        case .FOR;                          print(builder, "%", cast(*Code_For, base_code).*);
+        case .WHILE;                        print(builder, "%", cast(*Code_While, base_code).*);
+        case .UNARY_OPERATOR;               print(builder, "%", cast(*Code_Unary_Operator, base_code).*);
+        case .BINARY_OPERATOR;              print(builder, "%", cast(*Code_Binary_Operator, base_code).*);
+        case .CONTEXT;                      print(builder, "%", cast(*Code_Context, base_code).*);
+        case .EXTRACT;                      print(builder, "%", cast(*Code_Extract, base_code).*);
+        case .TYPE_INSTANTIATION;           print(builder, "%", cast(*Code_Type_Instantiation, base_code).*);
+        case .IDENT;                        print(builder, "%", cast(*Code_Ident, base_code).*);
+        case .LITERAL;                      print(builder, "%", cast(*Code_Literal, base_code).*);
+        case .STRUCT;                       print(builder, "%", cast(*Code_Struct, base_code).*);
+        case .ENUM;                         print(builder, "%", cast(*Code_Enum, base_code).*);
+        case .RETURN;                       print(builder, "%", cast(*Code_Return, base_code).*);
+        case .CAST;                         print(builder, "%", cast(*Code_Cast, base_code).*);
+        case .MAKE_VARARGS;                 print(builder, "%", cast(*Code_Make_Varargs, base_code).*);
+        case .DIRECTIVE_PLACE;      // print(builder, "%", cast(*Code_Directive_Place, base_code).*);
             print_base_code(builder, base_code);
 
-        case .PROCEDURE_HEADER; // print(builder, "%", << cast(*Code_Procedure_Header) base_code);
+        case .PROCEDURE_HEADER; // print(builder, "%", cast(*Code_Procedure_Header, base_code).*);
             print_base_code(builder, base_code);
 
         case;
@@ -1506,13 +1506,13 @@ print_base_code :: (builder: *String_Builder, code: *Code_Node) {
     }
 }
 
-print_operator_type :: (builder: *String_Builder, operator_type: s32) {
+print_operator_type :: (builder: *String_Builder, operator_type: Operator_Type) {
     buf: [1] u8;
     if operator_type < 0x7f {
         buf[0] = xx operator_type;
         print(builder, "%", cast(string) buf);
     } else {
-        print(builder, "%", operator_to_string(cast(Operator_Type) operator_type));
+        print(builder, "%", operator_to_string(operator_type));
     }
 }
 
@@ -1554,7 +1554,7 @@ cast_to_base_with_dereference :: (type_: *Type_Info, value_pointer_: *void, $T: 
         if type.type == {
             case .POINTER;
                 type = (cast(*Type_Info_Pointer) type).pointer_to;
-                value_pointer = << cast(**void) value_pointer;
+                value_pointer = cast(**void, value_pointer).*;
                 continue;
             case .STRUCT;
                 struct_type := cast(*Type_Info_Struct) type;
@@ -1584,7 +1584,7 @@ cast_with_dereference :: (type_: *Type_Info, value_pointer_: *void, $T: Type) ->
         if type.type != .POINTER return null, false;
 
         type = (cast(*Type_Info_Pointer) type).pointer_to;
-        value_pointer = << cast(**void) value_pointer;
+        value_pointer = cast(**void, value_pointer).*;
     }
     return null, true;
 }
@@ -1724,7 +1724,7 @@ take_file_line_column_from_arguments :: (args: [] string, cursor: *int, file: *s
     column.* = -1;
 
     if !take_argument(args, cursor, file) return false;
-    found, f, line_column := split_from_left(<<file, #char ":");
+    found, f, line_column := split_from_left(file.*, #char ":");
     if found  file.* = f;
     if file.*[0] != #char "/" then file.* = tprint("%/%", #filepath, file.*);
 

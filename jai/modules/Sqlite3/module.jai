@@ -104,7 +104,7 @@ sqlite3_bind_any :: (stmt: *sqlite3_stmt, bind_no: s32, value: Any) -> bool {
             if rc != SQLITE_OK return set_last_error_from_sql(stmt);
 
         case .STRING;
-            s := << cast(*string) value_pointer;
+            s := cast(*string, value_pointer).*;
             rc := sqlite3_bind_text(stmt, bind_no, s.data, xx s.count, SQLITE_TRANSIENT);
             if rc != SQLITE_OK return set_last_error_from_sql(stmt);
 
@@ -218,8 +218,8 @@ set_from_sqlite3_value :: (value_pointer: *void, base_type: *Type_Info, sql_valu
 
             n := sqlite3_value_double(sql_value);
             if type.runtime_size == {
-                case 4; << cast(*float32) value_pointer = xx n;
-                case 8; << cast(*float64) value_pointer = n;
+                case 4; cast(*float32, value_pointer).* = xx n;
+                case 8; cast(*float64, value_pointer).* = n;
                 case; assert(false);
             }
 
@@ -233,7 +233,7 @@ set_from_sqlite3_value :: (value_pointer: *void, base_type: *Type_Info, sql_valu
                 case SQLITE_BLOB; result.data = sqlite3_value_blob(sql_value);
             }
             if copy_data  result = copy_string(result);
-            << cast(*string) value_pointer = result;
+            cast(*string, value_pointer).* = result;
 
         case .ARRAY;
             type := cast(*Type_Info_Array) base_type;
@@ -315,7 +315,7 @@ get_array :: ($T: Type, value_pointer: *void, type: *Type_Info_Array) -> [] T {
         result.data = value_pointer;
         result.count = type.array_count;
     } else {
-        result = << cast(*[] T) value_pointer;
+        result = cast(*[] T, value_pointer).*;
     }
     return result;
 }
@@ -327,9 +327,9 @@ set_array :: (value_pointer: *void, type: *Type_Info_Array, source: [] $T, copy_
             assert(type.array_count == source.count);
             memcpy(value_pointer, source.data, element_type.runtime_size * source.count);
         case .VIEW;
-            << cast(* [] T) value_pointer = ifx copy_view array_copy(source) else source;
+            cast(* [] T, value_pointer).* = ifx copy_view array_copy(source) else source;
         case .RESIZABLE;
-            array := << cast(* [..] T) value_pointer;
+            array := cast(* [..] T, value_pointer).*;
             array.count = 0;
             array_add(*array, ..source);
     }
@@ -337,10 +337,10 @@ set_array :: (value_pointer: *void, type: *Type_Info_Array, source: [] $T, copy_
 
 get_value :: (value_pointer: *void, type: *Type_Info_Integer) -> s64 {
     if type.runtime_size == {
-        case 1; return xx,no_check << cast(*s8) value_pointer;
-        case 2; return xx,no_check << cast(*s16) value_pointer;
-        case 4; return xx,no_check << cast(*s32) value_pointer;
-        case 8; return xx,no_check << cast(*s64) value_pointer;
+        case 1; return xx,no_check cast(*s8, value_pointer).*;
+        case 2; return xx,no_check cast(*s16, value_pointer).*;
+        case 4; return xx,no_check cast(*s32, value_pointer).*;
+        case 8; return xx,no_check cast(*s64, value_pointer).*;
     }
     assert(false);
     return -1;
@@ -348,8 +348,8 @@ get_value :: (value_pointer: *void, type: *Type_Info_Integer) -> s64 {
 
 get_value :: (value_pointer: *void, type: *Type_Info_Float) -> float64 {
     if type.runtime_size == {
-        case 4; return xx,no_check << cast(*float32) value_pointer;
-        case 8; return xx,no_check << cast(*float64) value_pointer;
+        case 4; return xx,no_check cast(*float32, value_pointer).*;
+        case 8; return xx,no_check cast(*float64, value_pointer).*;
     }
     assert(false);
     return 0h7FF7FFFF_FFFFFFFF;

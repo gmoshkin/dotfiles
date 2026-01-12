@@ -350,22 +350,26 @@ Cell_Position :: struct {
     column: s32;
 }
 
-Pixel_Value :: struct {
-    type: enum {
-        RGB;
-        COLOR_8BIT;
-    };
-    union {
-        using _rgb: struct {
-            r: u8;
-            g: u8;
-            b: u8;
-        };
-        _8bit: Color_8bit;
+Pixel_Value_Type :: enum u8 {
+    RGB;
+    COLOR_8BIT;
+}
+
+Pixel_Value :: union type: Pixel_Value_Type {
+    using _rgb: struct {
+        r: u8;
+        g: u8;
+        b: u8;
     };
 
-    rgb :: (r: u8, g: u8, b: u8) -> Pixel_Value {
-        res: Pixel_Value;
+    _8bit: Color_8bit;
+
+    // Data end
+
+    Self :: Pixel_Value;
+
+    rgb :: (r: u8, g: u8, b: u8) -> Self {
+        res: Self;
         res.type = .RGB;
         res.r = r;
         res.g = g;
@@ -374,14 +378,16 @@ Pixel_Value :: struct {
         return res;
     }
 
-    id :: (id: u8) -> Pixel_Value {
-        res: Pixel_Value;
+    id :: (id: u8) -> Self {
+        res: Self;
         res.type = .COLOR_8BIT;
         res._8bit = xx id;
 
         return res;
     }
 }
+
+#assert size_of(Pixel_Value) == 4;
 
 print_pixel_value :: (builder: *String_Builder, using v: Pixel_Value, $fg := false) {
     #if fg {
@@ -4968,7 +4974,7 @@ proc_wrapper :: (args: .. Any) -> (ok: bool, error_message: string) {
         for type.argument_types {
             print(*builder, #string CODE
 
-    arg_%1 := << cast(* %2) args[%1].value_pointer;
+    arg_%1 := cast(* %2, args[%1].value_pointer).*;
 
             CODE, it_index, get_type(it));
         }
@@ -6139,7 +6145,7 @@ array_view_from_any :: (value_pointer: *void, type: *Type_Info_Array) -> Array_V
         array_view.data = value_pointer;
         array_view.count = type.array_count;
     } else {
-        array_view = << cast(*Array_View_64) value_pointer;
+        array_view = cast(*Array_View_64, value_pointer).*;
     }
     return array_view;
 }
@@ -7204,7 +7210,7 @@ quantize_color_component :: (c: u8) -> u8 {
 small_bytes_printer :: (builder: *String_Builder, any: Any, struct_printer_data: *void) -> bool {
     if any.type != type_info(Small_Bytes) return false;
 
-    s := << cast(*Small_Bytes) any.value_pointer;
+    s := cast(*Small_Bytes, any.value_pointer).*;
     print_small_bytes(builder, s);
 
     return true;
@@ -7225,7 +7231,7 @@ Ascii_Or_Hex :: #type,isa string;
 ascii_or_hex_printer :: (builder: *String_Builder, any: Any, struct_printer_data: *void) -> bool {
     if any.type != type_info(Ascii_Or_Hex) return false;
 
-    s := << cast(*string) any.value_pointer;
+    s := cast(*string, any.value_pointer).*;
     print_ascii_or_hex(builder, s);
 
     return true;
@@ -7295,7 +7301,7 @@ Human_Readable_Memory :: #type,isa s64;
 human_readable_memory_printer :: (builder: *String_Builder, any: Any, struct_printer_data: *void) -> bool {
     if any.type != type_info(Human_Readable_Memory) return false;
 
-    s := << cast(*s64) any.value_pointer;
+    s := cast(*s64, any.value_pointer).*;
     print_human_readable_memory_size(builder, s);
 
     return true;
@@ -7343,7 +7349,7 @@ array_ordered_remove_range :: inline (array_pointer: *[] $T, start: s64, end: s6
 
     if start == end return;
 
-    array := <<array_pointer;
+    array := array_pointer.*;
     count := end - start;
 
     for i : start..array.count-count-1
@@ -8514,7 +8520,7 @@ print_attribute_range :: (builder: *String_Builder, range: Attribute_Range) {
 attribute_range_printer :: (builder: *String_Builder, any: Any, struct_printer_data: *void) -> bool {
     if any.type != type_info(Attribute_Range) return false;
 
-    s := << cast(*Attribute_Range) any.value_pointer;
+    s := cast(*Attribute_Range, any.value_pointer).*;
     print_attribute_range(builder, s);
 
     return true;

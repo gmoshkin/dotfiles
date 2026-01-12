@@ -874,7 +874,7 @@ print_date_time_for_log :: (builder: *String_Builder, date_time: Calendar_Time) 
 
 // Constant structs don't work with compile time constructs yet, so we return
 // all fields directly
-get_expr_info :: (code: Code) -> kind: Code_Node.Kind, op_type: s32, full_expr: string, proc_expr: string, lhs: Code, rhs: Code {
+get_expr_info :: (code: Code) -> kind: Code_Node.Kind, op_type: Operator_Type, full_expr: string, proc_expr: string, lhs: Code, rhs: Code {
     #import "Program_Print";
 
     root := compiler_get_nodes(code);
@@ -972,7 +972,7 @@ Mem_Dump :: #type,distinct [] u8;
 mem_dump_printer :: (builder: *String_Builder, any: Any, data: *void) -> handled: bool {
     if any.type != type_info(Mem_Dump) return false;
 
-    data := << cast(*[] u8) any.value_pointer;
+    data := cast(*[] u8, any.value_pointer).*;
     mem_dump_to_builder(builder, data);
     return true;
 }
