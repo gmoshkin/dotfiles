@@ -74,12 +74,15 @@ Small_String :: struct {
     count: s64; // shifted left by one byte
     data: *u8;
 
-    #place count;
+    #overlay (count)
     inline_count: s8; // 0..15 = inlined, -128..-1,16..127 = pointer
-    inline_data: [15] u8;
 }
 
 #assert size_of(Small_String) == size_of(string);
+
+inline_data :: inline (s: *Small_String) -> *u8 {
+    return xx (*s.inline_count + 1);
+}
 
 to_small_string :: (big: string) -> Small_String {
     if !big.count return .{};
@@ -87,7 +90,7 @@ to_small_string :: (big: string) -> Small_String {
     result: Small_String = ---;
     if 0 <= big.count && big.count <= 15 {
         result.inline_count = xx,no_check big.count;
-        memcpy(result.inline_data.data, big.data, big.count);
+        memcpy(inline_data(*result), big.data, big.count);
     } else {
         result.count = (big.count << 8) | 0xff; // result.inline_count == -1;
         result.data = big.data;
@@ -107,7 +110,7 @@ to_string :: (small: Small_String) -> string {
         result.data = small.data;
     } else {
         result.count = small.inline_count & 0x0f;
-        result.data = small.inline_data.data;
+        result.data = inline_data(*small);
     }
 
     return result;
@@ -120,22 +123,22 @@ check_small_string :: () {
     ss: Small_String;
 
     ss.inline_count = 0x10;
-    log("% [%, %]: '%'", ss, ss.inline_count, ss.inline_data, to_string(ss));
+    log("% [%, %]: '%'", ss, ss.inline_count, inline_data(*ss), to_string(ss));
 
     ss.count = 16;
-    log("% [%, %]: '%'", ss, ss.inline_count, ss.inline_data, to_string(ss));
+    log("% [%, %]: '%'", ss, ss.inline_count, inline_data(*ss), to_string(ss));
 
     ss = to_small_string("");
-    log("% [%, %]: '%'", ss, ss.inline_count, ss.inline_data, to_string(ss));
+    log("% [%, %]: '%'", ss, ss.inline_count, inline_data(*ss), to_string(ss));
 
     ss = to_small_string("0123456789abcde");
-    log("% [%, %]: '%'", ss, ss.inline_count, ss.inline_data, to_string(ss));
+    log("% [%, %]: '%'", ss, ss.inline_count, inline_data(*ss), to_string(ss));
 
     ss = to_small_string("01");
-    log("% [%, %]: '%'", ss, ss.inline_count, ss.inline_data, to_string(ss));
+    log("% [%, %]: '%'", ss, ss.inline_count, inline_data(*ss), to_string(ss));
 
     ss = to_small_string("0123456789abcdef");
-    log("% [%, %]: '%'", ss, ss.inline_count, ss.inline_data, to_string(ss));
+    log("% [%, %]: '%'", ss, ss.inline_count, inline_data(*ss), to_string(ss));
 }
 
 defer_is_not_like_in_go :: (do_early_exit: bool) {
@@ -261,7 +264,7 @@ stack_or_temporary_allocator_proc :: (mode: Allocator_Mode, requested_size: s64,
         return temporary_allocator_proc(mode, requested_size, old_size, old_memory, allocator_data);
 
       case .CAPS;
-        if old_memory { <<cast(*string)old_memory = "stack_or_temporary_allocator_proc"; }
+        if old_memory { cast(*string, old_memory).* = "stack_or_temporary_allocator_proc"; }
         return cast(*void)(Allocator_Caps.HINT_I_AM_PER_FRAME_TEMPORARY_STORAGE);
     }
 }
@@ -518,15 +521,6 @@ for_reverse_range :: () {
     print("for < 3..1\n");
     // no longer compiles
     // for < 3..1 print("#%\n", it);
-
-    print("for #v2   1..3\n");
-    for #v2   1..3 print("#%\n", it);
-    print("for #v2 < 1..3\n");
-    for #v2 < 1..3 print("#%\n", it);
-    print("for #v2   3..1\n");
-    for #v2   3..1 print("#%\n", it);
-    print("for #v2 < 3..1\n");
-    for #v2 < 3..1 print("#%\n", it);
 }
 
 for_reverse_array :: () {
@@ -659,12 +653,6 @@ enum_flags_auto_values :: () {
     assert(array_equals(type_info(Enum_Flags).values, .[1, 2, 4]));
 }
 
-array_equals :: (a: [] $T, b: [] T) -> bool {
-    if a.count != b.count return false;
-    for a if it != b[it_index] return false;
-    return true;
-}
-
 static_if_case :: () {
     E :: enum { A; B; C; }
 
@@ -775,6 +763,51 @@ float_fuckery :: () {
     log("a + (b - a) * 0.5 == a: %", a == a1);
 }
 
+tagged_union :: () {
+    Pixel_Value_Type :: enum u8 {
+        RGB;
+        COLOR_8BIT;
+    }
+
+    #assert size_of(Pixel_Value_Type) == 1;
+
+    Pixel_Value :: union type: Pixel_Value_Type {
+        using _rgb: struct {
+            r: u8;
+            g: u8;
+            b: u8;
+        };
+        _8bit: u8;
+
+        Self :: Pixel_Value;
+
+        rgb :: (r: u8, g: u8, b: u8) -> Self {
+            res: Self;
+            res.type = .RGB;
+            res.r = r;
+            res.g = g;
+            res.b = b;
+
+            return res;
+        }
+
+        id :: (id: u8) -> Self {
+            res: Self;
+            res.type = .COLOR_8BIT;
+            res._8bit = xx id;
+
+            return res;
+        }
+    }
+
+    #assert size_of(Pixel_Value) == 4;
+
+    purple := Pixel_Value.rgb(100, 50, 100);
+    red_8bit := Pixel_Value.id(1);
+    print("purple: %\n", purple);
+    print("red_8bit: %\n", red_8bit);
+}
+
 main :: () {
     context.print_style.default_format_struct.use_newlines_if_long_form = true;
     print("\n### type_of_null:\n\n");                   type_of_null();
@@ -788,7 +821,6 @@ main :: () {
     print("\n### null_any_test:\n\n");                  null_any_test();
     print("\n### div_mod_precedence:\n\n");             div_mod_precedence();
     print("\n### no_reset_global_array:\n\n");          no_reset_global_array();
-    print("\n### test_append_padding:\n\n");            test_append_padding();
     print("\n### stack_or_temporary_allocator:\n\n");   stack_or_temporary_allocator();
     print("\n### visit_macro:\n\n");                    visit_macro();
     print("\n### stack_trace_and_inline:\n\n");         stack_trace_and_inline();
@@ -806,6 +838,7 @@ main :: () {
     print("\n### multi_map:\n\n");                      multi_map();
     print("\n### for_reverse_array:\n\n");              for_reverse_array();
     print("\n### float_fuckery:\n\n");                  float_fuckery();
+    print("\n### tagged_union:\n\n");                   tagged_union();
 }
 
 #import "Basic";
