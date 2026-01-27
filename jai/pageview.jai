@@ -356,13 +356,13 @@ Pixel_Value_Type :: enum u8 {
 }
 
 Pixel_Value :: union type: Pixel_Value_Type {
-    using _rgb: struct {
+    .RGB,, _rgb: struct {
         r: u8;
         g: u8;
         b: u8;
     };
 
-    _8bit: Color_8bit;
+    .COLOR_8BIT,, _8bit: Color_8bit;
 
     // Data end
 
@@ -371,9 +371,9 @@ Pixel_Value :: union type: Pixel_Value_Type {
     rgb :: (r: u8, g: u8, b: u8) -> Self {
         res: Self;
         res.type = .RGB;
-        res.r = r;
-        res.g = g;
-        res.b = b;
+        res._rgb.r = r;
+        res._rgb.g = g;
+        res._rgb.b = b;
 
         return res;
     }
@@ -392,13 +392,19 @@ Pixel_Value :: union type: Pixel_Value_Type {
 print_pixel_value :: (builder: *String_Builder, using v: Pixel_Value, $fg := false) {
     #if fg {
         if type == {
-            case .RGB;          print(builder, "\e[38;2;%;%;%m", r, g, b);
-            case .COLOR_8BIT;    print(builder, "\e[38;5;%m", cast(u8) _8bit);
+            case .RGB;
+                using v._rgb;
+                print(builder, "\e[38;2;%;%;%m", r, g, b);
+            case .COLOR_8BIT;
+                print(builder, "\e[38;5;%m", cast(u8) _8bit);
         }
     } else {
         if type == {
-            case .RGB;          print(builder, "\e[48;2;%;%;%m", r, g, b);
-            case .COLOR_8BIT;    print(builder, "\e[48;5;%m", cast(u8) _8bit);
+            case .RGB;
+                using v._rgb;
+                print(builder, "\e[48;2;%;%;%m", r, g, b);
+            case .COLOR_8BIT;
+                print(builder, "\e[48;5;%m", cast(u8) _8bit);
         }
     }
 }
@@ -406,7 +412,7 @@ print_pixel_value :: (builder: *String_Builder, using v: Pixel_Value, $fg := fal
 get_red :: (using v: Pixel_Value) -> u8 {
     if type == {
         case .RGB;
-            return r;
+            return _rgb.r;
 
         case .COLOR_8BIT;
             if _8bit == {
@@ -5709,10 +5715,7 @@ do_panic_now :: () -> (ok := true, error_message := "") {
 set_current_pixel_fg_rgb :: (r: u8, g: u8, b: u8) -> (ok := true, error_message := "") {
     using context.state;
 
-    current_pixel_fg.type = .RGB;
-    current_pixel_fg.r = r;
-    current_pixel_fg.g = g;
-    current_pixel_fg.b = b;
+    current_pixel_fg = Pixel_Value.rgb(r, g, b);
 
     if main_window_source != .DRAWING_MODE return false, "this command is for DRAWING_MODE";
 
@@ -5733,10 +5736,7 @@ set_current_pixel_fg_256 :: (number: u8) -> (ok := true, error_message := "") {
 set_current_pixel_bg_rgb :: (r: u8, g: u8, b: u8) -> (ok := true, error_message := "") {
     using context.state;
 
-    current_pixel_bg.type = .RGB;
-    current_pixel_bg.r = r;
-    current_pixel_bg.g = g;
-    current_pixel_bg.b = b;
+    current_pixel_bg = Pixel_Value.rgb(r, g, b);
 
     if main_window_source != .DRAWING_MODE return false, "this command is for DRAWING_MODE";
 
