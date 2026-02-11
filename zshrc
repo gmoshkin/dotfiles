@@ -147,5 +147,12 @@ export DISPLAY_PROXY="$(/sbin/ip route | awk '/^default/ { print $3 }'):0"
 export BUN_INSTALL="$HOME/.bun"
 appendToPath "$HOME/.bun/bin"
 
+#
+# NVM
+#
+
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+
 # Dump the function-level profiling info.
 # zprof > /tmp/prof-func.$$
