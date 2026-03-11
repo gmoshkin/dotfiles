@@ -283,3 +283,25 @@ function install_picodata {
     cp "$target_directory/fast-release/picodata" "$release_binary" || { error "failed to copy '$release_binary'"; return 1; }
     echo "copied binary '$release_binary'"
 }
+
+function proxy-on {
+    [ -n "$_HTTP_PROXY" ] || { error "_HTTP_PROXY env is not set, don't know what to do"; return 1; }
+
+    export http_proxy=$_HTTP_PROXY
+    export https_proxy=$_HTTP_PROXY
+    export HTTP_PROXY=$_HTTP_PROXY
+    export HTTPS_PROXY=$_HTTP_PROXY
+    export no_proxy=localhost,127.0.0.1,::1
+    echo "\x1b[32mProxy ON\x1b[0m"
+}
+
+function proxy-off {
+    [ -n "$_HTTP_PROXY" ] || { error "_HTTP_PROXY env is not set, don't know what to do"; return 1; }
+
+    unset http_proxy
+    unset https_proxy
+    unset HTTP_PROXY
+    unset HTTPS_PROXY
+    unset no_proxy
+    echo "\x1b[34mProxy OFF\x1b[0m"
+}

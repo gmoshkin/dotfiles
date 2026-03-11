@@ -6,4 +6,5 @@ EDITOR="/usr/bin/env nvim"
 fpath=( "$DOTFILES/zcompletion" "$DOTFILES/zprompts" "$DOTFILES/asdf/completions" $fpath )
 
 source "$DOTFILES/env.sh"
+source ~/.env
 . "$HOME/.cargo/env"
