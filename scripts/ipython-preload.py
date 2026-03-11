@@ -91,6 +91,30 @@ def pretty_size(s):
     return f'{t:.1f}T'
 
 
+import urllib
+from urllib.parse import urlencode
+import json
+def http_request(url: str, params: dict[str, object] = {}, headers: dict[str, str] = {}):
+    if params:
+        if '?' in url:
+            url += '&' + urlencode(params)
+        else:
+            url += '?' + urlencode(params)
+    request = urllib.request.Request(url=url, headers=headers)
+    response = urllib.request.urlopen(request)
+    return response
+
+def http_request_json(url: str, params: dict[str, object] = {}, headers: dict[str, str] = {}):
+    response = http_request(url, params, headers)
+    return response.status, response.reason, json.loads(response.read())
+
+_gitlab_headers_cached = None
+def gitlab_headers():
+    global _gitlab_headers_cached
+    if _gitlab_headers_cached is None:
+        _gitlab_headers_cached = {"PRIVATE-TOKEN": os.getenv("GITLAB_TOKEN")}
+    return _gitlab_headers_cached
+
 modules_not_found = []
 
 try:
