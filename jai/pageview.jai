@@ -5690,6 +5690,20 @@ save_current_buffer :: (filename: string, overwrite := false) -> (ok := true, er
     return;
 }
 
+save_buffer_history :: (directory: string, overwrite := false) -> (ok := true, error_message := "") {
+    using context.state;
+
+    if !main_window_buffer_history {
+        return false, "buffer history is empty, nothing to save";
+    }
+
+    // TODO: check if `directory` exists, handle `overwrite` flag
+    // Go through buffer history, write `raw_text_and_control_codes` into
+    // `"${directory}/pageview-${i}.data`
+
+    return false, "not implemented";
+}
+
 show_state_field :: (path: string) -> (ok := true, error_message := "") {
     using context.state;
 
