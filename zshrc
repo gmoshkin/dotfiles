@@ -83,6 +83,7 @@ prependToPath "$HOME/.nimble/bin"
 prependToPath "$HOME/.cargo-target/release"
 prependToPath "$HOME/.cargo-target/debug"
 prependToPath "$DOTFILES/jai"
+appendToPath "$HOME/.opencode/bin"
 for drive in {c..d}; [ -d "/mnt/$drive/jai/bin" ] && prependToPath "/mnt/$drive/jai/bin"
 for drive in {c..d}; [ -d "/mnt/$drive/tools" ] && prependToPath "/mnt/$drive/tools"
 for drive in {c..d}; [ -d "/mnt/$drive/tools/raddbg" ] && prependToPath "/mnt/$drive/tools/raddbg"
@@ -152,7 +153,28 @@ appendToPath "$HOME/.bun/bin"
 #
 
 export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+
+# Imagine being a fucking brain-dead javascript infrastructure person... those
+# pieces of human trash automatically add source nvm.sh to everybody's zshrc and
+# after that it takes 2 seconds to open a new zsh! That's not a very good
+# practice, now is it?
+#
+# Wait a minute, what is this here? A fucking bulletproof way to solve the
+# fucking problem for everybody in perpetuity? No, it can't be... I'm the retard
+# here probably
+#
+# FIXME: completion currently broken before first use, it says
+# ```
+# (eval):1: command not found: _bash_complete
+# ```
+# which is absolutely retarded and should be possible to fix easily,
+# but I couldn't be fucked to spend more time on this bullshit at the moment
+function nvm $@ {
+    [ -s "$NVM_DIR/nvm.sh" ] || { error "file $NVM_DIR/nvm.sh not found"; return 1; }
+    source "$NVM_DIR/nvm.sh"
+    [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+    nvm $@
+}
 
 # Dump the function-level profiling info.
 # zprof > /tmp/prof-func.$$
