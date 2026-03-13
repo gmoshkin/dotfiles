@@ -37,12 +37,13 @@ prompt_mine_setup () {
     fi
 
     # Colour scheme
-    prompt_mine_clr_delim=${1:-'black'}
+    prompt_mine_clr_delim=${1:-'237'}
     prompt_mine_clr_cwd=${2:-'blue'}
     prompt_mine_clr_user=${3:-'green'}
     prompt_mine_clr_host=${4:-'yellow'}
     prompt_mine_clr_prompt_chr=${5:-'11'}
     prompt_mine_clr_datetime=${6:-'green'}
+    prompt_mine_clr_proxy=${7:-'magenta'}
 
     local prompt_gfx_bbox
     prompt_gfx_tbox="%F{$prompt_mine_clr_delim}${prompt_gfx_tlc}"
@@ -75,9 +76,13 @@ prompt_mine_precmd() {
     setopt localoptions extendedglob noxtrace nowarncreateglobal
     local prompt_line_1
     local prompt_cwd
+    local prompt_proxy
 
     local tmp_pwd="%~"
     prompt_cwd="%F{$prompt_mine_clr_cwd}${${(%%)tmp_pwd}/#\/space\/$USER/⌂}"
+    if [ -n "$HTTP_PROXY" ]; then
+        prompt_proxy=" %F{$prompt_mine_clr_proxy}⇄"
+    fi
 
     prompt_mine_choose_prompt
 
@@ -87,10 +92,10 @@ prompt_mine_precmd() {
 }
 
 prompt_mine_choose_prompt () {
-    local tmp_line_1a="${prompt_line_1a}${prompt_colon}${prompt_cwd}${prompt_r_paren}"
+    local tmp_line_1a="${prompt_line_1a}${prompt_colon}${prompt_cwd}${prompt_proxy}${prompt_r_paren}"
     local line_1a_without_cwd_width=${#${(S%%)prompt_line_1a//(\%([KF1]|)\{*\}|\%[Bkf])}}
-    local prompt_line_1a_width=${#${(S%%)tmp_line_1a//(\%([KF1]|)\{*\}|\%[Bkf])}}
-    local prompt_line_1b_width=${#${(S%%)prompt_line_1b//(\%([KF1]|)\{*\}|\%[Bkf])}}
+    local prompt_line_1a_width="${#${(S%%)tmp_line_1a//(\%([KF1]|)\{*\}|\%[Bkf])}}"
+    local prompt_line_1b_width="${#${(S%%)prompt_line_1b//(\%([KF1]|)\{*\}|\%[Bkf])}}"
 
     local padding_size=$((COLUMNS - prompt_line_1a_width - prompt_line_1b_width))
 
@@ -104,7 +109,7 @@ prompt_mine_choose_prompt () {
 
     padding_size=$((COLUMNS - line_1a_without_cwd_width - prompt_line_1b_width - 2))
 
-    echo $COLUMNS - $line_1a_without_cwd_width - $prompt_line_1b_width = $padding_size > /tmp/padding_size
+    # echo $COLUMNS - $line_1a_without_cwd_width - $prompt_line_1b_width = $padding_size > /tmp/padding_size
     # Didn't fit; try to truncate.
     if (( padding_size > 0 )); then
         local truncated_cwd="%F{${prompt_mine_clr_cwd}}$(print -P "%${padding_size}<⋯ <${prompt_cwd}")"
