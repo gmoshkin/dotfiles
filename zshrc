@@ -176,5 +176,12 @@ function nvm $@ {
     nvm $@
 }
 
+function node $@ {
+    echo -n "nvm version: "
+    nvm --version
+    unset -f node
+    node $@
+}
+
 # Dump the function-level profiling info.
 # zprof > /tmp/prof-func.$$
