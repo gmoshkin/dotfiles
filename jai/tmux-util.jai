@@ -843,9 +843,15 @@ battery :: () -> string, Attr {
 
     if !exists && is_wsl() {
         ok, out := command("windows_battery.exe");
-        if !ok return out, .{ "red", "white" };
+        // Not a laptop, probably
+        if !ok return "", .{};
 
         return out, .{"white", "red"};
+    }
+
+    if !exists {
+        // Not a laptop, probably
+        return "", .{};
     }
 
     text, ok := my_read_entire_file(tprint("%/energy_full", bat));
