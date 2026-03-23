@@ -312,3 +312,8 @@ function proxy-off {
     unset no_proxy
     echo "\x1b[34mProxy OFF\x1b[0m"
 }
+
+function myip {
+    echo -n 'LAN: '; ip route get 1.1.1.1 | awk '{print $7; exit}'
+    echo -n 'WAN: '; curl ipconfig.io
+}
