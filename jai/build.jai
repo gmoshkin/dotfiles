@@ -21,6 +21,7 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
             case "debug";       compile_parameters.debug_build = true;
             case "release";     compile_parameters.debug_build = false;
             case "dynamic";     compile_parameters.dynamic_binary = true;
+            case "test";        mode = .TEST;
 
             case "source-info-generate";
                 mode = .GENERATE_SOURCE_INFO;
@@ -121,6 +122,15 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
 
                 }
                 if !build_program(info, compile_parameters) exit(1);
+            case .TEST;
+                info := get_program_info(program, debug=true);
+                if info.os != OS {
+                    print("Skipping \e[33m%\e[0m (it wants OS %)\n", info.exe_name, info.os);
+                    return true;
+                }
+                print("Compiling a debug version for testing...\n");
+                if !build_program(info, .{debug_build = true}) return false;
+                if !run_test_process(info.exe_path, info.exe_name, run_tests_in_gdb) return false;
             case .GENERATE_SOURCE_INFO; generate_source_info(program);
             case .INSPECT_SOURCE_INFO;  inspect_source_info(program, inspect_parameters);
         }
@@ -157,6 +167,7 @@ Program :: enum {
 
 Mode :: enum {
     COMPILE;
+    TEST;
     GENERATE_SOURCE_INFO;
     INSPECT_SOURCE_INFO;
 }
