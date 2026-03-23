@@ -66,6 +66,11 @@ show_usage :: () {
 //
 
 status_line_left :: (args: [] string) -> (bool, string) {
+    host_color := to_string(getenv("TMUX_HOST_COLOR"));
+    if !host_color {
+        host_color = "color233";
+    }
+
     segments_raw := Segment.[
         .{
             text = join(
@@ -76,7 +81,7 @@ status_line_left :: (args: [] string) -> (bool, string) {
         },
         // .{ proc = segment_current_path },
         .{ text = "#S:#I.#P",   attr = .{"colour233", "colour240"} },
-        .{ text = "#H",         attr = .{"colour233", "colour237"} },
+        .{ text = "#H",         attr = .{sprint("%,bold", host_color), "colour237"}, fg_after = "default,nobold" },
         .{ proc = git_branch },
         .{ proc = git_compare_to_upstream },
         .{ proc = git_staged },
@@ -99,7 +104,11 @@ status_line_left :: (args: [] string) -> (bool, string) {
 
     sb : String_Builder;
     for segments {
-        print_to_builder(*sb, "#[fg=%,bg=%] % ", it.attr.fg, it.attr.bg, it.text);
+        after := "";
+        if it.fg_after {
+            after = sprint("#[fg=%]", it.fg_after);
+        }
+        print_to_builder(*sb, "#[fg=%,bg=%] % %", it.attr.fg, it.attr.bg, it.text, after);
     }
     write_builder(*sb);
     print("\n");
@@ -973,6 +982,7 @@ Segment :: struct {
     text: string = "";
     proc: () -> (string, Attr) = no_proc;
     attr: Attr;
+    fg_after: string;
 }
 
 no_proc :: () -> (string, Attr) { return "", .{}; }
@@ -992,3 +1002,4 @@ Attr :: struct {
 #import "Version_Banner";
 #import "My_Logger";
 #import "Sort";
+#import "POSIX";
