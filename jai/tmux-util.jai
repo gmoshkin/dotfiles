@@ -781,12 +781,12 @@ git_branch :: () -> string, Attr {
     ok, out := command("git", "rev-parse", "--abbrev-ref", "HEAD", cwd = pane_current_path);
     if !ok return "", .{}; // Probably not a git directory
 
-    if out != "HEAD" return tprint("⎇ %", trim(out)), .{"colour15", bg_color};
+    if out != "HEAD" return tprint("⎇ %", trim(out)), .{"colour233", bg_color};
 
     ok, out = command("git", "rev-parse", "--short", "HEAD", cwd = pane_current_path);
     Check_Ok(ok);
 
-    return tprint(" %", trim(out)), .{"colour15", bg_color};
+    return tprint(" %", trim(out)), .{"colour233", bg_color};
 }
 
 git_compare_to_upstream :: () -> string, Attr {
