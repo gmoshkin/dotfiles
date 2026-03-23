@@ -274,10 +274,14 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
         return l.filename == r.filename && l.line_no == r.line_no && l.column_no == r.column_no;
     }
 
-    // Remeber, we're going in reverese line order, so next line is the one we've seen previously
+    // Remember, we're going in reverese line order, so next line is the one we've seen previously
     next_line_is_rust_location := false;
+    next_line_is_rust_backtrace_node := false;
     line_count := 0;
+    // Remember, we're going in reverese line order, so next line is the one we've seen previously
+    next_line: string;
     for :reverse_lines line: output {
+        defer next_line = line;
         // Only look for locations in last command's output.
         // @Incomplete make this more general
         if !crawl_the_whole_history && locations.count > 0 && starts_with(line, "╭(gmoshkin@") break;
@@ -296,6 +300,14 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
             }
             continue;
         }
+        if next_line_is_rust_backtrace_node {
+            next_line_is_rust_backtrace_node = false;
+
+            location := last(*locations);
+            new_info := strip_pytest_error_prefix(line);
+            location.info = sprint("%1 %2", new_info, location.info);
+            continue;
+        }
 
         cursor := 0;
 
@@ -303,6 +315,10 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
         while cursor < line.count {
             while cursor < line.count && (inline is_space(line[cursor])) cursor += 1;
             if cursor >= line.count continue;
+
+            //
+            // Try to parse source location
+            //
 
             tail := advance(line, cursor);
             cursor_offset, filename, line_no, column_no := parse_source_location(tail, cursor == 0);
@@ -314,10 +330,20 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
                 continue;
             }
 
+            //
+            // Prepare info message
+            //
+
             info: string;
+            info_type: u8 = 0;
             prefix := trim(slice(line, 0, cursor));
+            prefix = strip_pytest_error_prefix(prefix);
             postfix := trim(advance(line, cursor + cursor_offset));
-            if prefix && postfix {
+            // Special hack for rust panic messages
+            if ends_with(prefix, "panicked at") && starts_with(postfix, ":") {
+                info = sprint("%1 ... %2 %3", prefix, postfix, strip_pytest_error_prefix(trim(next_line)));
+                info_type = #char "E";
+            } else if prefix && postfix {
                 info = sprint("%1 ... %2", prefix, postfix);
             } else if prefix {
                 info = sprint("% ...", prefix);
@@ -325,8 +351,9 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
                 info = postfix;
             }
 
-            location := Source_Location.{ filename, line_no, column_no, info, 0 };
+            location := Source_Location.{ filename, line_no, column_no, info, info_type };
 
+            // HACK: I thinks it's for rust, but I don't remember...
             prev_location := last(*locations);
             if prev_location && Same_Location(prev_location, *location) {
                 // Remeber we're going in reverse line order
@@ -335,7 +362,14 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
                 array_add(*locations, location);
             }
 
+            //
+            // Remember stuff for later
+            //
+
+            // Rust locations are spread along multiple lines
             if ends_with(trim_right(prefix), "-->") then next_line_is_rust_location = true;
+            // Rust backtrace nodes are spread along multiple lines
+            if ends_with(trim(prefix), "  at") && trim(postfix) == "" then next_line_is_rust_backtrace_node = true;
 
             // Only one source location per line
             break;
@@ -405,6 +439,11 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
     write_builder(*builder);
 
     return true, "";
+}
+
+strip_pytest_error_prefix :: (text: string) -> string {
+    if !starts_with(text, "E ") return text;
+    return trim(advance(text));
 }
 
 parse_source_location :: (text: string, line_start: bool) -> (cursor: int, filename: string, line_no: int, column_no: int) {
