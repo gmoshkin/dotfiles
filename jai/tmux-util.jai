@@ -66,11 +66,7 @@ show_usage :: () {
 //
 
 status_line_left :: (args: [] string) -> (bool, string) {
-    host_color := to_string(getenv("TMUX_HOST_COLOR"));
-    if !host_color {
-        host_color = "color233";
-    }
-
+    host_color := ifx get_host_color() else "color233";
     segments_raw := Segment.[
         .{
             text = join(
@@ -81,7 +77,7 @@ status_line_left :: (args: [] string) -> (bool, string) {
         },
         // .{ proc = segment_current_path },
         .{ text = "#S:#I.#P",   attr = .{"colour233", "colour240"} },
-        .{ text = "#H",         attr = .{sprint("%,bold", host_color), "colour237"}, fg_after = "default,nobold" },
+        .{ text = "#H",         attr = .{host_color, "colour237"} },
         .{ proc = git_branch },
         .{ proc = git_compare_to_upstream },
         .{ proc = git_staged },
@@ -104,11 +100,12 @@ status_line_left :: (args: [] string) -> (bool, string) {
 
     sb : String_Builder;
     for segments {
-        after := "";
-        if it.fg_after {
-            after = sprint("#[fg=%]", it.fg_after);
+        print_to_builder(*sb, "#[fg=%,bg=%] %", it.attr.fg, it.attr.bg, it.text);
+        if it_index + 1 < segments.count - 1 && segments[it_index + 1].attr.bg == it.attr.bg {
+            append(*sb, "#[fg=black]▕");
+        } else {
+            append(*sb, " ");
         }
-        print_to_builder(*sb, "#[fg=%,bg=%] % %", it.attr.fg, it.attr.bg, it.text, after);
     }
     write_builder(*sb);
     print("\n");
@@ -779,15 +776,17 @@ is_wsl :: () -> bool {
 git_branch :: () -> string, Attr {
     Check_Ok(pane_current_path);
 
+    bg_color := ifx get_host_color() else "magenta";
+
     ok, out := command("git", "rev-parse", "--abbrev-ref", "HEAD", cwd = pane_current_path);
     if !ok return "", .{}; // Probably not a git directory
 
-    if out != "HEAD" return tprint("⎇ %", trim(out)), .{"colour15", "colour4"};
+    if out != "HEAD" return tprint("⎇ %", trim(out)), .{"colour15", bg_color};
 
     ok, out = command("git", "rev-parse", "--short", "HEAD", cwd = pane_current_path);
     Check_Ok(ok);
 
-    return tprint(" %", trim(out)), .{"colour15", "colour4"};
+    return tprint(" %", trim(out)), .{"colour15", bg_color};
 }
 
 git_compare_to_upstream :: () -> string, Attr {
@@ -1021,7 +1020,6 @@ Segment :: struct {
     text: string = "";
     proc: () -> (string, Attr) = no_proc;
     attr: Attr;
-    fg_after: string;
 }
 
 no_proc :: () -> (string, Attr) { return "", .{}; }
@@ -1029,6 +1027,20 @@ no_proc :: () -> (string, Attr) { return "", .{}; }
 Attr :: struct {
     fg, bg: string;
 }
+
+_host_color: string;
+checked_host_color_env := false;
+get_host_color :: () -> string {
+    if checked_host_color_env {
+        return _host_color;
+    }
+
+    _host_color = copy_string(to_string(getenv("TMUX_HOST_COLOR")));
+    checked_host_color_env = true;
+
+    return _host_color;
+}
+
 
 #import "Basic";
 #import "String";
