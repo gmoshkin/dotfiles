@@ -169,18 +169,20 @@ export NVM_DIR="$HOME/.nvm"
 # ```
 # which is absolutely retarded and should be possible to fix easily,
 # but I couldn't be fucked to spend more time on this bullshit at the moment
-function nvm $@ {
-    [ -s "$NVM_DIR/nvm.sh" ] || { error "file $NVM_DIR/nvm.sh not found"; return 1; }
-    source "$NVM_DIR/nvm.sh"
-    [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
-    nvm $@
-}
+type node &>/dev/null || {
+    function nvm $@ {
+        [ -s "$NVM_DIR/nvm.sh" ] || { error "file $NVM_DIR/nvm.sh not found"; return 1; }
+        source "$NVM_DIR/nvm.sh"
+        [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+        nvm $@
+    }
 
-function node $@ {
-    echo -n "nvm version: "
-    nvm --version
-    unset -f node
-    node $@
+    function node $@ {
+        echo -n "nvm version: "
+        nvm --version
+        unset -f node
+        node $@
+    }
 }
 
 # Dump the function-level profiling info.
