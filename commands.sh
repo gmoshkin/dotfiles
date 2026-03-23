@@ -287,6 +287,11 @@ function install_picodata {
 function proxy-on {
     [ -n "$_HTTP_PROXY" ] || { error "_HTTP_PROXY env is not set, don't know what to do"; return 1; }
 
+    [ -n "$_SOCKS_PROXY" ] && {
+        export SOCKS_PROXY="$_SOCKS_PROXY"
+        export socks_proxy="$_SOCKS_PROXY"
+    }
+
     export http_proxy=$_HTTP_PROXY
     export https_proxy=$_HTTP_PROXY
     export HTTP_PROXY=$_HTTP_PROXY
@@ -298,6 +303,8 @@ function proxy-on {
 function proxy-off {
     [ -n "$_HTTP_PROXY" ] || { error "_HTTP_PROXY env is not set, don't know what to do"; return 1; }
 
+    unset SOCKS_PROXY
+    unset socks_proxy
     unset http_proxy
     unset https_proxy
     unset HTTP_PROXY
