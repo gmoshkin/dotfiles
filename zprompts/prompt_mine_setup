@@ -37,14 +37,20 @@ prompt_mine_setup () {
     fi
 
     local HOST_COLOR=${TMUX_HOST_COLOR:-'magenta'}
+    local NON_HOST_COLOR
+    if [ ${HOST_COLOR} = 'green' ]; then
+        NON_HOST_COLOR='blue'
+    else
+        NON_HOST_COLOR='green'
+    fi
 
     # Colour scheme
     prompt_mine_clr_delim=${1:-'237'}
     prompt_mine_clr_cwd=${2:-$HOST_COLOR}
-    prompt_mine_clr_user=${3:-'green'}
+    prompt_mine_clr_user=${3:-$NON_HOST_COLOR}
     prompt_mine_clr_host=${4:-$HOST_COLOR}
     prompt_mine_clr_prompt_chr=${5:-'11'}
-    prompt_mine_clr_datetime=${6:-'green'}
+    prompt_mine_clr_datetime=${6:-$NON_HOST_COLOR}
     prompt_mine_clr_proxy=${7:-'magenta'}
 
     local prompt_gfx_bbox
