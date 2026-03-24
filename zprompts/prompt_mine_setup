@@ -58,7 +58,7 @@ prompt_mine_setup () {
     prompt_r_paren="%F{$prompt_mine_clr_delim})"
     prompt_colon="%F{$prompt_mine_clr_delim}:"
 
-    prompt_user_host="%F{$prompt_mine_clr_user}%n@%F{$prompt_mine_clr_host}%m"
+    prompt_user_host="%F{$prompt_mine_clr_user}%n%F{$prompt_mine_clr_delim}@%F{$prompt_mine_clr_host}%m"
     # prompt_datetime="%F{$prompt_mine_clr_datetime}%D{%a %d %b %Y %H:%M}"
     prompt_datetime="%F{$prompt_mine_clr_datetime}%D{%a %d %b %Y %H:%M}"
 
