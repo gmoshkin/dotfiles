@@ -36,11 +36,13 @@ prompt_mine_setup () {
         prompt_gfx_hyphen='-'
     fi
 
+    local HOST_COLOR=${TMUX_HOST_COLOR:-'magenta'}
+
     # Colour scheme
     prompt_mine_clr_delim=${1:-'237'}
-    prompt_mine_clr_cwd=${2:-'blue'}
+    prompt_mine_clr_cwd=${2:-$HOST_COLOR}
     prompt_mine_clr_user=${3:-'green'}
-    prompt_mine_clr_host=${4:-${TMUX_HOST_COLOR:-'magenta'}}
+    prompt_mine_clr_host=${4:-$HOST_COLOR}
     prompt_mine_clr_prompt_chr=${5:-'11'}
     prompt_mine_clr_datetime=${6:-'green'}
     prompt_mine_clr_proxy=${7:-'magenta'}
