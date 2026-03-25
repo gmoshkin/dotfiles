@@ -67,8 +67,7 @@ prompt_mine_setup () {
     prompt_colon="%F{$prompt_mine_clr_delim}:"
 
     prompt_user_host="%F{$prompt_mine_clr_user}%n%F{$prompt_mine_clr_delim}@%F{$prompt_mine_clr_host}%m"
-    # prompt_datetime="%F{$prompt_mine_clr_datetime}%D{%a %d %b %Y %H:%M}"
-    prompt_datetime="%F{$prompt_mine_clr_datetime}%D{%a %d %b %Y %H:%M}"
+    prompt_datetime="%F{$prompt_mine_clr_datetime}%D{%Y-%m-%d %H:%M}"
 
     prompt_line_1a="${prompt_gfx_tbox}${prompt_l_paren}${prompt_user_host}"
     prompt_line_1b="${prompt_l_paren}${prompt_datetime}${prompt_r_paren}"
