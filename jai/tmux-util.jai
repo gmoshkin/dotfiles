@@ -283,6 +283,9 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
         // @Incomplete make this more general
         if !crawl_the_whole_history && locations.count > 0 && starts_with(line, "╭(gmoshkin@") break;
 
+        //
+        // Info type from rust output
+        //
         if next_line_is_rust_location {
             next_line_is_rust_location = false;
 
@@ -297,6 +300,10 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
             }
             continue;
         }
+
+        //
+        // Info from rust backtrace
+        //
         if next_line_is_rust_backtrace_node {
             next_line_is_rust_backtrace_node = false;
 
@@ -336,7 +343,9 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
             prefix := trim(slice(line, 0, cursor));
             prefix = strip_pytest_error_prefix(prefix);
             postfix := trim(advance(line, cursor + cursor_offset));
+            //
             // Special hack for rust panic messages
+            //
             if ends_with(prefix, "panicked at") && starts_with(postfix, ":") {
                 info = sprint("%1 ... %2 %3", prefix, postfix, strip_pytest_error_prefix(trim(next_line)));
                 info_type = #char "E";
@@ -346,6 +355,13 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
                 info = sprint("% ...", prefix);
             } else {
                 info = postfix;
+            }
+
+            //
+            // Special hack for pytest AssertionError
+            //
+            if trim(info) == "AssertionError" {
+                info_type = #char "E";
             }
 
             location := Source_Location.{ filename, line_no, column_no, info, info_type };
