@@ -314,6 +314,11 @@ function proxy-off {
 }
 
 function myip {
-    echo -n 'LAN: '; ip route get 1.1.1.1 | awk '{print $7; exit}'
+    ip addr |
+        sed -n 's/^\s\+inet\s\+\([0-9.]\+\).*/\1/p' |
+        while read IP; do
+            [ "$IP" = "127.0.0.1" ] && continue;
+            echo "LAN: $IP";
+        done
     echo -n 'WAN: '; curl ipconfig.io
 }
