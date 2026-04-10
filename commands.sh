@@ -320,5 +320,6 @@ function myip {
             [ "$IP" = "127.0.0.1" ] && continue;
             echo "LAN: $IP";
         done
-    echo -n 'WAN: '; curl ipconfig.io
+    echo -n 'WAN: '; curl ipconfig.io/json 2>/dev/null |
+        jq -r '"\(.ip) (\(.country))"'
 }
