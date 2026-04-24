@@ -54,6 +54,7 @@ function T {
         return
     fi
     if [ -n "$TMUX" ]; then
+        echo "Already in tmux!"
         return
     fi
     session="${1:-0}"
