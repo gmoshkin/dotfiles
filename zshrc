@@ -39,8 +39,12 @@ prompt mine
 autoload -U select-word-style
 select-word-style bash
 
+case "$OSTYPE" in
+    darwin*) export OS="macos" ;;
+    *)       export OS="linux" ;;
+esac
 
-/usr/bin/df -B1024 | awk \
+{ [ "$OS" = "macos" ] && df -k || df -B1024 } | awk \
 '   /C:\\/ {
         if ($4 < 10 * 1024 * 1024) {
             print("\x1b[31m################################################################")
@@ -137,7 +141,7 @@ HOMEBREW_LLVM_PATH=/opt/homebrew/opt/llvm
 export LUA_PATH="$DOTFILES/scripts/?.lua;/usr/share/luajit-2.1.0-beta3/?.lua"
 export LUA_CPATH="./target/debug/lib?.so;./target/release/lib?.so;$HOME/.cargo-target/debug/lib?.so;$HOME/.cargo-target/release/lib?.so"
 export PYTHONPATH="$DOTFILES/scripts"
-export DISPLAY_PROXY="$(/sbin/ip route | awk '/^default/ { print $3 }'):0"
+[ "$OS" != "macos" ] && export DISPLAY_PROXY="$(ip route | awk '/^default/ { print $3 }'):0"
 
 #
 # Bun
