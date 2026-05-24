@@ -4,7 +4,7 @@
 # On linux this goes in ~/.alacritty.toml
 
 [font]
-size = 10
+size = 14
 
 [[keyboard.bindings]]
 mods = "Control"
@@ -98,3 +98,32 @@ chars = "\u001f"
 mods = "Control|Shift"
 key = "/"
 chars = "\u007f"
+
+# MacOS command = alt
+# TODO: maybe it's possible to actually have that behavior, or do I have to list
+# out each individual key combo?
+
+[[keyboard.bindings]]
+mods = "Command"
+key = "b"
+chars = "\u001bb"
+
+[[keyboard.bindings]]
+mods = "Command"
+key = "d"
+chars = "\u001bd"
+
+[[keyboard.bindings]]
+mods = "Command"
+key = "f"
+chars = "\u001bf"
+
+[[keyboard.bindings]]
+mods = "Command"
+key = "w"
+chars = "\u001bw"
+
+[[keyboard.bindings]]
+mods = "Command"
+key = "."
+chars = "\u001b."
