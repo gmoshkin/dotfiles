@@ -200,7 +200,6 @@ new_session_subcommand :: (args: [] string) -> (ok: bool, error: string) {
 
 get_tmux_sessions :: () -> (Table(string, string), bool, string) {
     result: Table(string, string);
-    init(*result);
 
     ok, output := command("tmux", "display", "-p", "#{S:#{P:#{?#{==:#P,0},#S:#{pane_current_path};,}}}");
     if !ok {
@@ -741,7 +740,7 @@ get_temperature :: (looking_for_name: string = "") -> [] Thermal_Info {
         defer context.logger = saved_logger;
         context.logger = (_: string, _: *void, _: Log_Info) {};
         ok := visit_files("/sys/class/thermal", recursive=false, user_data=*thermal_zones, proc=visitor, visit_files=false, visit_directories=true, visit_symlinks=true);
-        assert(ok);
+        if !ok return .[];
     }
 
     info: [..] Thermal_Info;
@@ -974,7 +973,7 @@ cpu_temperature :: () -> string, Attr {
 }
 
 cpu_frequency :: () -> string, Attr {
-    cpuinfo, ok := my_read_entire_file("/proc/cpuinfo");
+    cpuinfo, ok := my_read_entire_file("/proc/cpuinfo", log_errors=false);
     if !ok return "", .{ "black", "black" };
 
     sum: float;

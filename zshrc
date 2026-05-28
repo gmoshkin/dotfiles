@@ -44,7 +44,8 @@ case "$OSTYPE" in
     *)       export OS="linux" ;;
 esac
 
-{ [ "$OS" = "macos" ] && df -k || df -B1024 } | awk \
+# Warn if the C:\ drive is overflowing (only relevant on WSL)
+{ [ "$OS" != "macos" ] && df -B1024 } | awk \
 '   /C:\\/ {
         if ($4 < 10 * 1024 * 1024) {
             print("\x1b[31m################################################################")
@@ -55,6 +56,13 @@ esac
     }
 '
 
+# Make a platform specific alias symlink
+[ -f "$DOTFILES/tmux/tmux-util" ] || {
+    case "$OS" in
+        macos) ln -s "$DOTFILES/tmux/tmux-util-macos" "$DOTFILES/tmux/tmux-util" ;;
+        linux) ln -s "$DOTFILES/tmux/tmux-util-linux" "$DOTFILES/tmux/tmux-util" ;;
+    esac
+}
 
 source "$DOTFILES/commands.sh"
 
@@ -93,10 +101,6 @@ for drive in {c..d}; [ -d "/mnt/$drive/jai/bin" ] && prependToPath "/mnt/$drive/
 for drive in {c..d}; [ -d "/mnt/$drive/tools" ] && prependToPath "/mnt/$drive/tools"
 for drive in {c..d}; [ -d "/mnt/$drive/tools/raddbg" ] && prependToPath "/mnt/$drive/tools/raddbg"
 
-# too slow
-# source "$DOTFILES/rakubrew_init.zsh"
-# rakubrew switch &>/dev/null
-
 source "$DOTFILES/aliases.sh"
 
 local hlfiles=(
@@ -129,8 +133,6 @@ export WORKON_HOME="${HOME}/.virtualenvs"
 
 # too slow
 # eval "$(pip completion --zsh)"
-
-# End of lines added by compinstall
 
 HOMEBREW_LLVM_PATH=/opt/homebrew/opt/llvm
 [ -d "${HOMEBREW_LLVM_PATH}" ] && {

@@ -25,12 +25,13 @@ main :: () {
 # git commands
 #
     END);
+    git_core_roots: [..] string;
     #if OS == .LINUX {
-        git_core := "/usr/lib/git-core";
-    } else {
-        git_core := "C:/msys64/usr/lib/git-core";
+        array_add(*git_core_roots, "/usr/lib/git-core");
+    } else #if OS == .WINDOWS {
+        array_add(*git_core_roots, "C:/msys64/usr/lib/git-core");
     }
-    for cmd: file_list(git_core) {
+    for git_core: git_core_roots for cmd: file_list(git_core) {
         if is_directory(cmd) continue;
         if !file_is_executable(cmd) continue;
 
@@ -88,14 +89,14 @@ next_exit_code :: () -> s32 {
 }
 
 file_is_executable :: (full_path: string) -> bool {
-    #if OS == .LINUX {
+    #if OS == .LINUX || OS == .MACOS {
         #import "POSIX";
         fs: stat_t;
         result := stat(temp_c_string(full_path), *fs);
         if result return false;
         is_executable := fs.st_mode & oct("111");
         return xx is_executable;
-    } else {
+    } else #if OS == .WINDOWS {
         #import "Windows";
         shell32 :: #system_library "shell32";
         SHFILEINFOA :: struct {

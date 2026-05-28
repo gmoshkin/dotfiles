@@ -131,8 +131,8 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
                 print("Compiling a debug version for testing...\n");
                 if !build_program(info, .{debug_build = true}) return false;
                 if !run_test_process(info.exe_path, info.exe_name, run_tests_in_gdb) return false;
-            case .GENERATE_SOURCE_INFO; generate_source_info(program);
-            case .INSPECT_SOURCE_INFO;  inspect_source_info(program, inspect_parameters);
+            case .GENERATE_SOURCE_INFO; #if OS != .MACOS generate_source_info(program);
+            case .INSPECT_SOURCE_INFO;  #if OS != .MACOS inspect_source_info(program, inspect_parameters);
         }
 
         return true;
@@ -216,10 +216,17 @@ get_program_info :: (program: Program, debug := false) -> Program_Info {
 
         case .TMUX_UTIL;
             source = "tmux-util.jai";
-            exe_name = "tmux-util-linux";
             exe_path = sprint("%/../tmux/", #filepath);
             arg_name = "tmux-util";
-            os = .LINUX;
+            #if OS == .WINDOWS {
+                // Windows not supported, say you want LINUX, but really we want
+                // LINUX or MACOS
+                os = .LINUX;
+            } else #if OS == .LINUX {
+                exe_name = "tmux-util-linux";
+            } else #if OS == .MACOS {
+                exe_name = "tmux-util-macos";
+            }
 
         case .CONVERT_WSL_PATHS;
             source = "convert_wsl_paths.jai";
@@ -237,8 +244,10 @@ get_program_info :: (program: Program, debug := false) -> Program_Info {
             source = "aliases.jai";
             #if OS == .WINDOWS {
                 exe_name = "aliases-msys";
-            } else {
+            } else #if OS == .LINUX {
                 exe_name = "aliases-linux";
+            } else #if OS == .MACOS {
+                exe_name = "aliases-macos";
             }
             arg_name = "aliases";
 
@@ -262,9 +271,11 @@ get_program_info :: (program: Program, debug := false) -> Program_Info {
 
     if !exe_name then exe_name = path_strip_extension(source);
     if !exe_path {
-        #if OS == .LINUX        then exe_path = #filepath;
-        else #if OS == .WINDOWS then exe_path = windows_tools_directory;
+        #if OS == .LINUX || OS == .MACOS then exe_path = #filepath;
+        else #if OS == .WINDOWS          then exe_path = windows_tools_directory;
     }
+    assert(exe_path != "");
+
     if !arg_name then arg_name = exe_name;
     if debug then exe_name = tprint("%-debug", exe_name);
 
@@ -299,7 +310,7 @@ build_program :: (info: Program_Info, parameters: Compile_Parameters) -> success
     mode := Optimization_Type.OPTIMIZED;
     if debug_build then mode = .DEBUG;
     set_optimization(*options, mode, preserve_debug_info = true);
-    if debug_build options.backend = .X64;
+    if debug_build && (OS != .MACOS) then options.backend = .X64;
     options.array_bounds_check = .ON;
     options.cast_bounds_check  = .FATAL;
     options.null_pointer_check = .ON;
@@ -456,14 +467,19 @@ END,
             if phase == .READY_FOR_CUSTOM_LINK_COMMAND {
                 #if OS == .LINUX {
                     ok := run_link_command_on_linux_with_musl(message);
-                    if !ok {
-                        compilation_success = false;
-                        break;
-                    }
                 }
 
                 #if OS == .WINDOWS {
-                    run_link_command_on_windows(message);
+                    ok := run_link_command_on_windows(message);
+                }
+
+                #if OS == .MACOS {
+                    ok := run_link_command_on_macos_arm(message);
+                }
+
+                if !ok {
+                    compilation_success = false;
+                    break;
                 }
 
                 compiler_custom_link_command_is_complete(workspace);
@@ -500,6 +516,7 @@ run_link_command_on_linux_with_musl :: (using message: *Message_Phase) -> bool {
     // I've seen this one before!
     array_add(*command, "-export-dynamic");
 
+    // TODO: support_object_files
     array_add(*command, ..compiler_generated_object_files);
 
     // Dynamic libraries are looked up in the directory of running executable
@@ -512,6 +529,9 @@ run_link_command_on_linux_with_musl :: (using message: *Message_Phase) -> bool {
     array_add(*command, sprint("-L%/modules/Unwind", #filepath));
     array_add(*command, "-lunwind-wrapper");
 
+    // TODO: system_libraries
+    // TODO: user_libraries
+
     print("\e[32mRunning linker:\e[0m %\n", get_quoted_command_string(command));
     process_result := run_command(..command);
 
@@ -523,8 +543,75 @@ run_link_command_on_linux_with_musl :: (using message: *Message_Phase) -> bool {
     return true;
 }
 
+#if OS == .MACOS
+run_link_command_on_macos_arm :: (using message: *Message_Phase) -> bool {
+    #import "macOS/Toolchain";
+
+    assert(phase == .READY_FOR_CUSTOM_LINK_COMMAND, "%", phase);
+
+    compiler_path := get_path_of_running_executable();
+    compiler_directory := path_strip_filename(compiler_path);
+    compiler_directory = trim_right(compiler_directory, "/");
+    linker_path := sprint("%/lld-macos", compiler_directory);
+
+    syslibroot, ok := get_macos_sdk_path();
+    assert(ok);
+
+    options := get_build_options(workspace);
+
+    command: [..] string;
+    array_add(*command, linker_path);
+
+    // This determines the flags parsing
+    array_add(*command, "-flavor", "Darwin");
+
+    if CPU == .ARM64 {
+        array_add(*command, "-arch", "arm64");
+    }
+
+    output_executable_path := sprint("%/%", options.output_path, options.output_executable_name);
+    array_add(*command, "-o", output_executable_path);
+
+    array_add(*command, ..support_object_files);
+    array_add(*command, ..compiler_generated_object_files);
+
+    // TODO: is there a variant of this for macos? do I care?
+    // array_add(*command, "--eh-frame-hdr");
+
+    array_add(*command, "-L", "/Users/gmoshkin/dotfiles");
+    array_add(*command, "-L", "/usr/lib");
+    array_add(*command, "-L", "/Library/Frameworks");
+    array_add(*command, "-L", "/System/Library/Frameworks");
+    array_add(*command, "-L", "/Users/gmoshkin/code/jai/modules/");
+
+    // I've seen this one before!
+    array_add(*command, "-dynamic");
+
+    // TODO: find out how to get the version numbers the correct way
+    array_add(*command, "-platform_version", "macos", "11.0.0", "0.0.0");
+
+    // Dynamic libraries are looked up in the directory of running executable
+    array_add(*command, "-rpath", "@loader_path");
+
+    array_add(*command, "-syslibroot", syslibroot);
+
+    array_add(*command, ..system_libraries);
+    array_add(*command, ..user_libraries);
+
+    print("\e[32mRunning linker:\e[0m %\n", get_quoted_command_string(command));
+    process_result := run_command(..command);
+
+    if process_result.exit_code != 0 {
+        print("Error: Link step failed! (Exit code %)\n", process_result.exit_code);
+        return false;
+    }
+
+    return true;
+}
+
+
 #if OS == .WINDOWS
-run_link_command_on_windows :: (using message: *Message_Phase) {
+run_link_command_on_windows :: (using message: *Message_Phase) -> bool {
     assert(phase == .READY_FOR_CUSTOM_LINK_COMMAND, "%", phase);
 
     // Unfortunately there's no way to get the linker path from the compiler
@@ -563,6 +650,7 @@ run_link_command_on_windows :: (using message: *Message_Phase) {
     // No idea
     array_add(*command, "/nologo");
 
+    // TODO support_object_files
     for compiler_generated_object_files {
         array_add(*command, replace(it, "/", "\\"));
     }
@@ -601,13 +689,17 @@ run_link_command_on_windows :: (using message: *Message_Phase) {
     array_add(*command, "-nodefaultlib");
 
     array_add(*command, ..system_libraries);
+    // TODO: user_libraries
 
     print("Running linker: %\n", get_quoted_command_string(command));
     process_result := run_command(..command);
 
     if process_result.exit_code != 0 {
         print("Error: Link step failed! (Exit code %)\n", process_result.exit_code);
+        return false;
     }
+
+    return true;
 }
 
 get_git_commit_hash :: () -> string {
@@ -735,6 +827,7 @@ run_command_with_stdin :: (command: .. string) -> s32 {
 // source info
 //
 
+#if OS != .MACOS
 generate_source_info :: (program: Program) {
     using info := get_program_info(program);
 
@@ -922,6 +1015,7 @@ generate_source_info :: (program: Program) {
     print("    number of identifiers: %\n", ident_id);
 }
 
+#if OS != .MACOS
 inspect_source_info :: (program: Program, parameters: Inspect_Parameters) {
     db_path := db_file_path();
     db := Open_Database(db_path);
@@ -933,6 +1027,7 @@ inspect_source_info :: (program: Program, parameters: Inspect_Parameters) {
     }
 }
 
+#if OS != .MACOS
 inspect_find_global_symbol :: (db: *sqlite3, parameters: Inspect_Parameters) {
     using parameters;
     flags := cast(int) type_of(Code_Declaration.flags).IS_GLOBAL;
@@ -964,6 +1059,7 @@ inspect_find_global_symbol :: (db: *sqlite3, parameters: Inspect_Parameters) {
     }
 }
 
+#if OS != .MACOS
 inspect_find_definition :: (db: *sqlite3, parameters: Inspect_Parameters) {
     using parameters;
     flags := cast(int) type_of(Code_Declaration.flags).IS_GLOBAL;
@@ -1031,6 +1127,7 @@ inspect_find_definition :: (db: *sqlite3, parameters: Inspect_Parameters) {
     }
 }
 
+#if OS != .MACOS
 inspect_find_references :: (db: *sqlite3, parameters: Inspect_Parameters) {
     using parameters;
     flags := cast(int) type_of(Code_Declaration.flags).IS_GLOBAL;
@@ -1098,6 +1195,7 @@ enum_to_string :: (value: int, type: *Type_Info_Enum) -> string {
     return tprint("<out of range %>", value);
 }
 
+#if OS != .MACOS
 Open_Database :: (path: string, create := false) -> *sqlite3 #expand {
     db: *sqlite3;
     `defer sqlite3_close(db);
@@ -1114,6 +1212,7 @@ Open_Database :: (path: string, create := false) -> *sqlite3 #expand {
     return db;
 }
 
+#if OS != .MACOS
 Execute :: (db: *sqlite3, query: string) {
     error: *u8;
     rc := sqlite3_exec(db, query.data, null, null, *error);
@@ -1124,6 +1223,7 @@ Execute :: (db: *sqlite3, query: string) {
     }
 }
 
+#if OS != .MACOS
 Prepare_Stmt :: (db: *sqlite3, query: string) -> *sqlite3_stmt #expand {
     stmt: *sqlite3_stmt;
     `defer sqlite3_finalize(stmt);
@@ -1807,7 +1907,7 @@ Void: void;
 #import "String";
 #import "Check";
 #import "Hash_Table";
-#import "Sqlite3";
+#if OS != .MACOS #import "Sqlite3";
 #import "Error_Info";
 #import "Program_Print";
 #import "Program_Print";

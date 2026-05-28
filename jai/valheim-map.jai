@@ -1065,10 +1065,10 @@ Box_Info :: struct {
     x, y: float;
     w, h: float;
 
-    #place x;
+    #overlay (x)
     xy: Vector2;
 
-    #place w;
+    #overlay (w)
     wh: Vector2;
 
     thickness: float;
