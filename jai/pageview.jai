@@ -3923,6 +3923,8 @@ Input_Event :: struct {
         PAGE_DOWN;
         MOUSE_WHEEL_UP;
         MOUSE_WHEEL_DOWN;
+        MOUSE_WHEEL_LEFT;
+        MOUSE_WHEEL_RIGHT;
         MOUSE_LEFT_DOWN;
         MOUSE_RIGHT_DOWN;
         MOUSE_MIDDLE_DOWN;
@@ -4082,26 +4084,50 @@ try_parse_sgr_mouse_control_sequence :: (_sequence: string, event: *Input_Event)
         case 64; event.kind = .MOUSE_WHEEL_DOWN;
         case 65; event.kind = .MOUSE_WHEEL_UP;
 
+        case 66; event.kind = .MOUSE_WHEEL_LEFT;
+        case 67; event.kind = .MOUSE_WHEEL_RIGHT;
+
         case 68; event.kind = .MOUSE_WHEEL_DOWN;  event.modifiers = .SHIFT;
         case 69; event.kind = .MOUSE_WHEEL_UP;    event.modifiers = .SHIFT;
+
+        case 70; event.kind = .MOUSE_WHEEL_LEFT;  event.modifiers = .SHIFT;
+        case 71; event.kind = .MOUSE_WHEEL_RIGHT; event.modifiers = .SHIFT;
 
         case 72; event.kind = .MOUSE_WHEEL_DOWN;  event.modifiers = .ALT;
         case 73; event.kind = .MOUSE_WHEEL_UP;    event.modifiers = .ALT;
 
+        case 74; event.kind = .MOUSE_WHEEL_LEFT;  event.modifiers = .ALT;
+        case 75; event.kind = .MOUSE_WHEEL_RIGHT; event.modifiers = .ALT;
+
         case 76; event.kind = .MOUSE_WHEEL_DOWN;  event.modifiers = .ALT | .SHIFT;
         case 77; event.kind = .MOUSE_WHEEL_UP;    event.modifiers = .ALT | .SHIFT;
+
+        case 78; event.kind = .MOUSE_WHEEL_LEFT;  event.modifiers = .ALT | .SHIFT;
+        case 79; event.kind = .MOUSE_WHEEL_RIGHT; event.modifiers = .ALT | .SHIFT;
 
         case 80; event.kind = .MOUSE_WHEEL_DOWN;  event.modifiers = .CONTROL;
         case 81; event.kind = .MOUSE_WHEEL_UP;    event.modifiers = .CONTROL;
 
+        case 82; event.kind = .MOUSE_WHEEL_LEFT;  event.modifiers = .CONTROL;
+        case 83; event.kind = .MOUSE_WHEEL_RIGHT; event.modifiers = .CONTROL;
+
         case 84; event.kind = .MOUSE_WHEEL_DOWN;  event.modifiers = .CONTROL | .SHIFT;
         case 85; event.kind = .MOUSE_WHEEL_UP;    event.modifiers = .CONTROL | .SHIFT;
+
+        case 86; event.kind = .MOUSE_WHEEL_LEFT;  event.modifiers = .CONTROL | .SHIFT;
+        case 87; event.kind = .MOUSE_WHEEL_RIGHT; event.modifiers = .CONTROL | .SHIFT;
 
         case 88; event.kind = .MOUSE_WHEEL_DOWN;  event.modifiers = .ALT | .CONTROL;
         case 89; event.kind = .MOUSE_WHEEL_UP;    event.modifiers = .ALT | .CONTROL;
 
+        case 90; event.kind = .MOUSE_WHEEL_LEFT;  event.modifiers = .ALT | .CONTROL;
+        case 91; event.kind = .MOUSE_WHEEL_RIGHT; event.modifiers = .ALT | .CONTROL;
+
         case 92; event.kind = .MOUSE_WHEEL_DOWN;  event.modifiers = .ALT | .CONTROL | .SHIFT;
         case 93; event.kind = .MOUSE_WHEEL_UP;    event.modifiers = .ALT | .CONTROL | .SHIFT;
+
+        case 94; event.kind = .MOUSE_WHEEL_LEFT;  event.modifiers = .ALT | .CONTROL | .SHIFT;
+        case 95; event.kind = .MOUSE_WHEEL_RIGHT; event.modifiers = .ALT | .CONTROL | .SHIFT;
 
         case; return false;
     }
@@ -4314,6 +4340,12 @@ handle_input_event :: (_event: Input_Event) {
                 row_offset -= 4;
                 stick_to_the_bottom = false;
             }
+            event.kind = .HANDLED;
+        case .MOUSE_WHEEL_LEFT;
+            col_offset -= 8;
+            event.kind = .HANDLED;
+        case .MOUSE_WHEEL_RIGHT;
+            col_offset += 8;
             event.kind = .HANDLED;
         case .MOUSE_LEFT_DOWN;
             array_add(*delayed_actions, .{ .MOUSE_SELECTION_CLICK });
