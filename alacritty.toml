@@ -3,8 +3,19 @@
 # `-e wsl.exe --user gmoshkin --cd /home/gmoshkin`
 # On linux this goes in ~/.alacritty.toml
 
-[font]
-size = 14
+# This is so stupid!!!
+# Alacritty loads the main config (this file), so any settings inside it
+# override every other loaded config file! This means that I have to do
+# something like this if I want to have defaults with local overrides.
+# Alternatively I could use the ~/.alacritty.toml file for local overrides and
+# the deploy.sh script would simply create an empty file with just the import of
+# the the default from dotfiles... But I'm not sure this is going to work on
+# windows, so I'm going with this solution for now
+[general]
+import = [
+    "~/dotfiles/alacritty-default.toml",
+    "~/.alacritty-local.toml",
+]
 
 [[keyboard.bindings]]
 mods = "Control"
