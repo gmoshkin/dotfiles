@@ -192,5 +192,8 @@ type node &>/dev/null || {
     }
 }
 
+# Picodata build doesn't work without this
+[ "$OS" = "macos" ] && export SDKROOT="$(xcrun --show-sdk-path)"
+
 # Dump the function-level profiling info.
 # zprof > /tmp/prof-func.$$
