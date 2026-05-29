@@ -313,13 +313,33 @@ function proxy-off {
     echo "\x1b[34mProxy OFF\x1b[0m"
 }
 
-function myip {
+function myip_wan {
+    echo -n 'WAN: '; curl ipconfig.io/json 2>/dev/null |
+        jq -r '"\(.ip) (\(.country))"'
+}
+
+[ "$OS" = "linux" ] &&
+function myip_lan {
     ip addr |
         sed -n 's/^\s\+inet\s\+\([0-9.]\+\).*/\1/p' |
         while read IP; do
             [ "$IP" = "127.0.0.1" ] && continue;
             echo "LAN: $IP";
         done
-    echo -n 'WAN: '; curl ipconfig.io/json 2>/dev/null |
-        jq -r '"\(.ip) (\(.country))"'
+}
+
+[ "$OS" = "macos" ] &&
+function myip_lan {
+    ipconfig getiflist |
+        tr ' ' '\n' |
+        while read IF; do
+            IP=$(ipconfig getifaddr "$IF")
+            [ -n "$IP" ] || continue;
+            echo "LAN: $IP";
+        done
+}
+
+function myip {
+    myip_lan
+    myip_wan
 }
