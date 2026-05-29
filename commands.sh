@@ -284,25 +284,34 @@ function install_picodata {
     echo "copied binary '$release_binary'"
 }
 
+################################################################################
+# proxy
+################################################################################
+
 function proxy-on {
-    [ -n "$_HTTP_PROXY" ] || { error "_HTTP_PROXY env is not set, don't know what to do"; return 1; }
+    [ -z  "$_HTTP_PROXY" -a -z "$_SOCKS_PROXY" ] && { error "need a _HTTP_PROXY and/or _SOCKS_PROXY env variable" }
 
     [ -n "$_SOCKS_PROXY" ] && {
         export SOCKS_PROXY="$_SOCKS_PROXY"
         export socks_proxy="$_SOCKS_PROXY"
+        export ALL_PROXY="socks5h://$_SOCKS_PROXY"
     }
 
-    export http_proxy=$_HTTP_PROXY
-    export https_proxy=$_HTTP_PROXY
-    export HTTP_PROXY=$_HTTP_PROXY
-    export HTTPS_PROXY=$_HTTP_PROXY
-    export no_proxy=localhost,127.0.0.1,::1
+    [ -n "$_HTTP_PROXY" ] && {
+        export http_proxy="http://$_HTTP_PROXY"
+        export https_proxy="http://$_HTTP_PROXY"
+        export HTTP_PROXY="http://$_HTTP_PROXY"
+        export HTTPS_PROXY="http://$_HTTP_PROXY"
+        export no_proxy=localhost,127.0.0.1,::1
+    }
+
     echo "\x1b[32mProxy ON\x1b[0m"
 }
 
 function proxy-off {
-    [ -n "$_HTTP_PROXY" ] || { error "_HTTP_PROXY env is not set, don't know what to do"; return 1; }
+    [ -z "$HTTP_PROXY" -a -z "$SOCKS_PROXY" ] && { return 1; }
 
+    unset ALL_PROXY
     unset SOCKS_PROXY
     unset socks_proxy
     unset http_proxy
@@ -312,6 +321,10 @@ function proxy-off {
     unset no_proxy
     echo "\x1b[34mProxy OFF\x1b[0m"
 }
+
+################################################################################
+# myip
+################################################################################
 
 function myip_wan {
     echo -n 'WAN: '; curl ipconfig.io/json 2>/dev/null |

@@ -87,7 +87,7 @@ prompt_mine_precmd() {
 
     local tmp_pwd="%~"
     prompt_cwd="%F{$prompt_mine_clr_cwd}${${(%%)tmp_pwd}/#\/space\/$USER/⌂}"
-    if [ -n "$HTTP_PROXY" ]; then
+    if [ -n "$HTTP_PROXY" -o -n "$SOCKS_PROXY" ]; then
         prompt_proxy=" %F{$prompt_mine_clr_proxy}⇄ "
     fi
 
