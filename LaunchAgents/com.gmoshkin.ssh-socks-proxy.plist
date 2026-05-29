@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.gmoshkin.ssh-socks-proxy</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/ssh</string>
+        <string>-N</string>
+        <string>-D</string>
+        <string>1080</string>
+        <string>-o</string>
+        <string>ExitOnForwardFailure=yes</string>
+        <string>-o</string>
+        <string>ServerAliveInterval=30</string>
+        <string>-o</string>
+        <string>ServerAliveCountMax=3</string>
+        <string>weaselcloud-fn</string>
+    </array>
+
+    <!-- Automaticaly start at login -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart automatically if it exits for any reason -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Wait 10s before restarting (avoids tight crash loops) -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>

@@ -182,6 +182,18 @@ function deploy_cargo {
     #    src file          dst dir  dst filename
 }
 
+function deploy_LaunchAgents {
+    for plist in $(ls LaunchAgents); do
+        link "LaunchAgents/$plist" /Users/gmoshkin/Library/LaunchAgents "$plist"
+    done
+    echo now run these:
+    echo '```'
+    for plist in $(ls LaunchAgents); do
+        echo "launchctl load ~/Library/LaunchAgents/$plist"
+    done
+    echo '```'
+}
+
 function print_help {
     cat << EOF
 Usage:
@@ -221,6 +233,7 @@ modules=(
     kak
     nvim
     cargo
+    LaunchAgents
 )
 
 function deploy_all {

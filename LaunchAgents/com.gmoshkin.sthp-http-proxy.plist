@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.gmoshkin.sthp-http-proxy</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>RUST_LOG</key>
+        <string>info</string>
+    </dict>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/gmoshkin/.cargo/bin/sthp</string>
+        <string>-p</string>
+        <string>8080</string>
+        <string>-s</string>
+        <string>127.0.0.1:1080</string>
+    </array>
+
+    <!-- Automaticaly start at login -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Try starting every 5 seconds in case ssh socks proxy is not ready -->
+    <key>StartInterval</key>
+    <integer>5</integer>
+
+    <!-- Restart automatically if it exits for any reason -->
+    <key>KeepAlive</key>
+    <true/>
+</dict>
+</plist>
