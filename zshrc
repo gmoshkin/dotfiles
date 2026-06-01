@@ -44,7 +44,7 @@ case "$OSTYPE" in
     *)       export OS="linux" ;;
 esac
 
-grep -qi microsoft /proc/version && export WSL=1
+[ -f /proc/version ] && grep -qi microsoft /proc/version && export WSL=1
 
 # Warn if the C:\ drive is overflowing (only relevant on WSL)
 { [ "$OS" != "macos" ] && df -B1024 } | awk \
@@ -61,7 +61,7 @@ grep -qi microsoft /proc/version && export WSL=1
 # Make a platform specific alias symlink
 link_platform_binary() {
     local target_binary="$1"
-    [ -f "${target_binary}" ] || {
+    [ -f "${target_binary}" -o -L "${target_binary}" ] || {
         case "$OS" in
             macos) ln -s "${target_binary}-macos" "${target_binary}" ;;
             linux) ln -s "${target_binary}-linux" "${target_binary}" ;;
