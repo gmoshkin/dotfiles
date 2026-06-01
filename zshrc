@@ -44,6 +44,8 @@ case "$OSTYPE" in
     *)       export OS="linux" ;;
 esac
 
+grep -qi microsoft /proc/version && export WSL=1
+
 # Warn if the C:\ drive is overflowing (only relevant on WSL)
 { [ "$OS" != "macos" ] && df -B1024 } | awk \
 '   /C:\\/ {

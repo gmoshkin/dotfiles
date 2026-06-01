@@ -354,8 +354,6 @@ function myip_lan {
         done
 }
 
-type ipconfig.exe &>/dev/null && export HAS_IPCONFIG_EXE=1
-
 function myip_lan_ipconfig {
     ipconfig.exe |
         sed -n 's/^\s\+IPv4\s\+Address\(\.\s\+\)\+:\s\+\([0-9.]\+\)\s*$/\2/p' |
@@ -365,7 +363,7 @@ function myip_lan_ipconfig {
 }
 
 function myip {
-    [ "$HAS_IPCONFIG_EXE" = 1 ] && myip_lan_ipconfig
+    [ "$WSL" != 0 ] && myip_lan_ipconfig
     myip_lan
     myip_wan
 }
