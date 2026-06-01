@@ -194,6 +194,7 @@ function M {
 [ type compdef &>/dev/null ] && compdef _man M
 
 function md {
+    [ -d "$1" ] && echo "$1 already exists";
     mkdir -p $1 && cd $1
 }
 
