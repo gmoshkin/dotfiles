@@ -206,7 +206,16 @@ get_program_info :: (program: Program, debug := false) -> Program_Info {
 
         case .PAGEVIEW;
             source = "pageview.jai";
-            os = .LINUX;
+            arg_name = "pageview";
+            #if OS == .WINDOWS {
+                // Windows not supported, say you want LINUX, but really we want
+                // LINUX or MACOS
+                os = .LINUX;
+            } else #if OS == .LINUX {
+                exe_name = "pageview-linux";
+            } else #if OS == .MACOS {
+                exe_name = "pageview-macos";
+            }
 
         case .PS;
             source = "ps.jai";

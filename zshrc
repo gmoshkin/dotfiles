@@ -59,12 +59,18 @@ grep -qi microsoft /proc/version && export WSL=1
 '
 
 # Make a platform specific alias symlink
-[ -f "$DOTFILES/tmux/tmux-util" ] || {
-    case "$OS" in
-        macos) ln -s "$DOTFILES/tmux/tmux-util-macos" "$DOTFILES/tmux/tmux-util" ;;
-        linux) ln -s "$DOTFILES/tmux/tmux-util-linux" "$DOTFILES/tmux/tmux-util" ;;
-    esac
+link_platform_binary() {
+    local target_binary="$1"
+    [ -f "${target_binary}" ] || {
+        case "$OS" in
+            macos) ln -s "${target_binary}-macos" "${target_binary}" ;;
+            linux) ln -s "${target_binary}-linux" "${target_binary}" ;;
+        esac
+    }
 }
+
+link_platform_binary "$DOTFILES/tmux/tmux-util"
+link_platform_binary "$DOTFILES/jai/pageview"
 
 source "$DOTFILES/commands.sh"
 
