@@ -68,7 +68,7 @@
           - but also select the whole url in `<https://example.com>`
       (notice how `:` is treated both as a delimiter and part of the word depending on the context)
 */
-State :: struct {
+State :: struct #type_info_no_size_complaint {
 
     //
     // main window state
@@ -225,8 +225,22 @@ State :: struct {
     //
     // source: DRAWING_MODE
     //
-    current_pixel_fg := #run Pixel_Value.rgb(0xe5, 0xe5, 0xe5);
-    current_pixel_bg := #run Pixel_Value.rgb(0x33, 0x33, 0x33);
+    // Currently jai complains about this code... :(
+    // current_pixel_fg := #run Pixel_Value.rgb(0xe5, 0xe5, 0xe5);
+    // current_pixel_bg := #run Pixel_Value.rgb(0x33, 0x33, 0x33);
+
+    current_pixel_fg: Pixel_Value;
+    current_pixel_fg.type = .RGB;
+    current_pixel_fg._rgb.r = 0xe5;
+    current_pixel_fg._rgb.g = 0xe5;
+    current_pixel_fg._rgb.b = 0xe5;
+
+    current_pixel_bg: Pixel_Value;
+    current_pixel_bg.type = .RGB;
+    current_pixel_bg._rgb.r = 0x33;
+    current_pixel_bg._rgb.g = 0x33;
+    current_pixel_bg._rgb.b = 0x33;
+
     pixel_buffer: [..] Pixel_Value;
     pixel_window_size: Vector2;
     pixel_size: enum {
@@ -705,8 +719,9 @@ main :: () {
     // Preallocate memory
     array_reserve(*state.search.search_string_buffer, 4096);
     array_reserve(*state.command_line, 4096);
-    context.temporary_storage.overflow_allocator.proc = flat_pool_allocator_proc;
-    context.temporary_storage.overflow_allocator.data = *state.temporary_storage_memory_pool;
+    temporary_allocator := (*context.temporary_storage).(*Temporary_Storage_Paged_Alloc);
+    temporary_allocator.overflow_allocator.proc = flat_pool_allocator_proc;
+    temporary_allocator.overflow_allocator.data = *state.temporary_storage_memory_pool;
 
     // Setup logger
     state.error_log_builder.allocator = temp;
@@ -7605,8 +7620,6 @@ VMIN   : u32 : 6;
 
 tcgetattr :: (fd: s32, termios: *Termios) -> s32 #foreign libc;
 tcsetattr :: (fd: s32, optional_actions: s32, termios: *Termios) -> s32 #foreign libc;
-
-SYS_pidfd_open :: 434;
 
 profile_t0: f64 = 0.0;
 Profile :: (format: string = "", args: ..Any, loc := #caller_location) #expand {
