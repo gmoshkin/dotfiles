@@ -719,9 +719,6 @@ main :: () {
     // Preallocate memory
     array_reserve(*state.search.search_string_buffer, 4096);
     array_reserve(*state.command_line, 4096);
-    temporary_allocator := (*context.temporary_storage).(*Temporary_Storage_Paged_Alloc);
-    temporary_allocator.overflow_allocator.proc = flat_pool_allocator_proc;
-    temporary_allocator.overflow_allocator.data = *state.temporary_storage_memory_pool;
 
     // Setup logger
     state.error_log_builder.allocator = temp;
