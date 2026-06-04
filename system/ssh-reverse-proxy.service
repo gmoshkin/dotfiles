@@ -1,0 +1,17 @@
+[Unit]
+Description=Reverse SSH tunnel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=gmoshkin
+ExecStart=/usr/bin/ssh -N \
+    -o "ServerAliveInterval=30" \
+    -o "ServerAliveCountMax=3" \
+    -o "ExitOnForwardFailure=yes" \
+    -R 2222:localhost:22 ssh-socks-proxy
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
