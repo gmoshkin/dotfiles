@@ -17,7 +17,7 @@
         <string>ServerAliveInterval=30</string>
         <string>-o</string>
         <string>ServerAliveCountMax=3</string>
-        <string>weaselcloud-fn</string>
+        <string>ssh-socks-proxy</string>
     </array>
 
     <!-- Automaticaly start at login -->
