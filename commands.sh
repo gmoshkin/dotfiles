@@ -363,7 +363,7 @@ function myip_lan_ipconfig {
 }
 
 function myip {
-    [ "$WSL" != 0 ] && myip_lan_ipconfig
+    [ "$WSL" = 1 ] && myip_lan_ipconfig
     myip_lan
     myip_wan
 }
