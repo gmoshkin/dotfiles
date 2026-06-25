@@ -1,10 +1,10 @@
-import msgpack
 import os
 import sys
 import shutil
 import time
 import random
 import datetime
+import re
 
 class progress:
     def __init__(self, iter, count=None):
@@ -117,6 +117,10 @@ def gitlab_headers():
 
 modules_not_found = []
 
+try:
+    import msgpack
+except ModuleNotFoundError as e:
+    modules_not_found.append(e.name)
 try:
     import magic
 except ModuleNotFoundError as e:
@@ -392,3 +396,38 @@ def check_creation_dates(files):
         from_exif = creation_date_from_exiftool(e)
         res.append(f'{e}: {date}, {from_exif}')
     return res
+
+compiled_hash_utf8_regex_str = None
+compiled_hash_utf8_regex_bytes = None
+def get_compiled_hash_utf8_regex(is_bytes: bool):
+    if is_bytes:
+        global compiled_hash_utf8_regex_bytes
+        if compiled_hash_utf8_regex_bytes is None:
+            compiled_hash_utf8_regex_bytes = re.compile(b"#U[0-9a-zA-Z][0-9a-zA-Z][0-9a-zA-Z][0-9a-zA-Z]")
+        return compiled_hash_utf8_regex_bytes
+    else:
+        global compiled_hash_utf8_regex_str
+        if compiled_hash_utf8_regex_str is None:
+            compiled_hash_utf8_regex_str = re.compile("#U[0-9a-zA-Z][0-9a-zA-Z][0-9a-zA-Z][0-9a-zA-Z]")
+        return compiled_hash_utf8_regex_str
+
+def substitute_hash_utf8(line):
+    is_str = isinstance(line, str)
+    is_bytes = isinstance(line, bytes)
+    assert is_str or is_bytes
+
+    regex = get_compiled_hash_utf8_regex(is_bytes)
+    while True:
+        m = regex.search(line)
+        if not m:
+            break
+
+        start, end = m.span()
+        t = int(m.group()[2:], base=16)
+        c = chr(t)
+        if is_bytes:
+            c = c.encode()
+
+        line = line[:start] + c + line[end:]
+
+    return line
