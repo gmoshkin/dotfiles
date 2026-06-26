@@ -15,7 +15,7 @@ show_version_banner :: (builder: *String_Builder) {
     using context.build_info;
     MONTHS :: string.["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     build_month := MONTHS[BUILD_DATE_MONTH];
-    print(builder, "% % %, built on % % %\n", context.EXECUTABLE_NAME, DEBUG_OR_RELEASE, DYNAMIC_OR_STATIC, BUILD_DATE_DAY + 1, build_month, BUILD_DATE_YEAR);
+    print(builder, "% % % %, built on % % %\n", context.EXECUTABLE_NAME, CPU, DEBUG_OR_RELEASE, DYNAMIC_OR_STATIC, BUILD_DATE_DAY + 1, build_month, BUILD_DATE_YEAR);
     git_hash := GIT_HASH;
     git_hash.count = 8;
     print(builder, "git commit: % (%)\n", git_hash, trim(GIT_LAST_COMMIT_MESSAGE));
