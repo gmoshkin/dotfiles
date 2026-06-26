@@ -70,7 +70,10 @@ set_last_error_from_system :: (prepend: string = "") -> bool {
 }
 
 print_last_error :: (builder: *String_Builder, mode := Error_Info_Log_Mode.WITH_SOURCE_LOCATION) {
-    info := *context.last_error;
+    print_error_info(builder, *context.last_error, mode);
+}
+
+print_error_info :: (builder: *String_Builder, info: *Error_Info, mode := Error_Info_Log_Mode.WITH_SOURCE_LOCATION) {
     if #complete mode == {
         case .NONE; #through;
         case .ONLY_MESSAGE;
@@ -96,6 +99,12 @@ print_last_error :: (builder: *String_Builder, mode := Error_Info_Log_Mode.WITH_
 last_error_to_string :: (mode := Error_Info_Log_Mode.WITH_SOURCE_LOCATION) -> string {
     builder: String_Builder;
     print_last_error(*builder, mode);
+    return builder_to_string(*builder);
+}
+
+error_info_to_string :: (info: *Error_Info, mode := Error_Info_Log_Mode.WITH_SOURCE_LOCATION) -> string {
+    builder: String_Builder;
+    print_error_info(*builder, info, mode);
     return builder_to_string(*builder);
 }
 
@@ -133,7 +142,6 @@ get_stack_trace :: inline (skip := 1) -> [] Stack_Trace_Node {
 }
 
 get_stack_trace :: (result: *[..] Stack_Trace_Node, skip := 1) {
-    result.count = 0;
     head := context.stack_trace;
 
     skip_copy := skip;
@@ -145,10 +153,13 @@ get_stack_trace :: (result: *[..] Stack_Trace_Node, skip := 1) {
     node_count := 0;
     node := head;
     while node {
+        // log("    %:%: in '%'\n", ifx node.info then node.info.location.fully_pathed_filename else "?", node.line_number, ifx node.info then node.info.name else "?");
         node_count += 1;
         node = node.next;
     }
 
+    // log("result: %", result.*);
+    result.count = 0;
     array_reserve(result, node_count);
     node = head;
     while node {
