@@ -151,7 +151,7 @@ State :: struct #type_info_no_size_complaint {
     //
     http_server_enabled_explicitly := false;
     http_server_disabled_explicitly := false;
-    http_server: Http_Server_State;
+    #if DO_HTTP_SERVER http_server: Http_Server_State;
 
     //
     // logging
@@ -348,10 +348,11 @@ State :: struct #type_info_no_size_complaint {
     default_allocated_high_water_mark : s64;
     tty_name: string;
 
-    epoll_fd: s32;
-    epoll_events: [..] epoll_event;
+    event_queue: Event_Queue;
 }
 #add_context state: *State;
+
+DO_HTTP_SERVER :: OS == .LINUX;
 
 Delayed_Action :: struct {
     type: enum {
@@ -554,6 +555,8 @@ Completion_Menu :: struct {
 }
 
 main :: () {
+    assert(context.last_error.stack_trace.count == 0);
+
     tcgetattr(STDIN_FILENO, *global_saved_termios);
     My_Crash_Handler.init(my_signal_handler);
 
@@ -685,7 +688,7 @@ main :: () {
                     print("Port number % is out of range, must not be greater than %\n", port, U16_MAX);
                     exit(1);
                 }
-                state.http_server.listen_port = xx port;
+                #if DO_HTTP_SERVER state.http_server.listen_port = xx port;
                 state.http_server_enabled_explicitly = true;
 
             case "--no-listen";
@@ -840,36 +843,30 @@ main :: () {
 
     if state.debug then getchar();
 
-    // Setup epoll
+    // Setup epoll/kqueue
     {
         using state;
-        epoll_fd = epoll_create(1);
-        assert(epoll_fd != -1);
+        ok := event_queue_init(*event_queue);
+        assert(ok, "%", event_queue.last_error);
 
-        array_reserve(*epoll_events, 16);
-        for 1..epoll_events.allocated array_add(*epoll_events, .{});
-
-        event: epoll_event;
-
-        event.events = EPOLLIN;
-        event.data.fd = STDIN_FILENO;
-        rc := epoll_ctl(epoll_fd, .ADD, STDIN_FILENO, *event);
-        assert(rc == 0);
+        ok = event_queue_add(*event_queue, STDIN_FILENO, .READ);
+        if !ok {
+            print("%", last_error_to_string());
+            exit(1);
+        }
 
         if main_window_source == .PIPED_INPUT || main_window_source == .EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN {
-            event.events = EPOLLIN;
-            event.data.fd = piped_input_fd;
-            rc = epoll_ctl(epoll_fd, .ADD, piped_input_fd, *event);
-            if rc != 0 {
-                code, message := get_error_value_and_string();
-                print("epoll_ctl failed: #% %\n", code, message);
+            ok := event_queue_add(*event_queue, piped_input_fd, .READ);
+            if !ok {
+                print("%", last_error_to_string());
                 exit(1);
             }
         }
     }
 
     // Initialize http server (must go after epoll, because we use the epoll_fd)
-    if !init_http_server() {
+    // TODO: support this on macos
+    #if DO_HTTP_SERVER if !init_http_server() {
         log_last_error(.WITH_STACK_TRACE);
         if state.http_server_enabled_explicitly {
             builder: String_Builder;
@@ -882,6 +879,8 @@ main :: () {
     // Get terminal size
     rc := ioctl(STDIN_FILENO, TIOCGWINSZ, *state.terminal_size);
     assert(rc == 0);
+
+    assert(state.terminal_size.rows > 1, "ioctl() returned zero window size\n\n\e[31mYou're probably in lldb, try running with `process launch -tty` instead\e[0m");
 
     // Completion menu depends on termnal_size
     init_completion_menu();
@@ -920,8 +919,8 @@ main :: () {
         reset(*error_log_builder);
 
         // Wait for events
-        timeout: s32 = 1000 / target_fps;
-        if first_time then timeout = 0;
+        timeout_ms := 1000 / target_fps;
+        if first_time then timeout_ms = 0;
 
         Profile();
 
@@ -936,11 +935,14 @@ main :: () {
 
         Profile();
 
-        rc := epoll_wait(epoll_fd, epoll_events.data, xx epoll_events.allocated, timeout);
-        if rc == -1 {
-            code := errno();
-            assert(code == EINTR, "%", code);
-        }
+        t0 := seconds_since_init();
+
+        ok, events := event_queue_wait(*event_queue, xx timeout_ms, capacity=16,, temp);
+        assert(ok, "%", error_info_to_string(*event_queue.last_error));
+
+        t := seconds_since_init() - t0;
+
+        // log("events: %, elapsed: %", events, t);
 
         profile_t0 = seconds_since_init();
         Profile();
@@ -954,32 +956,34 @@ main :: () {
 
         Profile();
 
-        epoll_events.count = rc;
-
         input_received_this_tick = false;
 
         // Handle IO events
         external_command_ready := false;
         external_command_output_closed := false;
         external_command_error_closed := false;
-        for epoll_events {
-            if it.data.fd == STDIN_FILENO {
+        for events {
+            if it.fd == STDIN_FILENO {
                 input_received_this_tick = read_input();
-                // TODO: do I wanna do something about EPOLLHUP on stdin?
-            } else if it.data.fd == piped_input_fd {
-                if it.events & EPOLLIN  read_some_from_piped_input();
-                if it.events & EPOLLHUP handle_piped_input_end();
-            } else if it.data.fd == external_command_process.output.handle {
+                // TODO: do I wanna do something about .EOF on stdin?
+            } else if it.fd == piped_input_fd {
+                if it.flags & .READ read_some_from_piped_input();
+                if it.flags & .EOF  handle_piped_input_end();
+            } else if it.fd == external_command_process.output.handle {
                 external_command_ready = true;
-                external_command_output_closed ||= cast(bool, it.events & EPOLLHUP);
-            } else if it.data.fd == external_command_process.error.handle {
+                external_command_output_closed ||= cast(bool, it.flags & .EOF);
+            } else if it.fd == external_command_process.error.handle {
                 external_command_ready = true;
-                external_command_error_closed ||= cast(bool, it.events & EPOLLHUP);
+                external_command_error_closed ||= cast(bool, it.flags & .EOF);
             } else {
-                ok, handled := tcp_server_handle_epoll_event(*http_server, it);
-                if !ok  log_last_error(.WITH_STACK_TRACE);
+                #if DO_HTTP_SERVER {
+                    ok, handled := tcp_server_handle_epoll_event(*http_server, it);
+                    if !ok  log_last_error(.WITH_STACK_TRACE);
+                } else {
+                    handled := false;
+                }
                 if !handled
-                    log("unknown fd %: %", it.data.fd, cast(Epoll_Events) it.events);
+                    log("unknown fd %: %", it.fd, it.flags);
             }
         }
 
@@ -2285,12 +2289,12 @@ maybe_read_all_available_data_from_tmux_output :: () -> Read_Result {
         set_last_error_from_system();
         log_error("Failed reading tmux subprocess output stream: [%] %\n", context.last_error.code, context.last_error.message);
 
-        shutdown_fd(handle, epoll=false);
+        shutdown_fd(handle, from_event_queue=false);
         return .ERROR;
     }
 
     if result == .CLOSED {
-        shutdown_fd(handle, epoll=false);
+        shutdown_fd(handle, from_event_queue=false);
         return .CLOSED;
     }
 
@@ -2369,22 +2373,15 @@ maybe_spawn_external_command :: () {
     close(process.input.handle);
     process.input.handle = -1;
 
-    event: epoll_event;
-    rc: s32;
+    Profile();
+
+    ok := event_queue_add(*event_queue, process.output.handle, .READ);
+    assert(ok, "%", error_info_to_string(*event_queue.last_error));
 
     Profile();
 
-    event.events = EPOLLIN;
-    event.data.fd = process.output.handle;
-    rc = epoll_ctl(epoll_fd, .ADD, process.output.handle, *event);
-    assert(rc == 0);
-
-    Profile();
-
-    event.events = EPOLLIN;
-    event.data.fd = process.error.handle;
-    rc = epoll_ctl(epoll_fd, .ADD, process.error.handle, *event);
-    assert(rc == 0);
+    ok = event_queue_add(*event_queue, process.error.handle, .READ);
+    assert(ok, "%", error_info_to_string(*event_queue.last_error));
 }
 
 read_some_from_external_command :: (output_closed: bool, error_closed: bool) {
@@ -2479,7 +2476,7 @@ maybe_handle_external_command_output :: () {
     time_generated = current_time_consensus();
     duration = last_command_duration;
     raw_text_and_control_codes = prepare_raw_text_and_control_codes_from_external_command();
-    hash = Meow_Hash_Compute(xx raw_text_and_control_codes);
+    hash = Hash_Compute(xx raw_text_and_control_codes);
 
     new_main_window_buffer := true;
 
@@ -2707,7 +2704,7 @@ read_some_from_piped_input :: () {
     // inspect_builder(*piped_input_builder);
     window_buffer.raw_text_and_control_codes = builder_to_string(*piped_input_builder, do_reset=false);
     Profile("raw_text_and_control_codes.count: %", window_buffer.raw_text_and_control_codes.count);
-    window_buffer.hash = Meow_Hash_Compute(xx window_buffer.raw_text_and_control_codes);
+    window_buffer.hash = Hash_Compute(xx window_buffer.raw_text_and_control_codes);
     Profile("raw_text_and_control_codes.count: %", window_buffer.raw_text_and_control_codes.count);
     if first_time then init_window_buffer(window_buffer, window_buffer.raw_text_and_control_codes);
     if debug { blocking_getchar(); debug = false; }
@@ -2796,14 +2793,16 @@ read_all_available_data_from_piped_input :: () -> has_new_data: bool {
     return has_new_data;
 }
 
-shutdown_fd :: (fd: *s32, epoll := true) {
+shutdown_fd :: (fd: *s32, from_event_queue := true) {
     using context.state;
 
-    if epoll {
-        rc := epoll_ctl(epoll_fd, .DEL, fd.*, null);
-        if rc != 0 {
-            code, message := get_error_value_and_string();
-            log_error("epoll_ctl failed: [%] %", code, message);
+    if from_event_queue {
+        // kqueue requires removing every registered filter, whereas epoll
+        // allows to delete every registered event for a given fd
+        ok := event_queue_remove(*event_queue, fd.*, .READ);
+        ok &= event_queue_remove(*event_queue, fd.*, .WRITE);
+        if !ok {
+            log_error("event_queue_remove failed: %", error_info_to_string(*event_queue.last_error));
         }
     }
 
@@ -6257,6 +6256,7 @@ test_get_subfield_by_path :: () {
 // http server
 //
 
+#if DO_HTTP_SERVER
 init_http_server :: () -> bool {
     state := context.state;
     if state.http_server_disabled_explicitly return true;
@@ -6276,6 +6276,7 @@ init_http_server :: () -> bool {
     return true;
 }
 
+#if DO_HTTP_SERVER
 http_serve_resource :: (request: *Http_Request, data: *void) -> bool {
     builder := get_response_body_builder(request);
 
@@ -6306,6 +6307,7 @@ http_serve_resource :: (request: *Http_Request, data: *void) -> bool {
     return true;
 }
 
+#if DO_HTTP_SERVER
 http_request_handler :: (request: *Http_Request, data: *void) -> bool {
     using context.state;
 
@@ -7452,17 +7454,21 @@ Pointer_Range :: struct {
 // signal handling
 //
 
+OS_Signal_Handler :: #type (signal: s32) #c_call #no_context;
+
 should_exit := false;
 signalled_with_signal := -1;
 shutdown_signal_handler :: (signal: s32) #c_call #no_context {
     should_exit = true;
     signalled_with_signal = signal;
 }
+#assert type_of(shutdown_signal_handler) == OS_Signal_Handler;
 
 window_size_changed := false;
 window_size_changed_signal_handler :: (signal: s32) #c_call #no_context {
     window_size_changed = true;
 }
+#assert type_of(window_size_changed_signal_handler) == OS_Signal_Handler;
 
 libc :: #library,system "libc";
 
@@ -7584,39 +7590,135 @@ Terminal_Size_Info :: struct {
 // termios
 //
 
-Termios :: struct {
-    c_iflag: u32;
-    c_oflag: u32;
-    c_cflag: u32;
-    c_lflag: u32;
-    c_line: u8;
-    c_cc: [32] u8;
-    c_ispeed: u32;
-    c_ospeed: u32;
-    // Just in case there's more stuff I don't know about
-    padding: [64] u8;
+#if OS == .LINUX {
+    Termios :: struct {
+        c_iflag: u32;
+        c_oflag: u32;
+        c_cflag: u32;
+        c_lflag: u32;
+        c_line: u8;
+        c_cc: [32] u8;
+        c_ispeed: u32;
+        c_ospeed: u32;
+        // Just in case there's more stuff I don't know about
+        padding: [64] u8;
+    }
+
+    TCSANOW :: 0;
+    TCSADRAIN :: 1;
+    TCSAFLUSH :: 2;
+
+    BRKINT : u32 : 0x00000002;
+    INPCK  : u32 : 0x00000010;
+    ISTRIP : u32 : 0x00000020;
+    ICRNL  : u32 : 0x00000100;
+    OPOST  : u32 : 0x1;
+    ECHO   : u32 : 0x00000008;
+    IXON   : u32 : 0x00000400;
+    CS8    : u32 : 0x00000030;
+    ISIG   : u32 : 0x00000001;
+    ICANON : u32 : 0x00000002;
+    IEXTEN : u32 : 0x00008000;
+    VTIME  : u32 : 5;
+    VMIN   : u32 : 6;
+} else {
+    tcflag_t :: u64;
+    cc_t :: u8;
+    speed_t :: u64;
+
+    // From $SDKROOT/usr/include/sys/termios.h
+    Termios :: struct {
+        c_iflag:    tcflag_t;     /* input flags */
+        c_oflag:    tcflag_t;     /* output flags */
+        c_cflag:    tcflag_t;     /* control flags */
+        c_lflag:    tcflag_t;     /* local flags */
+        c_cc:    [NCCS] cc_t;     /* control chars */
+        c_ispeed:    speed_t;     /* input speed */
+        c_ospeed:    speed_t;     /* output speed */
+    };
+    #assert size_of(Termios) == 72; // Checked from a c program
+
+    // From $SDKROOT/usr/include/sys/termios.h
+    VEOF     :: 0;      /* ICANON */
+    VEOL     :: 1;      /* ICANON */
+    VEOL2    :: 2;      /* ICANON together with IEXTEN */
+    VERASE   :: 3;      /* ICANON */
+    VWERASE  :: 4;      /* ICANON together with IEXTEN */
+    VKILL    :: 5;      /* ICANON */
+    VREPRINT :: 6;      /* ICANON together with IEXTEN */
+    VINTR    :: 8;      /* ISIG */
+    VQUIT    :: 9;      /* ISIG */
+    VSUSP    :: 10;     /* ISIG */
+    VDSUSP   :: 11;     /* ISIG together with IEXTEN */
+    VSTART   :: 12;     /* IXON, IXOFF */
+    VSTOP    :: 13;     /* IXON, IXOFF */
+    VLNEXT   :: 14;     /* IEXTEN */
+    VDISCARD :: 15;     /* IEXTEN */
+    VMIN     :: 16;     /* !ICANON */
+    VTIME    :: 17;     /* !ICANON */
+    VSTATUS  :: 18;     /* ICANON together with IEXTEN */
+    NCCS     :: 20;
+
+    // From $SDKROOT/usr/include/sys/termios.h
+    TCSANOW   :: 0;              /* make change immediate */
+    TCSADRAIN :: 1;              /* drain output, then change */
+    TCSAFLUSH :: 2;              /* drain output, flush input */
+
+    // From $SDKROOT/usr/include/sys/termios.h
+    ECHOKE     :: 0x00000001;     /* visual erase for line kill */
+    ECHOE      :: 0x00000002;     /* visually erase chars */
+    ECHOK      :: 0x00000004;     /* echo NL after line kill */
+    ECHO       :: 0x00000008;     /* enable echoing */
+    ECHONL     :: 0x00000010;     /* echo NL even if ECHO is off */
+    ECHOPRT    :: 0x00000020;     /* visual erase mode for hardcopy */
+    ECHOCTL    :: 0x00000040;     /* echo control chars as ^(Char) */
+    ISIG       :: 0x00000080;     /* enable signals INTR, QUIT, [D]SUSP */
+    ICANON     :: 0x00000100;     /* canonicalize input lines */
+    ALTWERASE  :: 0x00000200;     /* use alternate WERASE algorithm */
+    IEXTEN     :: 0x00000400;     /* enable DISCARD and LNEXT */
+    EXTPROC    :: 0x00000800;     /* external processing */
+    TOSTOP     :: 0x00400000;     /* stop background jobs from output */
+    FLUSHO     :: 0x00800000;     /* output being flushed (state) */
+    NOKERNINFO :: 0x02000000;     /* no kernel output from VSTATUS */
+    PENDIN     :: 0x20000000;     /* XXX retype pending input (state) */
+    NOFLSH     :: 0x80000000;     /* don't flush after interrupt */
+
+    // From $SDKROOT/usr/include/sys/termios.h
+    IGNBRK  ::  0x00000001;     /* ignore BREAK condition */
+    BRKINT  ::  0x00000002;     /* map BREAK to SIGINTR */
+    IGNPAR  ::  0x00000004;     /* ignore (discard) parity errors */
+    PARMRK  ::  0x00000008;     /* mark parity and framing errors */
+    INPCK   ::  0x00000010;     /* enable checking of parity errors */
+    ISTRIP  ::  0x00000020;     /* strip 8th bit off chars */
+    INLCR   ::  0x00000040;     /* map NL into CR */
+    IGNCR   ::  0x00000080;     /* ignore CR */
+    ICRNL   ::  0x00000100;     /* map CR to NL (ala CRMOD) */
+    IXON    ::  0x00000200;     /* enable output flow control */
+    IXOFF   ::  0x00000400;     /* enable input flow control */
+    IXANY   ::  0x00000800;     /* any char will restart after stop */
+    IMAXBEL ::  0x00002000;     /* ring bell on input queue full */
+    IUTF8   ::  0x00004000;     /* maintain state for UTF-8 VERASE */
 }
-
-TCSANOW :: 0;
-TCSADRAIN :: 1;
-TCSAFLUSH :: 2;
-
-BRKINT : u32 : 0x00000002;
-INPCK  : u32 : 0x00000010;
-ISTRIP : u32 : 0x00000020;
-ICRNL  : u32 : 0x00000100;
-OPOST  : u32 : 0x1;
-ECHO   : u32 : 0x00000008;
-IXON   : u32 : 0x00000400;
-CS8    : u32 : 0x00000030;
-ISIG   : u32 : 0x00000001;
-ICANON : u32 : 0x00000002;
-IEXTEN : u32 : 0x00008000;
-VTIME  : u32 : 5;
-VMIN   : u32 : 6;
 
 tcgetattr :: (fd: s32, termios: *Termios) -> s32 #foreign libc;
 tcsetattr :: (fd: s32, optional_actions: s32, termios: *Termios) -> s32 #foreign libc;
+
+//
+// MACOS missing stuff
+//
+
+#if OS == .MACOS {
+    // Jai is missing these for some reason
+    // From $SDKROOT/usr/include/sys/ttycom.h (actually from c `printf("0x%lx\n", TIOCGWINSZ);`)
+    TIOCGWINSZ :: 0x40087468;
+
+    // Jai has a wrong signature for this
+    signal :: (sig: s32, callback: OS_Signal_Handler) -> *void #foreign libc;
+}
+
+//
+// miscellaneous helpers
+//
 
 profile_t0: f64 = 0.0;
 Profile :: (format: string = "", args: ..Any, loc := #caller_location) #expand {
@@ -7654,36 +7756,49 @@ blocking_getchar :: () {
 // meow hash wrapper with normal spelling
 //
 
-Meow_Hash_State :: Meow_Hash.meow_state;
-Meow_Hash_Default_Seed :: #run -> [128] u8 { return Meow_Hash.MeowDefaultSeed; }
+#if CPU == .X64 {
+    Meow_Hash_State :: Meow_Hash.meow_state;
+    Meow_Hash_Default_Seed :: #run -> [128] u8 { return Meow_Hash.MeowDefaultSeed; }
 
-Meow_Hash_Init :: (state: *Meow_Hash_State, seed: [128] u8 = Meow_Hash_Default_Seed) #expand {
-    Meow_Hash.MeowBegin(state, seed);
+    Meow_Hash_Init :: (state: *Meow_Hash_State, seed: [128] u8 = Meow_Hash_Default_Seed) #expand {
+        Meow_Hash.MeowBegin(state, seed);
+    }
+
+    Meow_Hash_Consume :: (state: *Meow_Hash_State, data: *void, count: s64) #expand {
+        Meow_Hash.MeowAbsorb(state, count, data);
+    }
+
+    Meow_Hash_Consume :: (state: *Meow_Hash_State, bytes: [] u8) #expand {
+        Meow_Hash.MeowAbsorb(state, xx bytes.count, bytes.data);
+    }
+
+    Meow_Hash_Finalize :: (state: *Meow_Hash_State) -> U128 #expand {
+        #asm { hash: vec; };
+        Meow_Hash.MeowEnd(state, hash);
+        result: U128 = ---;
+        result.low = Meow_Hash.MeowU64From(hash, 0);
+        result.high = Meow_Hash.MeowU64From(hash, 1);
+        return result;
+    }
+
+    Meow_Hash_Compute :: (bytes: [] u8, seed: [128] u8 = Meow_Hash_Default_Seed) -> U128 {
+        state: Meow_Hash_State;
+        Meow_Hash_Init(*state, seed);
+        Meow_Hash_Consume(*state, bytes);
+
+        return inline Meow_Hash_Finalize(*state);
+    }
+
+    Hash_Compute :: inline (bytes: [] u8) -> U128 {
+        return Meow_Hash_Compute(bytes);
+    }
 }
 
-Meow_Hash_Consume :: (state: *Meow_Hash_State, data: *void, count: s64) #expand {
-    Meow_Hash.MeowAbsorb(state, count, data);
-}
-
-Meow_Hash_Consume :: (state: *Meow_Hash_State, bytes: [] u8) #expand {
-    Meow_Hash.MeowAbsorb(state, xx bytes.count, bytes.data);
-}
-
-Meow_Hash_Finalize :: (state: *Meow_Hash_State) -> U128 #expand {
-    #asm { hash: vec; };
-    Meow_Hash.MeowEnd(state, hash);
-    result: U128 = ---;
-    result.low = Meow_Hash.MeowU64From(hash, 0);
-    result.high = Meow_Hash.MeowU64From(hash, 1);
-    return result;
-}
-
-Meow_Hash_Compute :: (bytes: [] u8, seed: [128] u8 = Meow_Hash_Default_Seed) -> U128 {
-    state: Meow_Hash_State;
-    Meow_Hash_Init(*state, seed);
-    Meow_Hash_Consume(*state, bytes);
-
-    return inline Meow_Hash_Finalize(*state);
+#if CPU == .ARM64 {
+    Hash_Compute :: (bytes: [] u8) -> U128 {
+        hash := XXHash.native_XXH64(bytes.data, xx bytes.count, 0);
+        return to_u128(hash);
+    }
 }
 
 //
@@ -8853,8 +8968,13 @@ run_tests :: () {
 #import "My_File";
 #import "Process";
 #import "String";
-#import "POSIX";
-#import "Linux";
+
+POSIX :: #import "POSIX";
+#if OS == .MACOS using,except.["signal"] POSIX;
+else             using POSIX;
+
+#if OS == .LINUX #import "Linux";
+#import "Event_Queue";
 #import "File";
 #import "Flat_Pool";
 #import "Print_Vars";
@@ -8864,10 +8984,13 @@ run_tests :: () {
 #import "Unicode";
 #import "Random";
 #import "Error_Info";
-#import "Http";
+#if DO_HTTP_SERVER #import "Http";
 #import "Bit_Array";
 #import "Process_Info";
-Meow_Hash :: #import "meow_hash";
+
+#if CPU == .X64     Meow_Hash :: #import "meow_hash";
+#if CPU == .ARM64   XXHash :: #import "xxHash";
+
 // #if OS == .LINUX #import "X11";
 // #import "Clipboard";
 System :: #import "System";
