@@ -36,3 +36,5 @@ scripts/*/target
 opencode.json
 opencode.jsonc
 .opencode/
+
+**/.claude/settings.local.json
