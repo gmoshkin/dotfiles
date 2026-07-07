@@ -56,7 +56,7 @@ event_queue_init :: (queue: *Event_Queue) -> bool {
         error_prefix :: "kqueue: ";
     }
 
-    if queue.fd < -1 {
+    if queue.fd < 0 {
         set_last_error_from_system();
         copy_error_info(*context.last_error, *queue.last_error);
         return false;
@@ -132,12 +132,13 @@ event_queue_wait :: (queue: *Event_Queue, timeout_ms: u64, capacity: s64 = 16) -
         events.allocator = temp;
         array_reserve(*events, capacity);
 
-        rc := epoll_wait(queue.fd, events.data, xx events.allocated, timeout_ms);
+        rc := epoll_wait(queue.fd, events.data, xx events.allocated, xx timeout_ms);
 
         if rc == 0 return true, .[];
         if rc < 0 Return_Error("epoll_wait: ");
 
-        for array_view(events, 0, rc) {
+        events.count = rc;
+        for events {
             flags := event_flags_from_epoll(it.events);
             array_add(*result, .{it.data.fd, flags});
         }
@@ -166,9 +167,9 @@ event_queue_wait :: (queue: *Event_Queue, timeout_ms: u64, capacity: s64 = 16) -
 
 event_flags_from_epoll :: (events: u32) -> Event_Flags {
     result: Event_Flags;
-    if events & .EPOLLIN  then result |= .READ;
-    if events & .EPOLLOUT then result |= .WRITE;
-    if events & .EPOLLHUP then result |= .EOF;
+    if events & EPOLLIN  then result |= .READ;
+    if events & EPOLLOUT then result |= .WRITE;
+    if events & EPOLLHUP then result |= .EOF;
     return result;
 }
 
