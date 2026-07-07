@@ -63,7 +63,7 @@ get_process_command_line :: (pid: Pid, log_errors := false) -> (ok: bool, comman
     return true, result, executable;
 }
 
-get_process_info :: (pid: Pid, info: *Process_Info, system_info: *System_Info, get_command_line := true, log_errors := true) -> bool {
+get_process_info :: (pid: Pid, info: *Process_Info, system_info: *System_Info = null, log_errors := true) -> bool {
     stat, ok := my_read_entire_file(tprint("/proc/%/stat", pid), log_errors=log_errors,, temp);
     if !ok return false;
 

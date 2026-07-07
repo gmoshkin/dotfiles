@@ -809,13 +809,13 @@ main :: () {
         my_pid := getpid();
         info: Process_Info;
         ok := get_process_info(my_pid, *info, log_errors=false,, temp);
-        assert(ok);
-        parent_info: Process_Info;
-        ok = get_process_info(info.parent_pid, *parent_info,, temp);
         if ok {
-            parent_process_command_line = NewArray(parent_info.command_line.count, string);
-            for parent_info.command_line {
-                parent_process_command_line[it_index] = copy_string(it);
+            ok=, parent_command_line := get_process_command_line(info.parent_pid,, temp);
+            if ok {
+                parent_process_command_line = NewArray(parent_command_line.count, string);
+                for parent_command_line {
+                    parent_process_command_line[it_index] = copy_string(it);
+                }
             }
         }
 
@@ -977,7 +977,13 @@ main :: () {
                 external_command_error_closed ||= cast(bool, it.flags & .EOF);
             } else {
                 #if DO_HTTP_SERVER {
-                    ok, handled := tcp_server_handle_epoll_event(*http_server, it);
+                    // The http server still speaks raw epoll (see Http.jai)
+                    epoll_ev: epoll_event;
+                    epoll_ev.data.fd = it.fd;
+                    if it.flags & .READ  epoll_ev.events |= EPOLLIN;
+                    if it.flags & .WRITE epoll_ev.events |= EPOLLOUT;
+                    if it.flags & .EOF   epoll_ev.events |= EPOLLHUP;
+                    ok, handled := tcp_server_handle_epoll_event(*http_server, epoll_ev);
                     if !ok  log_last_error(.WITH_STACK_TRACE);
                 } else {
                     handled := false;
@@ -6262,7 +6268,7 @@ init_http_server :: () -> bool {
     if state.http_server_disabled_explicitly return true;
 
     server := *context.state.http_server;
-    server.epoll_fd = *state.epoll_fd;
+    server.epoll_fd = *state.event_queue.fd;
     server.http_request_handler = http_request_handler;
 
     if !state.http_server_enabled_explicitly {
