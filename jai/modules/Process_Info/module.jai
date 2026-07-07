@@ -8,17 +8,34 @@ Process_Info :: struct {
 
     state: [1] u8;
 
-    started_seconds_since_boot: s64;
+    start_time: Apollo_Time;
     user_mode_time_seconds: s64;
     kernel_mode_time_seconds: s64;
 
     virtual_memory_kibi_bytes: s64;
-    resident_set_pages_count: s64;
+    resident_set_memory_units: s64;
 
     tty_name: string;
     tty_number: s64;
 }
 
+System_Info :: struct {
+    system_boot_time: Apollo_Time;
+    system_up_time_seconds: s64;
+    memory_capacity_bytes: s64;
+
+    #if OS == .MACOS {
+        mach_timebase: Mach_Timebase_Info;
+    } else {
+        clock_ticks_per_second: s64;
+    }
+
+    resident_set_memory_unit_size: s64;
+    virtual_memory_unit_size: s64;
+}
+
 #if OS == .LINUX   #load "linux.jai";
 #if OS == .MACOS   #load "macos.jai";
 #if OS == .WINDOWS #load "windows.jai";
+
+#import "Basic";

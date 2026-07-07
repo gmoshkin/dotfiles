@@ -102,24 +102,27 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
                     return true;
                 }
 
-                should_build_debug_and_run_tests := false;
-                if program == .PAGEVIEW && !compile_parameters.debug_build then should_build_debug_and_run_tests = true;
-                if program == .TESTS then should_build_debug_and_run_tests = true;
+                should_run_tests := false;
+                if program == .PAGEVIEW && !compile_parameters.debug_build then should_run_tests = true;
+                if program == .TESTS then should_run_tests = true;
 
-                #if !JAILS if should_build_debug_and_run_tests {
+                #if !JAILS {
                     debug_parameters := compile_parameters;
                     debug_parameters.debug_build = true;
 
-                    using info := get_program_info(program, debug=true);
+                    {
+                        using info := get_program_info(program, debug=true);
 
-                    print("Compiling a debug version...\n");
-                    if !build_program(info, debug_parameters) exit(1);
+                        print("Compiling a debug version...\n");
+                        if !build_program(info, debug_parameters) exit(1);
 
-                    if !run_test_process(exe_path, exe_name, run_tests_in_gdb) {
-                        if program == .TESTS return false;
+                        if should_run_tests {
+                            if !run_test_process(exe_path, exe_name, run_tests_in_gdb) {
+                                if program == .TESTS return false;
+                            }
+                            print("\n");
+                        }
                     }
-                    print("\n");
-
                 }
                 if !build_program(info, compile_parameters) exit(1);
             case .TEST;
@@ -219,9 +222,16 @@ get_program_info :: (program: Program, debug := false) -> Program_Info {
 
         case .PS;
             source = "ps.jai";
-            exe_name = "myps";
             arg_name = "ps";
-            os = .LINUX;
+            #if OS == .WINDOWS {
+                // Windows not supported, say you want LINUX, but really we want
+                // LINUX or MACOS
+                os = .LINUX;
+            } else #if OS == .LINUX {
+                exe_name = "myps-linux";
+            } else #if OS == .MACOS {
+                exe_name = "myps-macos";
+            }
 
         case .TMUX_UTIL;
             source = "tmux-util.jai";
@@ -314,6 +324,7 @@ build_program :: (info: Program_Info, parameters: Compile_Parameters) -> success
 
     #if JAILS options.output_type = .NO_OUTPUT;
     options.output_executable_name = exe_name;
+    log("options.output_executable_name <- %", exe_name);
     options.output_path = exe_path;
 
     mode := Optimization_Type.OPTIMIZED;
@@ -578,6 +589,7 @@ run_link_command_on_macos_arm :: (using message: *Message_Phase) -> bool {
         array_add(*command, "-arch", "arm64");
     }
 
+    log("options.output_executable_name -> %", options.output_executable_name);
     output_executable_path := sprint("%/%", options.output_path, options.output_executable_name);
     array_add(*command, "-o", output_executable_path);
 

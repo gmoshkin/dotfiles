@@ -71,6 +71,7 @@ link_platform_binary() {
 
 link_platform_binary "$DOTFILES/tmux/tmux-util"
 link_platform_binary "$DOTFILES/jai/pageview"
+link_platform_binary "$DOTFILES/jai/myps"
 
 source "$DOTFILES/commands.sh"
 

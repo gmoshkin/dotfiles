@@ -1,8 +1,3 @@
-#run {
-    #import "Compiler";
-    set_build_options_dc(.{ output_executable_name = "myps" });
-}
-
 State :: struct {
     tty: string;
 
@@ -21,6 +16,7 @@ State :: struct {
 
 Options :: struct {
     for_fzf: bool;
+    show_system_info: bool;
 }
 
 Extended_Process_Info :: struct {
@@ -92,9 +88,16 @@ main :: () {
                     exit(1);
                 }
                 state.tty = args[cursor];
+                // TODO: always normalize on all platforms
+                #if OS == .MACOS if starts_with(state.tty, "/dev/") {
+                    state.tty = advance(state.tty, "/dev/".count);
+                }
 
             case "--for-fzf";
                 options.for_fzf = true;
+
+            case "--system-info";
+                options.show_system_info = true;
 
             case;
                 break;
@@ -102,65 +105,57 @@ main :: () {
         cursor += 1;
     }
 
-    using _SC_definitions;
-    clock_ticks_per_second = xx sysconf(_SC_CLK_TCK);
-    system_page_size := cast(s64) sysconf(_SC_PAGESIZE);
-
-    // Read tty numbers
-    {
-        tty_drivers, ok := my_read_entire_file("/proc/tty/drivers", log_errors=false);
-        assert(ok);
-
-        tail := tty_drivers;
-        while tail {
-            found:, line:, tail = split_from_left(tail, #char "\n");
-
-            _, ok := parse_token(*line, delimiters="");
-            assert(ok);
-
-            driver_name:, ok = parse_token(*line, delimiters="");
-            assert(ok);
-
-            driver_number_str:, ok = parse_token(*line, delimiters="");
-            assert(ok);
-
-            driver_number:, ok = string_to_int(driver_number_str, base=10, T=u8);
-            assert(ok);
-
-            table_set(*state.tty_drivers, driver_number, driver_name);
-        }
+    system_info = get_system_info();
+    if options.show_system_info {
+        print("system_info: %\n", system_info);
     }
 
-    pids: [..] string;
-    visitor :: (info: *File_Visit_Info, pids: *[..] string) {
-        array_add(pids, copy_string(info.short_name));
-    };
+    // Read tty numbers
+    #if OS == .LINUX
     {
-        // Disable log_error, because this function doesn't take a log_errors parameter
-        saved_logger := context.logger;
-        defer context.logger = saved_logger;
-        context.logger = (_: string, _: *void, _: Log_Info) {};
-        ok := visit_files("/proc", recursive=false, user_data=*pids, proc=visitor, visit_files=false, visit_directories=true, visit_symlinks=false);
-        assert(ok);
+        tty_drivers, ok := my_read_entire_file("/proc/tty/drivers", log_errors=false);
+        if ok {
+            tail := tty_drivers;
+            while tail {
+                found:, line:, tail = split_from_left(tail, #char "\n");
+
+                _, ok := parse_token(*line, delimiters="");
+                assert(ok);
+
+                driver_name:, ok = parse_token(*line, delimiters="");
+                assert(ok);
+
+                driver_number_str:, ok = parse_token(*line, delimiters="");
+                assert(ok);
+
+                driver_number:, ok = string_to_int(driver_number_str, base=10, T=u8);
+                assert(ok);
+
+                table_set(*state.tty_drivers, driver_number, driver_name);
+            }
+        } else {
+            log_error("Failed to read /proc/tty/drivers");
+        }
     }
 
     //
     // Get process's infos, collect root candidates
     //
-    for pids {
-        defer reset_temporary_storage();
-
-        pid_value, ok := string_to_int(it, base=10, T=s64);
-        if !ok continue;
-        pid : Pid = xx pid_value;
-
+    pids := get_all_pids();
+    for pid: pids {
         // Either add a new entry, or get an entry which was inserted by this one's child
         info, not_found := find_or_add(*state.process_infos, pid);
         info.pid = pid;
 
-        get_command_line := (state.name_part.count != 0);
-        ok = get_process_info(pid, info, clock_ticks_per_second=clock_ticks_per_second, log_errors=false, get_command_line=get_command_line);
+        ok := get_process_info(pid, info, system_info=*system_info, log_errors=false);
         if !ok continue;
+
+        need_command_line := (state.name_part.count != 0);
+        if need_command_line {
+            command_line, ok := get_process_command_line(info.pid, log_errors=false);
+            if !ok continue;
+            info.command_line = command_line;
+        }
 
         borrow_checker_my_ass := state.process_infos.entries.data;
 
@@ -173,19 +168,28 @@ main :: () {
         if info.tty_number != 0 && info.tty_number != -1 {
             tty_name, not_found := find_or_add(*state.tty_number_to_name, info.tty_number);
             if not_found {
-                driver_number := cast(u8) ((info.tty_number >> 8) & 0xff);
-                // TODO: sometimes there's a index part in higher bits?
-                tty_index := info.tty_number & 0xff;
-                ok, driver_name := table_find(*state.tty_drivers, driver_number);
-                if ok {
-                    if driver_name == "/dev/tty" {
-                        tty_name.* = sprint("/dev/tty%", tty_index);
-                    } else {
-                        tty_name.* = sprint("%/%", driver_name, tty_index);
+                #if OS == .LINUX {
+                    driver_number := cast(u8) ((info.tty_number >> 8) & 0xff);
+                    // TODO: sometimes there's a index part in higher bits?
+                    tty_index := info.tty_number & 0xff;
+                    ok, driver_name := table_find(*state.tty_drivers, driver_number);
+                    if ok {
+                        if driver_name == "/dev/tty" {
+                            tty_name.* = sprint("/dev/tty%", tty_index);
+                        } else {
+                            tty_name.* = sprint("%/%", driver_name, tty_index);
+                        }
+                    }
+                } else {
+                    name, ok := get_tty_name(info.tty_number);
+                    if ok {
+                        // Move ownership
+                        tty_name.* = name;
                     }
                 }
             }
 
+            // Borrow
             info.tty_name = tty_name.*;
 
             if state.tty && state.tty == tty_name.* {
@@ -247,42 +251,8 @@ main :: () {
         depth_first_children(*state.process_infos, it, *flattened_tree, max_backwards_depth);
     }
 
-    // Get physical memory capacity
-    physical_memory_capacity_bytes: s64;
-    {
-        meminfo, ok := my_read_entire_file("/proc/meminfo", log_errors=false);
-        assert(ok);
-        tail := meminfo;
-        while tail {
-            _, line:, tail = split_from_left(tail, #char "\n");
-
-            prefix := "MemTotal:";
-            if !starts_with(line, prefix) continue;
-
-            line = substring(line, start = prefix.count);
-            line = trim_left(line);
-            value, ok, remainder := string_to_int(line, T=s64, base=10);
-            assert(ok);
-            assert(remainder == " kB", "'%'", remainder);
-
-            physical_memory_capacity_bytes = value * 1024;
-        }
-    }
-
-    // Get system uptime
-    system_uptime_seconds: s64;
-    {
-        uptime, ok := my_read_entire_file("/proc/uptime", log_errors=false);
-        assert(ok);
-        seconds_float:, ok = string_to_float(uptime);
-        assert(ok);
-        system_uptime_seconds = xx seconds_float;
-    }
-
     current_time := current_time_consensus();
-    current_time_seconds := to_seconds(current_time);
     current_date_time := to_calendar(current_time);
-    system_boot_time_seconds := current_time_seconds - system_uptime_seconds;
 
     //
     // Prepare the output table
@@ -320,9 +290,7 @@ main :: () {
         row[TTY] = tty;
 
         // START TIME
-        start_time_seconds := system_boot_time_seconds + xx it.started_seconds_since_boot;
-        start_time := seconds_to_apollo(start_time_seconds);
-        start_date_time := to_calendar(start_time, .LOCAL);
+        start_date_time := to_calendar(it.start_time, .LOCAL);
         if is_same_day(start_date_time, current_date_time) {
             row[START] = tprint("%:%", start_date_time.hour,
                                          fmt(start_date_time.minute, 2));
@@ -347,7 +315,7 @@ main :: () {
         // CPU PERCENTAGE
         // how long of the total process' lifetime was it actually not sleeping
         {
-            process_uptime := system_uptime_seconds - it.started_seconds_since_boot;
+            process_uptime := to_seconds(current_time - it.start_time);
             if process_uptime {
                 percentage_of_time_used_cpu := 100.0 * cast(float64) running_time_seconds / cast(float64) process_uptime;
                 row[CPU] = tprint("%", fmt(percentage_of_time_used_cpu, digits_after_comma=1));
@@ -358,8 +326,8 @@ main :: () {
 
         // MEM USAGE
         {
-            rss_bytes := it.resident_set_pages_count * system_page_size;
-            phys_mem_usage := 100.0 * cast(float64) rss_bytes / cast(float64) physical_memory_capacity_bytes;
+            rss_bytes := it.resident_set_memory_units * system_info.resident_set_memory_unit_size;
+            phys_mem_usage := 100.0 * cast(float64) rss_bytes / cast(float64) system_info.memory_capacity_bytes;
             row[MEM] = tprint("%", fmt(phys_mem_usage, digits_after_comma=1));
         }
 
@@ -535,7 +503,7 @@ test_count_visible_characters :: () {
 // sysconf (unistd.h)
 //
 
-clock_ticks_per_second: s64;
+system_info: System_Info;
 
 libc :: #system_library "libc";
 sysconf :: (name: s32) -> s64 #foreign libc;
