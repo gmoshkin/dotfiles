@@ -8850,6 +8850,7 @@ run_tests :: () {
 #import "Basic"()(MEMORY_DEBUGGER=true);
 #import "Hash_Table";
 #import "My_Util";
+#import "My_File";
 #import "Process";
 #import "String";
 #import "POSIX";
@@ -8865,6 +8866,7 @@ run_tests :: () {
 #import "Error_Info";
 #import "Http";
 #import "Bit_Array";
+#import "Process_Info";
 Meow_Hash :: #import "meow_hash";
 // #if OS == .LINUX #import "X11";
 // #import "Clipboard";
