@@ -7,8 +7,9 @@ get_all_pids :: (log_errors := false) -> [] Pid, ok: bool {
     };
 
     // Disable log_error, because this function doesn't take a log_errors parameter
+    saved_logger: type_of(context.logger);
     if !log_errors {
-        saved_logger := context.logger;
+        saved_logger = context.logger;
         context.logger = (_: string, _: *void, _: Log_Info) {};
     }
     defer if !log_errors context.logger = saved_logger;
@@ -116,7 +117,7 @@ get_process_info :: (pid: Pid, info: *Process_Info, system_info: *System_Info, g
                 if log_errors log_error("Expected an integer as column #%", i);
                 return false;
             }
-            info.start_time = system_info.system_boot_time + xx (starttime / system_info.clock_ticks_per_second);
+            info.start_time = system_info.system_boot_time + to_s128(starttime / system_info.clock_ticks_per_second);
         }
         if i == 23 {
             // XXX: this is some weird value, don't think it's actually usefull
@@ -172,23 +173,21 @@ get_system_info :: () -> System_Info, bool {
             prefix := "MemTotal:";
             if !starts_with(line, prefix) continue;
 
-            line = substring(line, start = prefix.count);
+            line = advance(line, prefix.count);
             line = trim_left(line);
             value, ok, remainder := string_to_int(line, T=s64, base=10);
             assert(ok);
             assert(remainder == " kB", "'%'", remainder);
 
-            physical_memory_capacity_bytes = value * 1024;
+            result.memory_capacity_bytes = value * 1024;
         }
-
-        result.memory_capacity_bytes: s64;
     }
 
-    result.clock_ticks_per_second = xx sysconf(_SC_CLK_TCK),
+    result.clock_ticks_per_second = xx sysconf(_SC_CLK_TCK);
     // On linux resident set size is reported in pages
-    result.resident_set_memory_unit_size = xx sysconf(_SC_PAGESIZE),
+    result.resident_set_memory_unit_size = xx sysconf(_SC_PAGESIZE);
     // But virtual memory is in kibibytes? I must be wrong about this!
-    result.virtual_memory_unit_size = 1024,
+    result.virtual_memory_unit_size = 1024;
 
     return result, true;
 }
@@ -206,3 +205,4 @@ get_tty_name :: (tty_number: s64) -> string, bool {
 #import "My_File";
 #import "Basic";
 #import "String";
+#import "File_Utilities";
