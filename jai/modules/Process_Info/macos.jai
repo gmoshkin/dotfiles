@@ -27,7 +27,7 @@ get_all_pids :: (log_errors := false) -> [] Pid, ok: bool {
     return pids, true;
 }
 
-get_process_command_line :: (pid: Pid, log_errors := false) -> [] string, ok: bool {
+get_process_command_line :: (pid: Pid, log_errors := false) -> (ok: bool, command_line: [] string, executable: string) {
     sysctl_args := u32.[CTL_KERN, KERN_PROCARGS2, xx pid];
 
     ok, size := sysctl(sysctl_args, null);
@@ -36,7 +36,7 @@ get_process_command_line :: (pid: Pid, log_errors := false) -> [] string, ok: bo
             code, message := get_error_value_and_string();
             log_error("sysctl(%) failed: #% %", sysctl_args, code, message);
         }
-        return .[], false;
+        return false, .[], "";
     }
 
     buffer := NewArray(xx size, u8, alignment=4,, temp);
@@ -46,7 +46,7 @@ get_process_command_line :: (pid: Pid, log_errors := false) -> [] string, ok: bo
             code, message := get_error_value_and_string();
             log_error("sysctl(%) failed: #% %", sysctl_args, code, message);
         }
-        return .[], false;
+        return false, .[], "";
     }
 
     p := buffer.data;
@@ -57,8 +57,8 @@ get_process_command_line :: (pid: Pid, log_errors := false) -> [] string, ok: bo
     p += size_of(s32);
 
     // Then a full path to the executable
-    exe_len := c_style_strlen(p);
-    p += exe_len;
+    executable := copy_string(to_string(p));
+    p += executable.count;
 
     // Then some number of padding nul-bytes
     while (p < end) && (p.* == 0)  p += 1;
@@ -72,7 +72,7 @@ get_process_command_line :: (pid: Pid, log_errors := false) -> [] string, ok: bo
         array_add(*result, copy_string(arg));
     }
 
-    return result, true;
+    return true, result, executable;
 }
 
 get_process_info :: (pid: Pid, info: *Process_Info, system_info: *System_Info, get_command_line := true, log_errors := true) -> bool {

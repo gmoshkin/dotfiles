@@ -2,6 +2,7 @@ State :: struct {
     tty: string;
 
     go_up: bool;
+    show_full_executable_path: bool;
 
     tty_drivers: Table(u8, string);
 
@@ -75,6 +76,10 @@ main :: () {
             case "-f"; #through;
             case "--full";
                 state.go_up = true;
+
+            case "-E"; #through;
+            case "--full-executable";
+                state.show_full_executable_path = true;
 
             case "-F"; #through;
             case "--not-full";
@@ -152,9 +157,10 @@ main :: () {
 
         need_command_line := (state.name_part.count != 0);
         if need_command_line {
-            command_line, ok := get_process_command_line(info.pid, log_errors=false);
+            ok, command_line, executable := get_process_command_line(info.pid, log_errors=false);
             if !ok continue;
             info.command_line = command_line;
+            info.executable = executable;
         }
 
         borrow_checker_my_ass := state.process_infos.entries.data;
@@ -273,8 +279,9 @@ main :: () {
     array_reserve(*table, flattened_tree.count);
     for flattened_tree {
         row : [] string = array_add(*table).*;
-        command_line, ok := get_process_command_line(it.pid);
+        ok, command_line, executable := get_process_command_line(it.pid);
         it.command_line = command_line;
+        it.executable = executable;
 
         // PID
         row[PID] = tprint("%", it.pid);
@@ -344,9 +351,19 @@ main :: () {
             append(*builder, "?");
         } else for it.command_line {
             if it_index == 0 /* && !options.for_fzf */ {
-                append(*builder, "\e[32m");
-                append(*builder, it);
-                append(*builder, "\e[0m");
+                if state.show_full_executable_path {
+                    if executable {
+                        append(*builder, "\e[32m");
+                        append(*builder, executable);
+                        append(*builder, "\e[0m");
+                    } else {
+                        append(*builder, "\e[31m?!?!?\e[0m");
+                    }
+                } else {
+                    append(*builder, "\e[32m");
+                    append(*builder, it);
+                    append(*builder, "\e[0m");
+                }
             } else {
                 append(*builder, it);
             }

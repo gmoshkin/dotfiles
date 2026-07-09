@@ -32,11 +32,11 @@ get_all_pids :: (log_errors := false) -> [] Pid, ok: bool {
     return pids, true;
 }
 
-get_process_command_line :: (pid: Pid, log_errors := false) -> [] string, ok: bool {
+get_process_command_line :: (pid: Pid, log_errors := false) -> (ok: bool, command_line: [] string, executable: string) {
     cmdline, ok := my_read_entire_file(tprint("/proc/%/cmdline", pid), log_errors=log_errors,, temp);
-    if !ok return .[], false;
+    if !ok return false, .[], "";
 
-    if !cmdline return .[], true;
+    if !cmdline return true, .[], "";
 
     result: [..] string;
     result.allocator = context.allocator;
@@ -46,7 +46,11 @@ get_process_command_line :: (pid: Pid, log_errors := false) -> [] string, ok: bo
         found:, arg:, tail = split_from_left(tail, #char "\x00");
         array_add(*result, copy_string(arg));
     }
-    return result, true;
+
+    // TODO: readlink /proc/%/exe
+    executable := "";
+
+    return true, result, executable;
 }
 
 get_process_info :: (pid: Pid, info: *Process_Info, system_info: *System_Info, get_command_line := true, log_errors := true) -> bool {

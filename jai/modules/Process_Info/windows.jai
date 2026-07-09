@@ -3,9 +3,9 @@ get_all_pids :: (log_errors := false) -> [] Pid, ok: bool {
     return .[], false;
 }
 
-get_process_command_line :: (pid: Pid, log_errors := false) -> [] string, ok: bool {
+get_process_command_line :: (pid: Pid, log_errors := false) -> (ok: bool, command_line: [] string, executable: string) {
     log_error("`get_process_command_line` is not implemented on % yet", OS);
-    return .[], false;
+    return false, .[], "";
 }
 
 get_process_info :: (pid: Pid, info: *Process_Info, clock_ticks_per_second := -1, get_command_line := true, log_errors := true) -> bool {

@@ -5,6 +5,7 @@ Process_Info :: struct {
     parent_pid: Pid = -1;
 
     command_line: [] string;
+    executable: string;
 
     state: [1] u8;
 
