@@ -324,7 +324,6 @@ build_program :: (info: Program_Info, parameters: Compile_Parameters) -> success
 
     #if JAILS options.output_type = .NO_OUTPUT;
     options.output_executable_name = exe_name;
-    log("options.output_executable_name <- %", exe_name);
     options.output_path = exe_path;
 
     mode := Optimization_Type.OPTIMIZED;
@@ -589,7 +588,6 @@ run_link_command_on_macos_arm :: (using message: *Message_Phase) -> bool {
         array_add(*command, "-arch", "arm64");
     }
 
-    log("options.output_executable_name -> %", options.output_executable_name);
     output_executable_path := sprint("%/%", options.output_path, options.output_executable_name);
     array_add(*command, "-o", output_executable_path);
 
