@@ -121,7 +121,7 @@ get_process_info :: (pid: Pid, info: *Process_Info, system_info: *System_Info, g
                 if log_errors log_error("Expected an integer as column #%", i);
                 return false;
             }
-            info.start_time = system_info.system_boot_time + to_s128(starttime / system_info.clock_ticks_per_second);
+            info.start_time = system_info.system_boot_time + seconds_to_apollo(starttime / system_info.clock_ticks_per_second);
         }
         if i == 23 {
             // XXX: this is some weird value, don't think it's actually usefull
