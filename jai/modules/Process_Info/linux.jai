@@ -152,39 +152,30 @@ get_system_info :: () -> System_Info, bool {
 
     // Get system uptime
     {
-        uptime, ok := my_read_entire_file("/proc/uptime", log_errors=false);
-        assert(ok);
-        seconds_float:, ok = string_to_float(uptime);
-        assert(ok);
+        boot_time: timespec;
+        rc := clock_gettime(.CLOCK_BOOTTIME, *boot_time);
+        assert(rc == 0);
 
-        system_uptime := to_apollo(xx seconds_float);
+        // Mustn't use `timespec_to_apollo` here, because that one readjusts the
+        // origin from UNIX EPOCH to Apollo 11 landing, but `seconds_to_apollo`
+        // and friends don't readjust, and we don't want to readjust, because
+        // this value is a `Duration` actually in rust's terms, meanings it's
+        // relative to system's boot. Jai's Basic would benefit from some sort
+        // of `Duration :: #type,isa S128;` type declaration...
+        system_uptime := seconds_to_apollo(boot_time.tv_sec) + nanoseconds_to_apollo(boot_time.tv_nsec);
         current_time := current_time_consensus();
 
-        // FIXME: use sysinfo()
         result.system_boot_time = current_time - system_uptime;
-        // FIXME: use clock_gettime(CLOCK_BOOTTIME)
-        result.system_up_time_seconds = to_seconds(system_uptime);
+        result.system_up_time_seconds = boot_time.tv_sec;
     }
 
     // Get physical memory capacity
     {
-        meminfo, ok := my_read_entire_file("/proc/meminfo", log_errors=false);
-        assert(ok);
-        tail := meminfo;
-        while tail {
-            _, line:, tail = split_from_left(tail, #char "\n");
+        info: Sysinfo;
+        rc := sysinfo(*info);
+        assert(rc == 0);
 
-            prefix := "MemTotal:";
-            if !starts_with(line, prefix) continue;
-
-            line = advance(line, prefix.count);
-            line = trim_left(line);
-            value, ok, remainder := string_to_int(line, T=s64, base=10);
-            assert(ok);
-            assert(remainder == " kB", "'%'", remainder);
-
-            result.memory_capacity_bytes = value * 1024;
-        }
+        result.memory_capacity_bytes = xx (info.totalram * info.mem_unit);
     }
 
     result.clock_ticks_per_second = xx sysconf(_SC_CLK_TCK);
@@ -204,6 +195,37 @@ get_tty_name :: (tty_number: s64) -> string, bool {
     result := copy_string(to_string(p));
     return result, true;
 }
+
+//
+// sysinfo
+//
+
+#scope_file
+
+// Corresponds to `struct sysinfo` from <sys/sysinfo.h>
+Sysinfo :: struct {
+    uptime: s64;      // Seconds since boot
+    loads: [3] u64;   // 1, 5 and 15 minute load averages
+    totalram: u64;    // Total usable main memory size
+    freeram: u64;     // Available memory size
+    sharedram: u64;   // Amount of shared memory
+    bufferram: u64;   // Memory used by buffers
+    totalswap: u64;   // Total swap space size
+    freeswap: u64;    // Swap space still available
+    procs: u16;       // Number of current processes
+    pad: u16;
+    totalhigh: u64;   // Total high memory size
+    freehigh: u64;    // Available high memory size
+    mem_unit: u32;    // Memory unit size in bytes
+}
+
+sysinfo :: (info: *Sysinfo) -> s32 #foreign libc;
+
+libc :: #system_library "libc";
+
+//
+// imports
+//
 
 #import "POSIX";
 #import "My_File";

@@ -516,14 +516,7 @@ test_count_visible_characters :: () {
     assert(count_visible_characters("\e[31m[31m") == 4);
 }
 
-//
-// sysconf (unistd.h)
-//
-
 system_info: System_Info;
-
-libc :: #system_library "libc";
-sysconf :: (name: s32) -> s64 #foreign libc;
 
 #import "Basic";
 #import "Hash_Table";
