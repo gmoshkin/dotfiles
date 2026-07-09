@@ -47,8 +47,18 @@ get_process_command_line :: (pid: Pid, log_errors := false) -> (ok: bool, comman
         array_add(*result, copy_string(arg));
     }
 
-    // TODO: readlink /proc/%/exe
-    executable := "";
+    executable: string;
+
+    proc_exe := tprint("/proc/%/exe\x00", pid);
+    auto_release_temp();
+    buffer := alloc_string(4096,, temp);
+    rc := readlink(proc_exe.data, buffer.data, xx buffer.count);
+    if rc < 0 {
+        set_last_error_from_system("readlink: ");
+        executable = last_error_to_string(.NONE);
+    } else {
+        executable = copy_string(slice(buffer, 0, rc));
+    }
 
     return true, result, executable;
 }
@@ -188,12 +198,8 @@ get_system_info :: () -> System_Info, bool {
 }
 
 get_tty_name :: (tty_number: s64) -> string, bool {
-    // @Robustness: this function is NOT thread safe
-    p := devname(tty_number, S_IFCHR);
-    if !p return "", false;
-
-    result := copy_string(to_string(p));
-    return result, true;
+    log("get_tty_name is not implemented on %", OS);
+    return "", false;
 }
 
 //
@@ -232,3 +238,4 @@ libc :: #system_library "libc";
 #import "Basic";
 #import "String";
 #import "File_Utilities";
+#import "Error_Info";
