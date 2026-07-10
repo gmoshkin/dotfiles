@@ -78,7 +78,7 @@ main :: () {
     system_screen_size: Vector2;
     system_dpi: Vector2;
     #if OS == .WINDOWS {
-        user32 :: #system_library "user32";
+        user32 :: #library,system "user32";
         SetLayeredWindowAttributes :: (hwnd: Windows.HWND, crKey: u32, bAlpha: u8, dwFlags: Windows.DWORD) -> Windows.BOOL #foreign user32;
 
         style := Windows.GetWindowLongW(window, Windows.GWL_STYLE);
@@ -88,7 +88,7 @@ main :: () {
         ex_style := Windows.SetWindowLongW(window, Windows.GWL_EXSTYLE, Windows.WS_EX_LAYERED);
 
         // Requires win8+
-        shcore :: #system_library "Shcore";
+        shcore :: #library,system "Shcore";
         GetDpiForMonitor :: (m: Windows.HMONITOR, t: Windows.MONITOR_DPI_TYPE, dpiX: *u32, dpiY: *u32) -> Windows.HRESULT #foreign shcore;
 
         dpi_x, dpi_y: u32;

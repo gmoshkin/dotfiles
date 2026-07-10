@@ -150,7 +150,7 @@ file_stdin :: () -> File {
         return File.{ handle };
     } else {
         #import "POSIX";
-        libc :: #system_library "libc";
+        libc :: #library,system "libc";
         fdopen :: (fd: s32, mode: *u8) -> *FILE #foreign libc;
 
         handle := fdopen(STDIN_FILENO, "r");

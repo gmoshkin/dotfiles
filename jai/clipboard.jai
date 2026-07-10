@@ -1,6 +1,6 @@
 main :: () {
     #if OS == .WINDOWS {
-        Crt :: #system_library "msvcrt";
+        Crt :: #library,system "msvcrt";
         _isatty :: (fd: s32) -> s32 #foreign Crt;
 
         piped_input := !_isatty(0);
@@ -77,7 +77,7 @@ file_stdin :: () -> File {
         return File.{ handle };
     } else {
         #import "POSIX";
-        libc :: #system_library "libc";
+        libc :: #library,system "libc";
         fdopen :: (fd: s32, mode: *u8) -> *FILE #foreign libc;
 
         handle := fdopen(STDIN_FILENO, "r");

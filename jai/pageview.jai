@@ -7464,7 +7464,7 @@ window_size_changed_signal_handler :: (signal: s32) #c_call #no_context {
     window_size_changed = true;
 }
 
-libc :: #system_library "libc";
+libc :: #library,system "libc";
 
 strerror :: (code: u32) -> *u8 #foreign libc;
 

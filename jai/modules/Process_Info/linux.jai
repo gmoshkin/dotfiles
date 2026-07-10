@@ -227,7 +227,7 @@ Sysinfo :: struct {
 
 sysinfo :: (info: *Sysinfo) -> s32 #foreign libc;
 
-libc :: #system_library "libc";
+libc :: #library,system "libc";
 
 //
 // imports

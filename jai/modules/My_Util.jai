@@ -1046,7 +1046,7 @@ rgb_to_hsv :: (r: float, g: float, b: float) -> (h: float, s: float, v: float) {
 #scope_module
 
 #if OS == .LINUX {
-    libc :: #system_library "libc";
+    libc :: #library,system "libc";
     sysconf :: (name: s32) -> s64 #foreign libc;
 }
 

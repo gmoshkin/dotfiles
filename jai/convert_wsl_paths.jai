@@ -170,7 +170,7 @@ read_all_available_data :: (fd: s32, builder: *String_Builder) -> (success: bool
 
 strerror :: (code: u32) -> *u8 #foreign libc;
 
-libc :: #system_library "libc";
+libc :: #library,system "libc";
 
 #import "Basic";
 #import "POSIX";

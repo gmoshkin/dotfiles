@@ -171,7 +171,7 @@ get_stack_trace :: (result: *[..] Stack_Trace_Node, skip := 1) {
     my_get_error_string :: (error_code: OS_Error_Code) -> string {
         error_buffer: [1024] u8;
 
-        libc :: #system_library "libc";
+        libc :: #library,system "libc";
         #if OS == .LINUX {
             // GLIBC uses special preprocessor macros to switch to this so-called XSI-compliant implementation.
             // The man pages say that this version of strerror_r is preferred for portable applications,
