@@ -899,6 +899,11 @@ segment_current_path :: () -> string, Attr {
 }
 
 battery :: () -> string, Attr {
+    #if OS == .MACOS {
+        macos_text, macos_attr := battery_macos();
+        return macos_text, macos_attr;
+    }
+
     bat := "/sys/class/power_supply/BAT0";
     exists := file_exists(bat);
     if !exists {
@@ -942,6 +947,52 @@ battery :: () -> string, Attr {
     return tprint("♥ %1%2", cast(int) percentage, status), .{ "white", "red" };
 }
 
+#if OS == .MACOS {
+
+battery_macos :: () -> string, Attr {
+    // Query the power sources through IOKit. This is the same information
+    // `pmset -g batt` prints, but without spawning a subprocess.
+    blob := IOPSCopyPowerSourcesInfo();
+    if !blob return "", .{}; // No power management, nothing to show
+    defer CFRelease(blob);
+
+    list := IOPSCopyPowerSourcesList(blob);
+    if !list return "", .{};
+    defer CFRelease(list);
+
+    count := CFArrayGetCount(list);
+    if count <= 0 return "", .{}; // Desktop, no battery
+
+    // Just use the first power source (laptops have a single internal battery)
+    ps := CFArrayGetValueAtIndex(list, 0);
+    desc := IOPSGetPowerSourceDescription(blob, ps);
+    if !desc return "", .{};
+
+    ok, current := cf_dictionary_get_value(desc, "Current Capacity", s32,, temp);
+    Check_Ok(ok);
+
+    ok=, max := cf_dictionary_get_value(desc, "Max Capacity", s32,, temp);
+    Check_Ok(ok);
+    Check_Ok((max > 0));
+
+    ok=, is_charging := cf_dictionary_get_value(desc, "Is Charging", bool,, temp);
+
+    ok=, source_state := cf_dictionary_get_value(desc, "Power Source State", string,, temp);
+    Check_Ok(ok);
+
+    status := "";
+    if is_charging {
+        status = " ↑";
+    } else if source_state == "Battery Power" {
+        status = " ↓";
+    }
+
+    percentage := 100 * (cast(float) current) / max;
+    return tprint("♥ %1%2", cast(int) percentage, status), .{ "white", "red" };
+}
+
+}
+
 date_time :: () -> string, Attr {
     sb: String_Builder;
     time := to_calendar(current_time_consensus(), .LOCAL);
@@ -964,12 +1015,71 @@ f2 :: (v: int) -> FormatInt #expand {
 }
 
 cpu_temperature :: () -> string, Attr {
+    #if OS == .MACOS {
+        text, attr := cpu_temperature_macos();
+        return text, attr;
+    }
+
     // @Incomplete this only works on my machine
     info := get_temperature("x86_pkg_temp");
     if !info return "", .{ "black", "black" };
 
     degree := info[0].millidegree / 1000;
     return tprint("%°", f2(degree)), .{ color_from_degrees(degree, false), "black" };
+}
+
+#if OS == .MACOS {
+
+// CPU/SoC temperature via the private IOHIDEventSystemClient thermal-sensor
+// API (same source `powermetrics`/`macmon` use, no root required). We iterate
+// every HID service, ask each for a temperature event, and average the die
+// ("tdie") sensors.
+cpu_temperature_macos :: () -> string, Attr {
+    off :: Attr.{ "black", "black" };
+
+    client := IOHIDEventSystemClientCreate(null);
+    if !client return "", off;
+    defer CFRelease(client);
+
+    services := IOHIDEventSystemClientCopyServices(client);
+    if !services return "", off;
+    defer CFRelease(services);
+
+    product_key := cfstring_from_string("Product");
+    defer CFRelease(product_key);
+
+    count := CFArrayGetCount(services);
+
+    sum: float64;
+    n := 0;
+    for 0..count-1 {
+        service := CFArrayGetValueAtIndex(services, it);
+
+        event := IOHIDServiceClientCopyEvent(service, kIOHIDEventTypeTemperature, 0, 0);
+        if !event continue;
+        defer CFRelease(event);
+
+        temperature := IOHIDEventGetFloatValue(event, kIOHIDEventFieldTemperature);
+        if temperature <= 0 || temperature >= 150 continue; // Skip uninitialised/bogus sensors
+
+        // Die-temperature ("tdie") sensors only; the rest are calibration,
+        // battery gas-gauge, NAND, etc. and would skew the average.
+        value := IOHIDServiceClientCopyProperty(service, product_key);
+        if !value continue;
+        defer CFRelease(value);
+
+        if !contains(to_string(value.(CFStringRef),, temp), "tdie") continue;
+
+        sum += temperature;
+        n += 1;
+    }
+
+    if n == 0 return "", off;
+
+    degree := cast(int)(sum / n);
+    return tprint("%°", f2(degree)), .{ color_from_degrees(degree, false), "black" };
+}
+
 }
 
 cpu_frequency :: () -> string, Attr {
@@ -1059,6 +1169,74 @@ get_host_color :: () -> string {
     return _host_color;
 }
 
+//
+// macos crap
+//
+
+#if OS == .MACOS {
+
+cf_dictionary_get_value :: (dict: *void, key: string, $T: Type) -> bool, T {
+    result: T = ---;
+
+    key_ref := cfstring_from_string(key);
+    value := CFDictionaryGetValue(dict, key_ref);
+    if !value return false, result;
+
+    value_type := CFGetTypeID(value);
+
+    #if #run is_integer_type(T) {
+        if value_type != CFNumberGetTypeID() return false, result;
+
+        ok := CFNumberGetValue(value, xx number_type(T), *result);
+        return ok, result;
+    }
+
+    #if T == bool {
+        if value_type != CFBooleanGetTypeID() return false, result;
+
+        return true, CFBooleanGetValue(value);
+    }
+
+    #if T == string {
+        if value_type != CFStringGetTypeID() return false, result;
+
+        return true, to_string(value.(CFStringRef));
+    }
+}
+
+number_type :: ($T: Type) -> kCFNumber
+#modify {
+    return T == s8 || T == s16 || T == s32 || T == s64 || T == float32 || T == float64;
+} {
+    #if T == s8      return .SInt8Type;
+    #if T == s16     return .SInt16Type;
+    #if T == s32     return .SInt32Type;
+    #if T == s64     return .SInt64Type;
+    #if T == float32 return .Float32Type;
+    #if T == float64 return .Float64Type;
+}
+
+IOPSCopyPowerSourcesInfo      :: () -> *void #foreign IOKit;
+IOPSCopyPowerSourcesList      :: (blob: *void) -> *void #foreign IOKit;
+IOPSGetPowerSourceDescription :: (blob: *void, ps: *void) -> *void #foreign IOKit;
+
+kIOHIDEventTypeTemperature :: 15;
+kIOHIDEventFieldTemperature :: kIOHIDEventTypeTemperature << 16;
+
+IOHIDEventSystemClientCreate       :: (allocator: *void) -> *void #foreign IOKit;
+IOHIDEventSystemClientCopyServices :: (client: *void) -> *void #foreign IOKit;
+IOHIDServiceClientCopyProperty     :: (service: *void, key: *void) -> *void #foreign IOKit;
+IOHIDServiceClientCopyEvent        :: (service: *void, type: s64, options: s32, timeout: s64) -> *void #foreign IOKit;
+IOHIDEventGetFloatValue            :: (event: *void, field: s32) -> float64 #foreign IOKit;
+
+IOKit          :: #library,system "IOKit";
+CoreFoundation :: #library,system "CoreFoundation";
+
+}
+
+//
+// imports
+//
 
 #import "Basic";
 #import "String";
@@ -1073,3 +1251,4 @@ get_host_color :: () -> string {
 #import "My_Logger";
 #import "Sort";
 #import "POSIX";
+#if OS == .MACOS #import "macOS";
