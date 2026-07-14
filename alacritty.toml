@@ -141,5 +141,10 @@ chars = "\u001bt"
 
 [[keyboard.bindings]]
 mods = "Command"
+key = "n"
+chars = "\u001bt"
+
+[[keyboard.bindings]]
+mods = "Command"
 key = "."
 chars = "\u001b."
