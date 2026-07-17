@@ -1,0 +1,16 @@
+[Unit]
+Description=STHP Socks To Http Proxy
+Requires=ssh-socks-proxy.service
+After=ssh-socks-proxy.service
+
+[Service]
+User=gmoshkin
+Environment="RUST_LOG=info"
+ExecStart=/home/gmoshkin/.cargo/bin/sthp \
+    -p 8080 \
+    -s 127.0.0.1:1080
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

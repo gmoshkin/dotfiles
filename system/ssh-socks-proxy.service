@@ -1,5 +1,5 @@
 [Unit]
-Description=Reverse SSH tunnel
+Description=SSH Socks Proxy
 After=network-online.target
 Wants=network-online.target
 
@@ -9,7 +9,8 @@ ExecStart=/usr/bin/ssh -N \
     -o "ServerAliveInterval=30" \
     -o "ServerAliveCountMax=3" \
     -o "ExitOnForwardFailure=yes" \
-    -R 2223:localhost:22 ssh-reverse-proxy
+    -D 1080 \
+    ssh-socks-proxy
 Restart=always
 RestartSec=10
 
