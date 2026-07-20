@@ -99,7 +99,13 @@ appendToPath "$HOME/code/table-driven-testing-tool/target/debug"
 prependToPath "$HOME/gocode/bin"
 appendToPath "$HOME/.rocks/bin"
 prependToPath "/opt/homebrew/opt/llvm/bin"
+
+# On macos homebrew is added to the PAHT automatically through
+# /etc/paths.d/homebrew -> /usr/libexec/path_helper -> /etc/zprofile and it goes
+# after /usr/bin/, but I wanted it before so that `git` refers to the one from homebrew
+export PATH="$(echo $PATH | sed 's/:\/opt\/homebrew\/bin//')"
 prependToPath "/opt/homebrew/bin"
+
 prependToPath "$HOME/.nimble/bin"
 prependToPath "$HOME/.cargo-target/release"
 prependToPath "$HOME/.cargo-target/debug"
