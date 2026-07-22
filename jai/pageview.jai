@@ -4359,7 +4359,7 @@ handle_input_event :: (_event: Input_Event) {
             }
             event.kind = .HANDLED;
         case .MOUSE_WHEEL_LEFT;
-            col_offset -= 8;
+            if col_offset > 0 then col_offset = max(col_offset - 8, 0);
             event.kind = .HANDLED;
         case .MOUSE_WHEEL_RIGHT;
             col_offset += 8;
