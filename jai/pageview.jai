@@ -114,6 +114,7 @@ State :: struct #type_info_no_size_complaint {
     input_cursor: s64;
     mouse_position := Cell_Position.{ -1, -1 };
     delayed_actions: [..] Delayed_Action;
+    print_buffer_on_exit: bool;
 
     // I need to render the cursor at the very end, but it's position is
     // determined a bit earlier, so I store it in the state.
@@ -813,7 +814,6 @@ main :: () {
     if gotta_reattach_stdin {
         using context.state;
 
-        print("Reading input from standard input...\n");
         log("Reading input from standard input...\n");
 
         my_pid := getpid();
@@ -1317,6 +1317,12 @@ main :: () {
         display_external_command(*builder, state.command);
         print(*builder, "\n");
         write_builder(*builder);
+    }
+
+    if state.print_buffer_on_exit && state.main_window_buffer_history {
+        using context.state;
+        main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
+        write_string(main_window_buffer.raw_text_and_control_codes);
     }
 }
 
@@ -4382,8 +4388,9 @@ handle_input_event :: (_event: Input_Event) {
 
     if input_mode == {
         case .NAVIGATE;
-            if (event.kind == .CHARACTER) && (event.char == #char "q") {
+            if (event.kind == .CHARACTER) && (event.char == "q" || event.char == "Q") {
                 should_exit = true;
+                print_buffer_on_exit = (event.char == "Q");
             }
             if !main_window_buffer return;
             if event.kind == {
