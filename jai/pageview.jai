@@ -9,6 +9,14 @@
 
   - set window name on start
 
+  -FEATURE: sort output
+    - motivation:
+        `du -hs * | pageview --sort`
+        du runs long, if you pipe to `sort -h` directly you don't see anything
+        until all output is ready. So use `pageview --sort` to always print the
+        available portion in sorted order and update the sorted order after each
+        added line (batch of lines)
+
   - @BUG @scrollbar slider is wrong at the bottom of the screen!!!
 
   - IMPROVEMENT: scrollbar @text_search matches use braille or digits or something else to
@@ -487,6 +495,8 @@ Window_Buffer :: struct {
     only_text: string; // points into `only_text_storage`
 
     line_offsets: [..] s64; // offsets into `only_text`
+    // TODO: when parsing the window buffer source, after each line add update this array in a sorted manner.
+    sorted_line_offsets: [..] s64; // same as `line_offsets` but different order
     max_line_length: s64;
 
     control_codes: [..] Control_Code_Info; // offsets into `only_text`, data into `raw_text_and_control_codes`
