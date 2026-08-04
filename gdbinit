@@ -5,10 +5,10 @@ set print pretty on
 set follow-fork-mode parent
 set disassembly-flavor intel
 
-source ~/dotfiles/gdbinit-gef.py
+# source ~/dotfiles/gdbinit-gef.py
 
 handle SIGALRM ignore noprint
-gef config context.layout "legend threads trace regs stack code args source memory extra"
+# gef config context.layout "legend threads trace regs stack code args source memory extra"
 
 shell if [ ! -f ~/.gdbinit.local ]; then touch ~/.gdbinit.local; fi
 source ~/.gdbinit.local
