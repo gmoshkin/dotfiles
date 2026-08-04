@@ -928,7 +928,7 @@ pretty_assert :: (code: Code, loc := #caller_location) #expand {
         builder : String_Builder;
         builder.allocator = temporary_allocator;
 
-        print_to_builder(*builder, "(%) = (% ", full_expr, #insert lhs);
+        print_to_builder(*builder, "(%) :: (% ", full_expr, #insert lhs);
 
         if op_type < 128 {
             append(*builder, cast(u8) op_type);
@@ -936,15 +936,15 @@ pretty_assert :: (code: Code, loc := #caller_location) #expand {
             append(*builder, operator_to_string(xx op_type));
         }
 
-        print_to_builder(*builder, " %) = false", #insert rhs);
+        print_to_builder(*builder, " %) :: false", #insert rhs);
         message = builder_to_string(*builder,, temporary_allocator);
     } else #if kind == .PROCEDURE_CALL {
         l := tprint("%", #insert lhs);
         r := tprint("%", #insert rhs);
         if l.count > 40 {
-            message = tprint("(\n    %\n) = (\n    %(\n        %,\n        %\n    )\n) = false", full_expr, proc_expr, #insert lhs, #insert rhs);
+            message = tprint("(\n    %\n) :: (\n    %(\n        %,\n        %\n    )\n) :: false", full_expr, proc_expr, #insert lhs, #insert rhs);
         } else {
-            message = tprint("(%) = (%(%, %)) = false", full_expr, proc_expr, #insert lhs, #insert rhs);
+            message = tprint("(%) :: (%(%, %)) :: false", full_expr, proc_expr, #insert lhs, #insert rhs);
         }
     } else {
         message = tprint("(%) = false", full_expr);

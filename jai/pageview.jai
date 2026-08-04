@@ -9,14 +9,6 @@
 
   - set window name on start
 
-  -FEATURE: sort output
-    - motivation:
-        `du -hs * | pageview --sort`
-        du runs long, if you pipe to `sort -h` directly you don't see anything
-        until all output is ready. So use `pageview --sort` to always print the
-        available portion in sorted order and update the sorted order after each
-        added line (batch of lines)
-
   - @BUG @scrollbar slider is wrong at the bottom of the screen!!!
 
   - IMPROVEMENT: scrollbar @text_search matches use braille or digits or something else to
@@ -90,6 +82,9 @@ State :: struct #type_info_no_size_complaint {
     // it doesnt jump over the whole screen if a line is too long)
     wrapped_line_offset: s64;
     line_wrapping := false;
+    sorted_view := false;
+    reverse_view := false;
+    sorted_view_human_numbers := true;
     strip_control_codes := false;
     line_numberring := false;
     show_memory_usage := false;
@@ -497,7 +492,7 @@ Window_Buffer :: struct {
 
     line_offsets: [..] s64; // offsets into `only_text`
     // TODO: when parsing the window buffer source, after each line add update this array in a sorted manner.
-    sorted_line_offsets: [..] s64; // same as `line_offsets` but different order
+    sorted_line_indexes: [..] s64; // @sorted_view a permutation of indexes of array `line_offsets`
     max_line_length: s64;
 
     control_codes: [..] Control_Code_Info; // offsets into `only_text`, data into `raw_text_and_control_codes`
@@ -581,9 +576,6 @@ main :: () {
 
     context.print_style.struct_printer = my_struct_printer;
     context.print_style.struct_printer_data = my_struct_printer_data;
-
-    // test_get_next_control_code_in_range();
-    // return;
 
     args := get_command_line_arguments();
 
@@ -674,6 +666,23 @@ main :: () {
             case "--wrap"; #through;
             case "--wrap-lines";
                 state.line_wrapping = true;
+
+            case "-s"; #through;
+            case "--sort"; #through;
+            case "--sorted-view";
+                state.sorted_view = true;
+                state.reverse_view = true;
+
+            case "-r"; #through;
+            case "--reverse";
+                state.reverse_view = true;
+
+            case "-R"; #through;
+            case "--no-reverse";
+                state.reverse_view = false;
+
+            case "--no-human-sort";
+                state.sorted_view_human_numbers = false;
 
             case "-l"; #through;
             case "--log";
@@ -1114,7 +1123,10 @@ main :: () {
                     // TODO: read stderr and update it interactively
                 case .EXTERNAL_COMMAND; #through;
                 case .PIPED_INPUT;
-                    if main_window_render_requested || last_shown_line_buffer.count == 0 {
+                    if main_window_render_requested
+                        // FIXME .
+                        // || last_shown_line_buffer.count == 0
+                    {
                         // log("last_shown_line_buffer.count: %", last_shown_line_buffer.count);
                         line_buffer = build_line_buffer_for_main_window(main_window_buffer);
                         main_window_render_requested = false;
@@ -1322,7 +1334,22 @@ main :: () {
     if state.print_buffer_on_exit && state.main_window_buffer_history {
         using context.state;
         main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
-        write_string(main_window_buffer.raw_text_and_control_codes);
+
+        if sorted_view {
+            builder: String_Builder;
+            builder.allocator = temp;
+
+            using main_window_buffer;
+            // FIXME: color not supported...
+            for line_index: sorted_line_indexes {
+                line := line_in_only_text(main_window_buffer, line_index);
+                append(*builder, line);
+                append(*builder, "\n");
+            }
+            write_builder(*builder);
+        } else {
+            write_string(main_window_buffer.raw_text_and_control_codes);
+        }
     }
 }
 
@@ -1419,40 +1446,58 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
     search_matches: [..] Pointer_Range; // in current line
     search_matches.allocator = temp;
 
+    Setup_Line :: (range: *Range, line_index: int) -> (start: int, count: int, line_number: int) #expand {
+        line_start := range.start;
+        line_end   := range.start + range.count;
+
+        cursor := line_index;
+        while (cursor >= 0) && (`line_offsets[cursor] > line_start) cursor -= 1;
+        line_number := cursor + 1;
+
+        range.count = 0;
+        return line_start, line_end, line_number;
+    }
+
     // Preprocess lines to be displayed
     while line_buffer.count < main_window_height || (line_wrapping && stick_to_the_bottom) {
         if line_index > line_offsets.count - 1 break;
-        line_start := line_offsets[line_index];
-        line_end := ifx line_index < line_offsets.count - 1 then line_offsets[line_index + 1] - 1 else only_text.count;
-        current_line_number = line_index + 1;
 
-        Setup_Line :: (range: *Range, line_index: int) -> (start: int, count: int, line_number: int) #expand {
-            line_start := range.start;
-            line_end   := range.start + range.count;
+        line: string;
+        if sorted_view {
+            if line_index > sorted_line_indexes.count - 1 break;
 
-            cursor := line_index;
-            while (cursor >= 0) && (`line_offsets[cursor] > line_start) cursor -= 1;
-            line_number := cursor + 1;
+            // @sorted_view
+            effective_line_index := ifx reverse_view then sorted_line_indexes[sorted_line_indexes.count - 1 - line_index]
+                                                            else sorted_line_indexes[line_index];
+            line = line_in_only_text(window_buffer, effective_line_index);
+            current_line_number = effective_line_index + 1;
+        } else if reverse_view {
+            // NOTE: no @diff_headers in @reverse_view
+            effective_line_index := line_offsets.count - 1 - line_index;
 
-            range.count = 0;
-            return line_start, line_end, line_number;
-        }
+            line = line_in_only_text(window_buffer, effective_line_index);
+            current_line_number = effective_line_index + 1;
+        } else {
+            line_start, line_end := line_range_in_only_text(window_buffer, line_index);
+            current_line_number = line_index + 1;
 
-        // @diff_headers
-        // FIXME: this doesn't work because the previous hunk overwrites the
-        // next diff. Gotta figure out the `second_to_last_diff` thing, i.e.
-        // make it work in the generic case??...
-        // if last_commit.count {
-        //     line_start, line_end, current_line_number = Setup_Line(*last_commit, row_offset);
-        // } else
-        if last_diff.count {
-            line_start, line_end, current_line_number = Setup_Line(*last_diff, row_offset);
-        } else if last_hunk.count {
-            line_start, line_end, current_line_number = Setup_Line(*last_hunk, row_offset);
+            // @diff_headers
+            // FIXME: this doesn't work because the previous hunk overwrites the
+            // next diff. Gotta figure out the `second_to_last_diff` thing, i.e.
+            // make it work in the generic case??...
+            // if last_commit.count {
+            //     line_start, line_end, current_line_number = Setup_Line(*last_commit, row_offset);
+            // } else
+            if last_diff.count {
+                line_start, line_end, current_line_number = Setup_Line(*last_diff, row_offset);
+            } else if last_hunk.count {
+                line_start, line_end, current_line_number = Setup_Line(*last_hunk, row_offset);
+            }
+
+            line = substring(xx only_text, line_start, line_end);
         }
 
         defer line_index += 1;
-        line := substring(xx only_text, line_start, line_end);
 
         current_row_left_offset = main_window_left_offset;
 
@@ -1581,7 +1626,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
                 }
             }
 
-            select_word_delayed(window_buffer, visible_slice, *codes);
+            if visible_slice select_word_delayed(window_buffer, visible_slice, *codes);
 
             if visible_slice {
                 // Build the line string
@@ -3725,7 +3770,7 @@ parse_raw_text_and_control_codes :: (using window_buffer: *Window_Buffer) {
         // TODO: it should be pretty simple to stop this process once I know I'm
         // not looking at this. Though search would need to call this function
         // when it determines that there's unparsed text.
-        found:, line:, tail = split_from_left(tail, #char "\n");
+        found_end_line:, line:, tail = split_from_left(tail, #char "\n");
 
         max_line_length = max(max_line_length, line.count);
 
@@ -3816,19 +3861,26 @@ parse_raw_text_and_control_codes :: (using window_buffer: *Window_Buffer) {
             }
         }
 
-        if found {
+        if found_end_line {
             inline array_add(*only_text_storage, #char "\n");
 
             // At this point it would probably be cleaner to use find_index_from_left instead of split_from_left...
             pointer_to_start_of_next_line := line.data + line.count + 1;
             last_line_offset_in_raw_text = pointer_to_start_of_next_line - raw_text_and_control_codes.data;
 
-            line_start := last(line_offsets);
+            // We add the next line's offset at the end of handling the current line
+            line_index := line_offsets.count - 1;
+            line_start := line_offsets[line_index];
+
             array_add(*line_offsets, only_text_storage.count);
 
             line_length := only_text_storage.count - line_start - 1;
             only_text_line := array_view(only_text_storage, line_start, line_length);
-            if starts_with(xx only_text_line, "commit ") { // @diff_headers
+
+            //
+            // @diff_headers
+            //
+            if starts_with(xx only_text_line, "commit ") {
                 array_add(*diff_markers, .{xx line_start, xx line_length});
             }
             diff_marker := starts_with(xx only_text_line, "diff --git");
@@ -3839,12 +3891,18 @@ parse_raw_text_and_control_codes :: (using window_buffer: *Window_Buffer) {
             if (flags & .DIFF_MARKERS && starts_with(xx only_text_line, "@@ ")) {
                 array_add(*diff_markers, .{xx line_start, xx line_length});
             }
-        } else {
+        }
+
+        if !found_end_line {
             break;
         }
     }
 
     only_text = xx only_text_storage;
+
+    // @sorted_view
+    sorted_view_handle_new_lines(window_buffer);
+
     // @Robustness: This is currently broken in a rare case when parsing a stream repeatedly
     //              if the last piece is only empty lines after some empty lines
     // line_offsets.count -= last_empty_lines_count;
@@ -3905,6 +3963,23 @@ scroll_string_with_control_codes :: (builder: *String_Builder, scrolling_text: s
             break;
         }
     }
+}
+
+//
+// window buffer stuff
+//
+
+line_range_in_only_text :: (using window_buffer: *Window_Buffer, line_index: s64) -> (line_start: s64, line_end: s64) {
+    line_start := line_offsets[line_index];
+    line_end := ifx line_index < line_offsets.count - 1 then line_offsets[line_index + 1] - 1
+                                                        else only_text.count;
+    return line_start, line_end;
+}
+
+line_in_only_text :: (using window_buffer: *Window_Buffer, line_index: s64) -> string {
+    line_start, line_end := inline line_range_in_only_text(window_buffer, line_index);
+    line := slice(only_text, line_start, line_end - line_start);
+    return line;
 }
 
 //
@@ -4975,15 +5050,7 @@ maybe_update_search_matches :: (window_buffer: *Window_Buffer) {
         }
         defer line_index += 1;
 
-        // TODO: factor this out into a procedure
-        line_start := window_buffer.line_offsets[line_index];
-        line_end: s64;
-        if line_index < window_buffer.line_offsets.count - 1 {
-            line_end = window_buffer.line_offsets[line_index + 1] - 1;
-        } else {
-            line_end = window_buffer.only_text.count;
-        }
-        line := substring(xx window_buffer.only_text, line_start, line_end);
+        line := line_in_only_text(window_buffer, line_index);
 
         // TODO: case-insensitive matching
         offset_in_line := find_index_from_left(line, search.search_string);
@@ -5462,6 +5529,10 @@ init_commands :: () {
         array_add(*console_commands, make_command("line_numberring", make_toggle("line_numberring")));
         array_add(*console_commands, make_command("wrap_lines", make_toggle("line_wrapping")));
         array_add(*console_commands, make_command("line_wrapping", make_toggle("line_wrapping")));
+        array_add(*console_commands, make_command("sorted_view", make_toggle("sorted_view")));
+        array_add(*console_commands, make_command("reverse", make_toggle("reverse_view")));
+        // @Incomplete TODO: must resort the whole buffer when toggling this parameter
+        array_add(*console_commands, make_command("sorted_view_human_numbers", make_toggle("sorted_view_human_numbers")));
         array_add(*console_commands, make_command("visualize_control_codes", make_toggle("visualize_control_codes")));
         array_add(*console_commands, make_command("party_time", make_toggle("party_time")));
         array_add(*console_commands, make_command("current_shown_buffer_number", set_current_shown_buffer_index));
@@ -6593,6 +6664,229 @@ scrollbar_search_matches_handle_window_resize :: () {
 }
 
 //
+// @sorted_view
+//
+
+sorted_view_handle_new_lines :: (using window_buffer: *Window_Buffer) {
+    to_sort := line_offsets.count - sorted_line_indexes.count;
+    if to_sort <= 0 return;
+
+    line_index := sorted_line_indexes.count;
+    line_index_end := line_offsets.count - 1;
+
+    // First don't add trailing empty lines to sorted view, because sorting
+    // them will put them in the front, which is dumb
+    while line_index_end >= line_index {
+        line_start, line_end := line_range_in_only_text(window_buffer, line_index_end);
+        if line_start != line_end break;
+        line_index_end -= 1;
+    }
+
+    Do_Sorted_View :: ($do_human: bool) #expand {
+        compare :: #bake_arguments compare_window_buffer_line(do_human=do_human);
+
+        while line_index <= line_index_end {
+            defer line_index += 1;
+            only_text_line := line_in_only_text(window_buffer, line_index);
+            i := binary_search(window_buffer.sorted_line_indexes, only_text_line, compare, window_buffer);
+            array_insert_at(*window_buffer.sorted_line_indexes, item=line_index, index=i);
+        }
+    }
+
+    if context.state.sorted_view_human_numbers {
+        Do_Sorted_View(true);
+    } else {
+        Do_Sorted_View(false);
+    }
+}
+
+compare_window_buffer_line :: (window_buffer: *Window_Buffer, line_a: string, line_index_b: *s64, $do_human := false) -> int {
+    line_b := line_in_only_text(window_buffer, line_index_b.*);
+    return compare_strings(line_a, line_b, do_human=do_human);
+}
+
+// Stolen from modules/Sort.jai
+compare_strings :: (_a: string, _b: string, $do_human := false) -> s64 {
+    a, b := _a, _b;
+    while a && inline is_space(a[0]) advance(*a);
+    while b && inline is_space(b[0]) advance(*b);
+
+    #if do_human {
+        a_ok, a_size := parse_human_readable_memory_size(a);
+        b_ok, b_size := parse_human_readable_memory_size(b);
+
+        if a_ok {
+            if b_ok {
+                return a_size - b_size;
+            } else {
+                return -1;
+            }
+        } else if b_ok {
+            return 1;
+        } else {
+            // fall through
+        }
+    }
+
+    for 0..a.count-1 {
+        if it >= b.count return 1;
+
+        delta := cast(s64) a[it] - cast(s64) b[it];
+        if delta return delta;
+    }
+
+    if b.count > a.count return -1;
+    return 0;
+}
+
+//
+// binary search
+//
+
+default_compare_proc :: (data: *void, a: *$V, b: *$T) -> int {
+    return a.* - b.*;
+}
+
+binary_search :: inline (array: [] $T, value: $V, $compare_proc: (*$D, *V, *T) -> int = default_compare_proc, compare_data: *D = null) -> int {
+    return binary_search(array, *value, compare_proc, compare_data);
+}
+
+binary_search :: (array: [] $T, value: $V, $compare_proc: (*$D, V, *T) -> int, compare_data: *D = null) -> int {
+    bottom := 0;
+    top := array.count;
+    t: int;
+    last_i := -1;
+    while true {
+        if top == bottom return top;
+
+        half_window := (top - bottom) / 2;
+        i := bottom + half_window;
+
+        if i != last_i then t = compare_proc(compare_data, value, *array[i]);
+        if t == 0 return i;
+        last_i = i;
+
+        if half_window == 0 {
+            return ifx t < 0 then i else i + 1;
+        }
+
+        if t < 0 {
+            top -= half_window;
+        } else {
+            bottom += half_window;
+        }
+    }
+
+    assert(false, "unreachable");
+    return 0;
+}
+
+array_add_ordered :: (array: *[..] $T, value: T, $compare_proc: (*$V, *T, *T) -> int = default_compare_proc, compare_data: *V = null) {
+    i := binary_search(array.*, *value, compare_proc, compare_data);
+    array_insert_at(array, value, i);
+}
+
+test_binary_search :: () {
+    {
+        array := int.[];
+        i := binary_search(array, 10);
+        pretty_assert(i == 0);
+    }
+    {
+        array := int.[1];
+        i: int;
+        i = binary_search(array, 1);
+        pretty_assert(i == 0);
+        i = binary_search(array, 2);
+        pretty_assert(i == 1);
+    }
+    {
+        array := int.[1, 2, 3];
+        i: int;
+        i = binary_search(array, 0);
+        pretty_assert(i == 0);
+        i = binary_search(array, 1);
+        pretty_assert(i == 0);
+        i = binary_search(array, 2);
+        pretty_assert(i == 1);
+        i = binary_search(array, 3);
+        pretty_assert(i == 2);
+        i = binary_search(array, 4);
+        pretty_assert(i == 3);
+    }
+    {
+        array := int.[1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        i: int;
+        i = binary_search(array, 0);
+        pretty_assert(i == 0);
+        i = binary_search(array, 3);
+        pretty_assert(i == 2);
+        i = binary_search(array, 7);
+        pretty_assert(i == 6);
+        i = binary_search(array, 9);
+        pretty_assert(i == 8);
+        i = binary_search(array, 11);
+        pretty_assert(i == 10);
+    }
+    {
+        array: [..] int;
+        array_add_ordered(*array, 6);
+        array_add_ordered(*array, 3);
+        array_add_ordered(*array, 8);
+        array_add_ordered(*array, 4);
+        array_add_ordered(*array, 1);
+        array_add_ordered(*array, 0);
+        array_add_ordered(*array, 7);
+        array_add_ordered(*array, 2);
+        array_add_ordered(*array, 5);
+        array_add_ordered(*array, 9);
+        pretty_assert(array_equals(array, int.[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]));
+    }
+    {
+        array: [..] int;
+        compare :: (_: *void, a: *int, b: *int) -> int {
+            return b.* - a.*;
+        }
+        array_add_ordered(*array, 6, compare);
+        array_add_ordered(*array, 3, compare);
+        array_add_ordered(*array, 8, compare);
+        array_add_ordered(*array, 4, compare);
+        array_add_ordered(*array, 1, compare);
+        array_add_ordered(*array, 0, compare);
+        array_add_ordered(*array, 7, compare);
+        array_add_ordered(*array, 2, compare);
+        array_add_ordered(*array, 5, compare);
+        array_add_ordered(*array, 9, compare);
+        pretty_assert(array_equals(array, int.[9, 8, 7, 6, 5, 4, 3, 2, 1, 0]));
+    }
+    {
+        lines := string.[
+            "banana", "apple", "orange", "pineapple", "watermelon", "tomato", "pear", "plum", "apricot",
+        ];
+        sorted_indexes: [..] int;
+
+        compare :: (lines: *[] string, index_a: *int, index_b: *int) -> int {
+            line_a := lines.*[index_a.*];
+            line_b := lines.*[index_b.*];
+            return compare_strings(line_a, line_b);
+        }
+
+        for 0..lines.count-1 {
+            array_add_ordered(*sorted_indexes, it, compare, *cast([] string) lines);
+        }
+        pretty_assert(array_equals(sorted_indexes, int.[1, 8, 0, 2, 6, 3, 7, 5, 4]));
+
+        sorted_lines: [..] string;
+        for sorted_indexes {
+            array_add(*sorted_lines, lines[it]);
+        }
+        pretty_assert(array_equals(sorted_lines, string.[
+            "apple", "apricot", "banana", "orange", "pear", "pineapple", "plum", "tomato", "watermelon",
+        ]));
+    }
+}
+
+//
 // @style and ansi escape sequences
 //
 
@@ -7419,6 +7713,76 @@ print_human_readable_memory_size :: (builder: *String_Builder, size_in_bytes: s6
     return;
 }
 
+parse_human_readable_memory_size :: (input: string) -> (ok: bool, size_in_bytes: s64) {
+    ok, size, tail := string_to_float64_new(input);
+    if !ok return false, -1;
+    if !tail return true, xx size;
+
+    c := tail[0];
+    c = inline to_upper(c);
+    if c == {
+    case "B"; return true, xx size;
+    case "K"; return true, xx (size * 1024);
+    case "M"; return true, xx (size * Constant(1024 * 1024, int));
+    case "G"; return true, xx (size * Constant(1024 * 1024 * 1024, int));
+    case "T"; return true, xx (size * Constant(1024 * 1024 * 1024 * 1024, int));
+    case "P"; return true, xx (size * Constant(1024 * 1024 * 1024 * 1024 * 1024, int));
+    }
+
+    return true, xx size;
+}
+
+Constant :: ($code: Code, $T: Type) -> T #expand {
+    return #run -> T { return #insert code; };
+}
+
+test_parse_human_readable_memory_size :: () {
+    {
+        ok, size := parse_human_readable_memory_size("1");
+        assert(ok);
+        pretty_assert(size == 1);
+    }
+    {
+        ok, size := parse_human_readable_memory_size("0");
+        assert(ok);
+        pretty_assert(size == 0);
+    }
+    {
+        ok, size := parse_human_readable_memory_size("13.4");
+        assert(ok);
+        pretty_assert(size == 13);
+    }
+    {
+        ok, size := parse_human_readable_memory_size("23.45K");
+        assert(ok);
+        pretty_assert(size == 24012);
+    }
+    {
+        ok, size := parse_human_readable_memory_size("178.9M");
+        assert(ok);
+        pretty_assert(size == 187590246);
+    }
+    {
+        ok, size := parse_human_readable_memory_size("55.5G");
+        assert(ok);
+        pretty_assert(size == 59592671232);
+    }
+    {
+        ok, size := parse_human_readable_memory_size("11.2T");
+        assert(ok);
+        pretty_assert(size == 12314530231091);
+    }
+    {
+        ok, size := parse_human_readable_memory_size("3.3P");
+        assert(ok);
+        pretty_assert(size == 3715469692580659);
+    }
+    {
+        ok, size := parse_human_readable_memory_size("69Q");
+        assert(ok);
+        pretty_assert(size == 69);
+    }
+}
 
 //
 // array utilities
@@ -8977,9 +9341,11 @@ run_tests :: () {
     Log_Header("test_parse_ascii_or_hex");                 test_parse_ascii_or_hex();
     Log_Header("test_print_pixel_value");                  test_print_pixel_value();
     Log_Header("test_print_braille");                      test_print_braille();
-    Log_Header("test_parse_text_with_control_codes");      test_parse_text_with_control_codes();
     Log_Header("test_insert_range");                       test_insert_range();
+    Log_Header("test_binary_search");                      test_binary_search();
     Log_Header("test_parse_escape_sequence");              test_parse_escape_sequence();
+    Log_Header("test_parse_human_readable_memory_size");   test_parse_human_readable_memory_size();
+    Log_Header("test_parse_text_with_control_codes");      test_parse_text_with_control_codes();
 
     elapsed := seconds_since_init() - t0;
     log("\n\e[32mall tests passed!\e[0m elapsed: %", fmt(elapsed, 6));
