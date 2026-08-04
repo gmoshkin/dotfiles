@@ -482,6 +482,8 @@ Window_Buffer :: struct {
         DIFF_MARKERS; // @diff_headers
     }
 
+    last_empty_lines_count: s64;
+
     parse_state: Parse_State;
 
     raw_text_and_control_codes: string;
@@ -1473,7 +1475,8 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
             current_line_number = effective_line_index + 1;
         } else if reverse_view {
             // NOTE: no @diff_headers in @reverse_view
-            effective_line_index := line_offsets.count - 1 - line_index;
+            effective_line_index := line_offsets.count - 1 - line_index - last_empty_lines_count;
+            if effective_line_index < 0 break;
 
             line = line_in_only_text(window_buffer, effective_line_index);
             current_line_number = effective_line_index + 1;
@@ -3764,7 +3767,7 @@ parse_raw_text_and_control_codes :: (using window_buffer: *Window_Buffer) {
     new_capacity := only_text_storage.count + unparsed_tail.count + extra_space_for_tab_replacements;
     array_reserve(*only_text_storage, new_capacity);
 
-    last_empty_lines_count := 0;
+    last_empty_lines_count = 0;
     tail := unparsed_tail;
     while !should_exit {
         // TODO: it should be pretty simple to stop this process once I know I'm
