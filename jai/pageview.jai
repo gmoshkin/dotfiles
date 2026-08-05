@@ -6677,7 +6677,8 @@ scrollbar_search_matches_handle_window_resize :: () {
     using context.state;
 
     deinit(*scrollbar_search_matches);
-    scrollbar_search_matches.count = 0;
+    // deinit() frees slots.data but doesn't zero the count
+    scrollbar_search_matches = .{};
 
     if !search.matches return;
 

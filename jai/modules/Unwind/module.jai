@@ -96,9 +96,12 @@ print_backtrace :: (cursor: *unw_cursor_t, to_standard_error := true) #no_contex
         Print(i, base=10);
         if i < 10 Print(" ");
 
+        // musl's libc functions don't have stack frame info, so function names
+        // are unavailable, but `ip` is, so let's always print it
+        Print(" 0x");
+        Print(ip, base=16);
+
         if rc == 0 {
-            Print(" 0x");
-            Print(ip, base=16);
             Print(" in ", to_string(buffer.data), "+");
             Print(offset, base=10);
         } else {
