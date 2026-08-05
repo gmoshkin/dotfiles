@@ -906,9 +906,7 @@ main :: () {
     // Completion menu depends on termnal_size
     init_completion_menu();
 
-    // `- 2` for :2_status_lines
-    state.main_window_height = state.terminal_size.rows - 2;
-    state.scrollbar_resolution = state.main_window_height * 2;
+    update_main_window_height();
 
     // Setup terminal mode, after this exitting should be done via term_exit
     init_terminal_settings();
@@ -1042,9 +1040,7 @@ main :: () {
             // Get terminal size
             rc := ioctl(STDIN_FILENO, TIOCGWINSZ, *state.terminal_size);
 
-            // `- 2` for 2 status lines
-            state.main_window_height = state.terminal_size.rows - 2;
-            state.scrollbar_resolution = state.main_window_height * 2;
+            update_main_window_height();
 
             if main_window_source == .DRAWING_MODE resize_pixel_buffer();
 
@@ -2899,6 +2895,8 @@ status_line_init :: () {
 render_status_line_1 :: () {
     using context.state;
 
+    if terminal_size.rows < 1 return;
+
     builder: String_Builder;
     builder.allocator = temp;
 
@@ -3388,6 +3386,9 @@ make_binary_representation :: (i: u16) -> Braille_Pair {
 
 render_status_line_2 :: () {
     using context.state;
+
+    // TODO: status line 2 shows up twice if termimal height is exactly 2
+    if terminal_size.rows < 2 return;
 
     builder: String_Builder;
     builder.allocator = temp;
@@ -3983,6 +3984,13 @@ line_in_only_text :: (using window_buffer: *Window_Buffer, line_index: s64) -> s
     line_start, line_end := inline line_range_in_only_text(window_buffer, line_index);
     line := slice(only_text, line_start, line_end - line_start);
     return line;
+}
+
+update_main_window_height :: () {
+    // `- 2` for 2 status lines
+    height := context.state.terminal_size.rows.(s64) - 2;
+    context.state.main_window_height = max(height, 0);
+    context.state.scrollbar_resolution = context.state.main_window_height * 2;
 }
 
 //
