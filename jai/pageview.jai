@@ -6761,11 +6761,10 @@ sorted_view_handle_new_lines :: (using window_buffer: *Window_Buffer) {
 
 compare_window_buffer_line :: (window_buffer: *Window_Buffer, line_a: string, line_index_b: *s64, $do_human := false) -> int {
     line_b := line_in_only_text(window_buffer, line_index_b.*);
-    return compare_strings(line_a, line_b, do_human=do_human);
+    return compare_lines(line_a, line_b, do_human=do_human);
 }
 
-// Stolen from modules/Sort.jai
-compare_strings :: (_a: string, _b: string, $do_human := false) -> s64 {
+compare_lines :: (_a: string, _b: string, $do_human := false) -> s64 {
     a, b := _a, _b;
     while a && inline is_space(a[0]) advance(*a);
     while b && inline is_space(b[0]) advance(*b);
@@ -6794,7 +6793,9 @@ compare_strings :: (_a: string, _b: string, $do_human := false) -> s64 {
     for 0..a.count-1 {
         if it >= b.count return 1;
 
-        delta := cast(s64) a[it] - cast(s64) b[it];
+        t_a: int = xx inline to_lower(a[it]);
+        t_b: int = xx inline to_lower(b[it]);
+        delta := t_a - t_b;
         if delta return delta;
     }
 
@@ -6931,7 +6932,7 @@ test_binary_search :: () {
         compare :: (lines: *[] string, index_a: *int, index_b: *int) -> int {
             line_a := lines.*[index_a.*];
             line_b := lines.*[index_b.*];
-            return compare_strings(line_a, line_b);
+            return compare_lines(line_a, line_b);
         }
 
         for 0..lines.count-1 {
