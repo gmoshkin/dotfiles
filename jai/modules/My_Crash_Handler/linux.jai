@@ -1,4 +1,13 @@
 init :: (handler: Signal_Handler = signal_handler) {
+    // Give the handler a stack of its own, otherwise it has nowhere to run when
+    // what crashed us was running out of stack in the first place. The .ONSTACK
+    // flag below does nothing without this. It's a per thread setting, but we
+    // only have the one thread.
+    stack: stack_t;
+    stack.ss_sp = signal_stack.data;
+    stack.ss_size = signal_stack.count;
+    sigaltstack(*stack, null);
+
     // Install our signal handler.
     sa: sigaction_t;
     sa.sa_sigaction = handler;
@@ -154,7 +163,7 @@ signal_handler :: (sig: Signal, info: *siginfo_t, secret: *void) #c_call {
     eprint("Stack trace:\n");
 
     // @Stability: I have no idea if this is "async-signal-safe",
-    context_, cursor := Unwind.Init_Context();
+    cursor := Unwind.Init_Context(secret);
     Unwind.print_backtrace(cursor);
 
     eprint("\e[0m");
@@ -321,8 +330,20 @@ sigaction_t :: struct {
     #if OS == .LINUX then sa_restorer: () #c_call;
 }
 
+// Deliberately not SIGSTKSZ: it's 8k here, and print_backtrace() needs more room
+// than that. (It's also not a compile time constant since glibc 2.34.)
+SIGNAL_STACK_SIZE :: 64 * 1024;
+signal_stack: [SIGNAL_STACK_SIZE] u8 #align 16;
+
+stack_t :: struct {
+    ss_sp:    *void;
+    ss_flags: s32;
+    ss_size:  u64;
+}
+
 sigemptyset :: (set: *sigset_t) -> s32 #foreign libc;
 sigaction :: (signum: Signal, act: *sigaction_t, oldact: *void) -> s32 #foreign libc;
+sigaltstack :: (ss: *stack_t, old_ss: *stack_t) -> s32 #foreign libc;
 
 libc :: #library,system "libc";
 

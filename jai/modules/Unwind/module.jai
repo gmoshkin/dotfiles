@@ -1,4 +1,4 @@
-#if OS == .WINDOWS {
+#if OS != .LINUX {
     #run assert(false, "Not supported yet");
 }
 
@@ -6,7 +6,13 @@
     #run assert(false, "Not supported yet");
 }
 
-Init_Context :: () -> (*unw_context_t, *unw_cursor_t) #expand {
+// If `unwing_context` is not null it will be passed to `unw_init_local`.
+// On Linux you should pass the third parameter of the signal handler in
+// place of `unwind_context`. Macos not supported yet.
+//
+// Otherwise initialize the context by calling `unw_getcontext`, i.e. from the
+// current function's stack frame.
+Init_Context :: (unwind_context: *unw_context_t = null) -> (*unw_cursor_t, *unw_context_t) #expand {
     context_size, context_align, cursor_size, cursor_align := get_layout();
 
     `context_buffer: [4096] u8;
@@ -17,13 +23,19 @@ Init_Context :: () -> (*unw_context_t, *unw_cursor_t) #expand {
     cursor_p := Align_To(cursor_buffer.data, cursor_align);
     Assert_No_Context(cursor_buffer.data + cursor_buffer.count >= cursor_p + cursor_size);
 
-    rc := _Ux86_64_getcontext(context_p);
-    if rc != 0 return null, null;
+    rc: s32;
+
+    if unwind_context {
+        context_p = unwind_context;
+    } else {
+        rc = _Ux86_64_getcontext(context_p);
+        if rc != 0 return null, null;
+    }
 
     rc = _Ux86_64_init_local(cursor_p, context_p);
     if rc != 0 return null, null;
 
-    return context_p, cursor_p;
+    return cursor_p, context_p;
 }
 
 error_type :: (error_code: s32) -> string #no_context {
