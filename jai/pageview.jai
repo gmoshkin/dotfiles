@@ -1458,28 +1458,16 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
 
     // Preprocess lines to be displayed
     while line_buffer.count < main_window_height || (line_wrapping && stick_to_the_bottom) {
-        if line_index > line_offsets.count - 1 break;
+        effective_line_index := get_effective_line_index(window_buffer, line_index);
+        if effective_line_index < 0 break;
+        if effective_line_index > line_offsets.count - 1 break;
+        defer line_index += 1;
 
-        line: string;
-        if sorted_view {
-            if line_index > sorted_line_indexes.count - 1 break;
+        current_line_number = effective_line_index + 1;
+        line_start, line_end := line_range_in_only_text(window_buffer, effective_line_index);
 
-            // @sorted_view
-            effective_line_index := ifx reverse_view then sorted_line_indexes[sorted_line_indexes.count - 1 - line_index]
-                                                            else sorted_line_indexes[line_index];
-            line = line_in_only_text(window_buffer, effective_line_index);
-            current_line_number = effective_line_index + 1;
-        } else if reverse_view {
-            // NOTE: no @diff_headers in @reverse_view
-            effective_line_index := line_offsets.count - 1 - line_index - last_empty_lines_count;
-            if effective_line_index < 0 break;
-
-            line = line_in_only_text(window_buffer, effective_line_index);
-            current_line_number = effective_line_index + 1;
-        } else {
-            line_start, line_end := line_range_in_only_text(window_buffer, line_index);
-            current_line_number = line_index + 1;
-
+        if !sorted_view && !reverse_view {
+            // NOTE: not supported in @sorted_view or @reverse_view
             // @diff_headers
             // FIXME: this doesn't work because the previous hunk overwrites the
             // next diff. Gotta figure out the `second_to_last_diff` thing, i.e.
@@ -1492,11 +1480,9 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
             } else if last_hunk.count {
                 line_start, line_end, current_line_number = Setup_Line(*last_hunk, row_offset);
             }
-
-            line = substring(xx only_text, line_start, line_end);
         }
 
-        defer line_index += 1;
+        line := slice(only_text, line_start, line_end - line_start);
 
         current_row_left_offset = main_window_left_offset;
 
@@ -3986,6 +3972,28 @@ line_in_only_text :: (using window_buffer: *Window_Buffer, line_index: s64) -> s
     return line;
 }
 
+get_effective_line_index :: (using window_buffer: *Window_Buffer, line_index: s64) -> s64 {
+    using context.state;
+
+    // @sorted_view
+    if sorted_view {
+        if line_index > sorted_line_indexes.count - 1 return -1;
+
+        // @reverse_view
+        if reverse_view {
+            return sorted_line_indexes[sorted_line_indexes.count - 1 - line_index];
+        }
+        return sorted_line_indexes[line_index];
+    }
+
+    // @reverse_view
+    if reverse_view {
+        return line_offsets.count - 1 - line_index - last_empty_lines_count;
+    }
+
+    return line_index;
+}
+
 update_main_window_height :: () {
     // `- 2` for 2 status lines
     height := context.state.terminal_size.rows.(s64) - 2;
@@ -4763,7 +4771,7 @@ handle_input_event_in_input_command_mode :: (event: Input_Event) {
         array_add(*search.search_string_buffer, ..command_line);
         search.search_string = xx search.search_string_buffer;
         if old_search_string != search.search_string {
-            search.flags |= .NEW_SEARCH_STRING;
+            search.flags |= .UPDATE_NEEDED;
         }
     }
 }
@@ -4923,6 +4931,7 @@ history_next :: () {
 // navigate mode key handling procs
 //
 
+// FIXME: doesn't work with @sorted_view & @reverse_view
 jump_to_next_search_match :: () {
     using context.state;
     using main_window_buffer_history[current_shown_buffer_index];
@@ -4948,6 +4957,7 @@ jump_to_next_search_match :: () {
     }
 }
 
+// FIXME: doesn't work with @sorted_view & @reverse_view
 jump_to_previous_search_match :: () {
     using context.state;
     using main_window_buffer_history[current_shown_buffer_index];
@@ -4982,7 +4992,7 @@ jump_to_previous_search_match :: () {
 
 Search_Matches :: struct {
     flags: enum_flags {
-        NEW_SEARCH_STRING;
+        UPDATE_NEEDED;
         UNFINISHED;
     }
 
@@ -5015,7 +5025,7 @@ maybe_update_search_matches :: (window_buffer: *Window_Buffer) {
 
     do_update := false;
 
-    if search.flags & .NEW_SEARCH_STRING {
+    if search.flags & .UPDATE_NEEDED {
         search.matches.count = 0;
         search.flags = 0;
         search.window_buffer_line_cursor = 0;
@@ -5061,7 +5071,9 @@ maybe_update_search_matches :: (window_buffer: *Window_Buffer) {
         }
         defer line_index += 1;
 
-        line := line_in_only_text(window_buffer, line_index);
+        effective_line_index := inline get_effective_line_index(window_buffer, line_index);
+        if effective_line_index < 0 continue;
+        line := inline line_in_only_text(window_buffer, effective_line_index);
 
         // TODO: case-insensitive matching
         offset_in_line := find_index_from_left(line, search.search_string);
@@ -5540,8 +5552,8 @@ init_commands :: () {
         array_add(*console_commands, make_command("line_numberring", make_toggle("line_numberring")));
         array_add(*console_commands, make_command("wrap_lines", make_toggle("line_wrapping")));
         array_add(*console_commands, make_command("line_wrapping", make_toggle("line_wrapping")));
-        array_add(*console_commands, make_command("sorted_view", make_toggle("sorted_view")));
-        array_add(*console_commands, make_command("reverse", make_toggle("reverse_view")));
+        array_add(*console_commands, make_command("sorted_view", toggle_sorted_view));
+        array_add(*console_commands, make_command("reverse", toggle_reverse_view));
         // @Incomplete TODO: must resort the whole buffer when toggling this parameter
         array_add(*console_commands, make_command("sorted_view_human_numbers", make_toggle("sorted_view_human_numbers")));
         array_add(*console_commands, make_command("visualize_control_codes", make_toggle("visualize_control_codes")));
@@ -5854,6 +5866,22 @@ save_buffer_history :: (directory: string, overwrite := false) -> (ok := true, e
     // `"${directory}/pageview-${i}.data`
 
     return false, "not implemented";
+}
+
+toggle_sorted_view :: () -> (ok := true, error_message := "") {
+    using context.state;
+    sorted_view = !sorted_view;
+    search.flags |= .UPDATE_NEEDED;
+
+    return;
+}
+
+toggle_reverse_view :: () -> (ok := true, error_message := "") {
+    using context.state;
+    reverse_view = !reverse_view;
+    search.flags |= .UPDATE_NEEDED;
+
+    return;
 }
 
 show_state_field :: (path: string) -> (ok := true, error_message := "") {
