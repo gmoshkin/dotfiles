@@ -74,12 +74,12 @@ event_queue_deinit :: (queue: *Event_Queue) {
 }
 
 event_queue_add :: inline (queue: *Event_Queue, fd: s32, flags: Event_Flags) -> bool {
-    log("event_queue_add(%, %)", fd, flags);
+    // log("event_queue_add(%, %)", fd, flags);
     return event_queue_modify(queue, fd, flags, .ADD);
 }
 
 event_queue_remove :: inline (queue: *Event_Queue, fd: s32, flags: Event_Flags) -> bool {
-    log("event_queue_remove(%, %)", fd, flags);
+    // log("event_queue_remove(%, %)", fd, flags);
     return event_queue_modify(queue, fd, flags, .REMOVE);
 }
 

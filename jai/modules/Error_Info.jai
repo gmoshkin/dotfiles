@@ -176,21 +176,91 @@ get_stack_trace :: (result: *[..] Stack_Trace_Node, skip := 1) {
 
 #scope_file
 
+global_error_buffer: [4096] u8;
+
+#scope_export
+
+get_error_string_unsafe :: (error_code: OS_Error_Code) -> string #no_context {
+    rc := strerror_r(error_code, global_error_buffer.data, global_error_buffer.count);
+    if rc != 0 {
+        buffer: [] u8 = global_error_buffer;
+        write_string(*buffer, "strerror_r(");
+        write_number(*buffer, error_code);
+        write_string(*buffer, ") returned ");
+        write_number(*buffer, rc);
+        write_string(*buffer, "\x00");
+    }
+
+    return to_string(global_error_buffer.data);
+}
+
+#scope_file
+
+// Stolen from Runtime_Support's write_nonnegative_number
+write_number :: (buffer: *[] u8, n: s64, base := 10) #no_context #no_aoc {
+    if n < 0 {
+        write_string(buffer, "-");
+        n = -n;  // Will overflow if this is the most negative s64.
+    }
+
+    write_nonnegative_number(cast,no_check(u64) n, base);
+}
+
+// Stolen from Runtime_Support's write_nonnegative_number
+write_nonnegative_number :: (buffer: *[] u8, n: u64, base := 10) #no_context #no_abc #no_aoc {
+    if !buffer.* return;
+
+    if n == 0 {
+        write_string(buffer, "0");
+        return;
+    }
+
+    if base > 16  base = 16;
+    if base < 2   base = 2;
+
+    ubase := cast,no_check(u64) base;
+
+    // This is of course a horrible hack.
+    // A u64 in base 2 can be up to 64 digits,
+    // so we need at least that much space. Add a few more digits for superstition.
+    buf: [69] u8;
+
+    starting_cursor : s32 = buf.count;
+    cursor := starting_cursor;
+
+    while n {
+        cursor -= 1;
+        index := n % ubase;
+        if index <= 9 {
+            buf[cursor] = cast(u8)(index + #char "0");
+        } else {
+            buf[cursor] = cast(u8)(index - 10 + #char "a");
+        }
+
+        n /= ubase;
+    }
+
+    s: string = ---;
+    s.data  = buf.data + cursor;
+    s.count = starting_cursor - cursor;
+    write_string(buffer, s);
+}
+
+write_string :: (buffer: *[] u8, s: string) #no_context {
+    if !buffer.* return;
+
+    count := s.count;
+    if buffer.*.count < count then count = buffer.*.count;
+    memcpy(buffer.*.data, s.data, count);
+    buffer.*.data += count;
+    buffer.*.count -= count;
+}
+
 #if OS == .LINUX {
     #import "POSIX";
 
     my_get_error_string :: (error_code: OS_Error_Code) -> string {
         error_buffer: [1024] u8;
-
-        libc :: #library,system "libc";
-        #if OS == .LINUX {
-            // GLIBC uses special preprocessor macros to switch to this so-called XSI-compliant implementation.
-            // The man pages say that this version of strerror_r is preferred for portable applications,
-            // and it works on both modern-ish glibc and musl.
-            strerror_r :: (errnum: s32, buf: *u8, buflen: s32) -> s32 #foreign libc "__xpg_strerror_r";
-        } else {
-            strerror_r :: (errnum: s32, buf: *u8, buflen: s32) -> int #foreign libc;
-        }
 
         result := strerror_r(error_code, error_buffer.data, error_buffer.count);
         if result != 0 {
@@ -211,6 +281,17 @@ get_stack_trace :: (result: *[..] Stack_Trace_Node, skip := 1) {
     my_get_error_string :: System.get_error_string;
     my_get_error_value_and_string :: System.get_error_value_and_string;
 }
+
+#if OS == .LINUX {
+    // GLIBC uses special preprocessor macros to switch to this so-called XSI-compliant implementation.
+    // The man pages say that this version of strerror_r is preferred for portable applications,
+    // and it works on both modern-ish glibc and musl.
+    strerror_r :: (errnum: s32, buf: *u8, buflen: s32) -> s32 #foreign libc "__xpg_strerror_r";
+} else {
+    strerror_r :: (errnum: s32, buf: *u8, buflen: s32) -> int #foreign libc;
+}
+
+libc :: #library,system "libc";
 
 using Basic :: #import "Basic";
 System :: #import "System";

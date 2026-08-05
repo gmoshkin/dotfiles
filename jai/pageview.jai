@@ -5544,6 +5544,7 @@ init_commands :: () {
         array_add(*console_commands, make_command("anti_flicker_period", set_anti_flicker_period));
         array_add(*console_commands, make_command("show_state_field", show_state_field));
         array_add(*console_commands, make_command("debug_break", do_debug_break));
+        array_add(*console_commands, make_command("arithmetic_overflow", do_arithmetic_overflow));
         array_add(*console_commands, make_command("panic_now", do_panic_now));
         array_add(*console_commands, make_command("party_time_update_period", set_party_time_update_period));
         array_add(*console_commands, make_command("scrollbar", make_toggle("draw_scrollbar")));
@@ -5858,6 +5859,12 @@ show_state_field :: (path: string) -> (ok := true, error_message := "") {
 
 do_debug_break :: () -> (ok := true, error_message := "") {
     debug_break();
+    return;
+}
+
+do_arithmetic_overflow :: () -> (ok := true, error_message := "") {
+    v := S64_MAX;
+    v += 1;
     return;
 }
 
@@ -7884,6 +7891,9 @@ init_terminal_settings :: () {
 
     terminal_restore_needed = true;
 
+    // Must happen before we switch to the alternative screen buffer.
+    start_capturing_stderr();
+
     //
     // special control codes
     //
@@ -7948,10 +7958,121 @@ global_teardown_control_codes: [] string;
 global_saved_termios: Termios;
 terminal_restore_needed := false;
 restore_terminal_settings :: () #c_call #no_context {
-    if !terminal_restore_needed return;
-    write_strings(..global_teardown_control_codes);
-    tcsetattr(STDIN_FILENO, TCSADRAIN, *global_saved_termios);
-    terminal_restore_needed = false;
+    if terminal_restore_needed {
+        write_strings(..global_teardown_control_codes);
+        tcsetattr(STDIN_FILENO, TCSADRAIN, *global_saved_termios);
+        terminal_restore_needed = false;
+    }
+
+    // The alternative screen buffer is gone now, so anything which was written to
+    // stderr while it was up got discarded together with it. Put the real stderr
+    // back and replay what we captured.
+    stop_capturing_stderr();
+}
+
+//
+// stderr capture
+//
+
+// Runtime_Support's __arithmetic_overflow, __array_bounds_check_fail and
+// __null_pointer_check_fail write to stderr before calling debug_break(), which
+// is when my crash handler is invoked and the alternate terminal buffer is
+// turned off losing everything written to it by Runtime_Support.
+//
+// For that reason we redirect stderr into a temporary file and dump it in the
+// crash handler.
+
+global_captured_stderr_fd: s32 = -1; // scratch fd which fd 2 is redirected into
+global_original_stderr_fd: s32 = -1;     // dup of the original fd 2
+
+start_capturing_stderr :: () {
+    if global_original_stderr_fd >= 0 return; // already capturing
+
+    scratch_fd := create_scratch_fd();
+    if scratch_fd < 0 {
+        set_last_error_from_system("create_scratch_fd failed: ");
+        log_last_error(.WITH_SOURCE_LOCATION);
+        return;
+    }
+
+    // Keep the original stderr out of the way of low fd numbers.
+    original_stderr := fcntl(STDERR_FILENO, F_DUPFD_CLOEXEC, cast(s32) 64);
+    if original_stderr < 0 {
+        set_last_error_from_system("fcntl(F_DUPFD_CLOEXEC) failed: ");
+        log_last_error(.WITH_SOURCE_LOCATION);
+        close(scratch_fd);
+        return;
+    }
+
+    if dup2(scratch_fd, STDERR_FILENO) < 0 {
+        set_last_error_from_system("dup2 failed: ");
+        log_last_error(.WITH_SOURCE_LOCATION);
+        close(scratch_fd);
+        close(original_stderr);
+        return;
+    }
+
+    global_captured_stderr_fd = scratch_fd;
+    global_original_stderr_fd = original_stderr;
+}
+
+// Not on the stack, because this runs from a signal handler, on the stack of
+// whichever thread just crashed.
+global_stderr_replay_buffer: [16384] u8;
+
+stop_capturing_stderr :: () #c_call #no_context {
+    if global_original_stderr_fd < 0 return;
+
+    scratch_fd := global_captured_stderr_fd;
+    // Do this before writing anything, or the replay goes into the scratch fd.
+    dup2(global_original_stderr_fd, STDERR_FILENO);
+    close(global_original_stderr_fd);
+    global_original_stderr_fd = -1;
+    global_captured_stderr_fd = -1;
+
+    // The write cursor is at the end of everything we captured, rewind it.
+    lseek(scratch_fd, 0, SEEK_SET);
+
+    while dump_captured := true {
+        rc := read(scratch_fd, global_stderr_replay_buffer.data, xx global_stderr_replay_buffer.count);
+        if rc < 0 {
+            error_code := errno();
+            if error_code == EINTR continue;
+
+            message := get_error_string_unsafe(error_code);
+            write_string(message, to_standard_error=true);
+            break;
+        }
+        if rc == 0 break; // end of file
+
+        chunk := string.{rc, global_stderr_replay_buffer.data};
+        write_string(chunk, to_standard_error=true);
+    }
+
+    close(scratch_fd);
+}
+
+// A file descriptor we can write to and read back, which isn't visible to anybody
+// else and goes away when we do. See "stderr capture" below.
+#if OS == .LINUX {
+    // Not in modules/POSIX for linux (only for android), so declare it ourselves.
+    memfd_create :: (name: *u8, flags: u32) -> s32 #foreign libc;
+    MFD_CLOEXEC :: 0x0001;
+
+    create_scratch_fd :: () -> s32 {
+        return memfd_create("pageview-stderr", MFD_CLOEXEC);
+    }
+} else {
+    // No memfd_create() here, so make a temporary file and immediately unlink it.
+    create_scratch_fd :: () -> s32 {
+        temp_path := tprint("/tmp/pageview-stderr-XXXXXX\x00");
+        fd := mkstemp(temp_path.data);
+        if fd < 0 return -1;
+
+        unlink(temp_path.data);
+        fcntl(fd, F_SETFD, FD_CLOEXEC.(s32));
+        return fd;
+    }
 }
 
 term_exit :: (status: s32) {
