@@ -6748,7 +6748,11 @@ compare_strings :: (_a: string, _b: string, $do_human := false) -> s64 {
 
         if a_ok {
             if b_ok {
-                return a_size - b_size;
+                // Compare instead of subtracting: the sizes are attacker-ish input
+                // and can be arbitrarily far apart, so the difference overflows.
+                if a_size < b_size return -1;
+                if a_size > b_size return 1;
+                return 0;
             } else {
                 return -1;
             }
@@ -7747,20 +7751,30 @@ print_human_readable_memory_size :: (builder: *String_Builder, size_in_bytes: s6
 parse_human_readable_memory_size :: (input: string) -> (ok: bool, size_in_bytes: s64) {
     ok, size, tail := string_to_float64_new(input);
     if !ok return false, -1;
-    if !tail return true, xx size;
+    if !tail return true, to_s64_saturating(size);
 
     c := tail[0];
     c = inline to_upper(c);
     if c == {
-    case "B"; return true, xx size;
-    case "K"; return true, xx (size * 1024);
-    case "M"; return true, xx (size * Constant(1024 * 1024, int));
-    case "G"; return true, xx (size * Constant(1024 * 1024 * 1024, int));
-    case "T"; return true, xx (size * Constant(1024 * 1024 * 1024 * 1024, int));
-    case "P"; return true, xx (size * Constant(1024 * 1024 * 1024 * 1024 * 1024, int));
+    case "K"; size *= 1024;
+    case "M"; size *= Constant(1024 * 1024, int);
+    case "G"; size *= Constant(1024 * 1024 * 1024, int);
+    case "T"; size *= Constant(1024 * 1024 * 1024 * 1024, int);
+    case "P"; size *= Constant(1024 * 1024 * 1024 * 1024 * 1024, int);
     }
 
-    return true, xx size;
+    return true, to_s64_saturating(size);
+}
+
+// Casting a float which doesn't fit into an s64 gives S64_MIN whatever the sign,
+// so a gigantic positive number comes back as the most negative one instead. Real
+// input which does this: `git log --oneline` lines start with an abbreviated hash,
+// and "526e411" parses as 526 * 10^411, i.e. infinity.
+to_s64_saturating :: (value: float64) -> s64 {
+    if value != value return 0; // NaN
+    if value >= cast(float64) S64_MAX return S64_MAX;
+    if value <= cast(float64) S64_MIN return S64_MIN;
+    return xx value;
 }
 
 Constant :: ($code: Code, $T: Type) -> T #expand {
@@ -7812,6 +7826,29 @@ test_parse_human_readable_memory_size :: () {
         ok, size := parse_human_readable_memory_size("69Q");
         assert(ok);
         pretty_assert(size == 69);
+    }
+    {
+        // An abbreviated git hash which parses as 526 * 10^411, i.e. infinity.
+        ok, size := parse_human_readable_memory_size("526e411");
+        assert(ok);
+        pretty_assert(size == S64_MAX);
+    }
+    {
+        ok, size := parse_human_readable_memory_size("-526e411");
+        assert(ok);
+        pretty_assert(size == S64_MIN);
+    }
+    {
+        // The suffix multiply overflows to infinity even though the number didn't.
+        ok, size := parse_human_readable_memory_size("9e300P");
+        assert(ok);
+        pretty_assert(size == S64_MAX);
+    }
+    {
+        // Fits in a float64 but not in an s64.
+        ok, size := parse_human_readable_memory_size("1e19");
+        assert(ok);
+        pretty_assert(size == S64_MAX);
     }
 }
 
