@@ -8104,6 +8104,34 @@ term_exit :: (status: s32) {
 my_signal_handler :: (sig: My_Crash_Handler.Signal, info: *My_Crash_Handler.siginfo_t, secret: *void) #c_call {
     restore_terminal_settings();
 
+    // Say which binary this is and what it was built from, otherwise a crash
+    // report pasted somewhere is impossible to match up with a commit. These are
+    // all compile time constants, so we can read them without a context.
+    using #Context.build_info;
+
+    CPU_STRING :: #run -> string {
+        info := type_info(type_of(CPU));
+        for info.values if it == xx CPU {
+            return info.names[it_index];
+        }
+
+        assert(false, "unreachable");
+        return "";
+    };
+
+    git_hash := GIT_HASH;
+    git_hash.count = 8;
+
+    write_strings(
+        "\n",
+        "\e[31m",
+        #Context.EXECUTABLE_NAME, " ", CPU_STRING, " ", DEBUG_OR_RELEASE, " ", DYNAMIC_OR_STATIC, "\n",
+        "git commit: ", git_hash, "\n",
+        "\e[0m",
+        "\n",
+        to_standard_error = true,
+    );
+
     inline My_Crash_Handler.signal_handler(sig, info, secret);
 }
 
