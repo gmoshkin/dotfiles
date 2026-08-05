@@ -2868,7 +2868,7 @@ shutdown_fd :: (fd: *s32, from_event_queue := true) {
         ok := event_queue_remove(*event_queue, fd.*, .READ);
         ok &= event_queue_remove(*event_queue, fd.*, .WRITE);
         if !ok {
-            log_error("event_queue_remove failed: %", error_info_to_string(*event_queue.last_error));
+            // log_error("event_queue_remove failed: %", error_info_to_string(*event_queue.last_error));
         }
     }
 
@@ -5551,9 +5551,12 @@ init_commands :: () {
         array_add(*console_commands, make_command("save_current_buffer", save_current_buffer));
         array_add(*console_commands, make_command("anti_flicker_period", set_anti_flicker_period));
         array_add(*console_commands, make_command("show_state_field", show_state_field));
+
         array_add(*console_commands, make_command("debug_break", do_debug_break));
         array_add(*console_commands, make_command("arithmetic_overflow", do_arithmetic_overflow));
         array_add(*console_commands, make_command("panic_now", do_panic_now));
+        array_add(*console_commands, make_command("segfault", do_segfault));
+
         array_add(*console_commands, make_command("party_time_update_period", set_party_time_update_period));
         array_add(*console_commands, make_command("scrollbar", make_toggle("draw_scrollbar")));
         array_add(*console_commands, make_command("fg_rgb", set_current_pixel_fg_rgb));
@@ -5878,6 +5881,15 @@ do_arithmetic_overflow :: () -> (ok := true, error_message := "") {
 
 do_panic_now :: () -> (ok := true, error_message := "") {
     assert(false, "explicit panic requested by user");
+    return;
+}
+
+// Export is needed so that LLVM doesn't optimize the whole thing out... Jon, you were supposed to save from UB!
+#program_export
+global_pointer_to_segfault_on: *int;
+
+do_segfault :: () -> (ok := true, error_message := "") {
+    global_pointer_to_segfault_on.* = 69;
     return;
 }
 

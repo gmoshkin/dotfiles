@@ -60,7 +60,7 @@ signal_handler :: (sig: Signal, info: *siginfo_t, secret: *void) #c_call {
             eprint("  si_code: ", si_code, "\n");
         } else {
             eprint("  si_code: 0x");
-            eprint(info.si_code);
+            eprint(info.si_code, base=16);
             eprint("\n");
         }
 
