@@ -149,6 +149,8 @@ State :: struct #type_info_no_size_complaint {
     next_status_scroll_time : float64 = -1.0;
     before_scroll_time_seconds : float64 = 2.0;
     current_command_string_scroll_offset := 0;
+    last_status_line_1: [..] u8;
+    last_status_line_2: [..] u8;
 
     //
     // http server
@@ -1153,6 +1155,8 @@ main :: () {
             if changed || redraw_once {
                 time_last_shown = frame_time;
                 redraw_once = false;
+                // "\e[3;1H": move cursor to the first row below the status lines
+                write_string("\e[3;1H");
                 write_string("\e[0J");
                 if line_buffer.count > 0 {
                     all_but_last_line := line_buffer;
@@ -1390,8 +1394,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
         for 1..-row_offset {
             if do_scrollbar // @scrollbar
                 draw_scrollbar_piece_in_current_line(*builder);
-            else
-                append(*builder, "\n");
+            append(*builder, "\n");
             array_add(*line_buffer, builder_to_string(*builder,, temp));
             current_screen_row += 1;
         }
@@ -2911,7 +2914,13 @@ render_status_line_1 :: () {
     // second line is drawn at the end
     append(*builder, "\n");
 
-    write_builder(*builder);
+    status_line_1 := to_string(*builder);
+    if status_line_1 != xx last_status_line_1 {
+        write_string(status_line_1);
+
+        last_status_line_1.count = 0;
+        array_add(*last_status_line_1, ..status_line_1.([] u8));
+    }
 }
 
 render_status_line_1_left_side :: (builder: *String_Builder) {
@@ -3406,6 +3415,10 @@ render_status_line_2 :: () {
     } else {
         if input_mode ==  {
             case .NAVIGATE;
+                // hide the cursor, so it doesn't flicker all around the screen
+                // while the ui is being drawn
+                append(*builder, "\e[?25l");
+
                 line_count := 0;
                 if main_window_buffer_history {
                     main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
@@ -3466,7 +3479,14 @@ render_status_line_2 :: () {
     append(*builder, "\e[0m");
 
     assert(get_current_buffer(*builder) == buffer);
-    write_builder(*builder);
+
+    status_line_2 := to_string(*builder);
+    if status_line_2 != xx last_status_line_2 {
+        write_string(status_line_2);
+
+        last_status_line_2.count = 0;
+        array_add(*last_status_line_2, ..status_line_2.([] u8));
+    }
 }
 
 render_status_line_2_command_line :: (builder: *String_Builder, input_mode: type_of(State.input_mode)) {
