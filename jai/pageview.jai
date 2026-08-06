@@ -358,6 +358,8 @@ State :: struct #type_info_no_size_complaint {
 
 DO_HTTP_SERVER :: OS == .LINUX;
 
+TAB_WIDTH :: 8; // @automatic_tab_expansion
+
 Delayed_Action :: struct {
     type: enum {
         MOUSE_SELECTION_CLICK;
@@ -1482,7 +1484,8 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
             }
         }
 
-        line := slice(only_text, line_start, line_end - line_start);
+        // NOTE: slice() returns "" for count=0, which also makes data=0, but I want data to be valid
+        line := string_range(only_text, line_start, line_end);
 
         current_row_left_offset = main_window_left_offset;
 
@@ -3647,6 +3650,8 @@ find_all_control_codes_in_range :: (window_buffer: *Window_Buffer, range: string
     using context.state;
     using window_buffer;
 
+    if !range return .[], 0;
+
     start := range.data - only_text.data;
     end := start + range.count;
     codes, total_string_length := inline find_all_control_codes_in_range(window_buffer, start, end);
@@ -3747,22 +3752,24 @@ parse_raw_text_and_control_codes :: (using window_buffer: *Window_Buffer) {
 
     tab_count := count_occurences(unparsed_tail, #char "\t");
 
-    // When doing :automatic_tab_expansion: every tab character is replaced with
-    // 8 spaces, so we need to allocate additional memory for that.
-    // Mutliply by 7, because each tab character is already counted once and need 7 more bytes.
-    extra_space_for_tab_replacements := tab_count * 7;
+    // When doing @automatic_tab_expansion every tab character is replaced with
+    // up to TAB_WIDTH spaces, so we need to allocate additional memory for that.
+    // Mutliply by TAB_WIDTH-1, because each tab character is already counted once.
+    extra_space_for_tab_replacements := tab_count * (TAB_WIDTH - 1);
     new_capacity := only_text_storage.count + unparsed_tail.count + extra_space_for_tab_replacements;
     array_reserve(*only_text_storage, new_capacity);
 
     last_empty_lines_count = 0;
     tail := unparsed_tail;
     while !should_exit {
+        // We add the next line's offset at the end of handling the current line
+        line_index := line_offsets.count - 1;
+        line_start := line_offsets[line_index];
+
         // TODO: it should be pretty simple to stop this process once I know I'm
         // not looking at this. Though search would need to call this function
         // when it determines that there's unparsed text.
         found_end_line:, line:, tail = split_from_left(tail, #char "\n");
-
-        max_line_length = max(max_line_length, line.count);
 
         if line.count == 0 then last_empty_lines_count += 1; else last_empty_lines_count = 0;
 
@@ -3842,29 +3849,27 @@ parse_raw_text_and_control_codes :: (using window_buffer: *Window_Buffer) {
                     Flush_Highlighted_Piece(*underline_count, "\e[4m", "\e[24m"); // underline mode
 
                     if found_tab {
-                        expanded_tab :: "        "; // :automatic_tab_expansion:
-                        assert(only_text_storage.count + expanded_tab.count <= only_text_storage.allocated);
-                        memcpy(only_text_storage.data + only_text_storage.count, expanded_tab.data, expanded_tab.count);
-                        only_text_storage.count += expanded_tab.count;
+                        // @automatic_tab_expansion
+                        spaces := expand_tab_at_column(only_text_storage.count - line_start);
+                        assert(only_text_storage.count + spaces.count <= only_text_storage.allocated);
+                        memcpy(only_text_storage.data + only_text_storage.count, spaces.data, spaces.count);
+                        only_text_storage.count += spaces.count;
                     }
                 }
             }
         }
 
+        line_length := only_text_storage.count - line_start;
+        max_line_length = max(max_line_length, line_length);
+
         if found_end_line {
             inline array_add(*only_text_storage, #char "\n");
+            array_add(*line_offsets, only_text_storage.count);
 
             // At this point it would probably be cleaner to use find_index_from_left instead of split_from_left...
             pointer_to_start_of_next_line := line.data + line.count + 1;
             last_line_offset_in_raw_text = pointer_to_start_of_next_line - raw_text_and_control_codes.data;
 
-            // We add the next line's offset at the end of handling the current line
-            line_index := line_offsets.count - 1;
-            line_start := line_offsets[line_index];
-
-            array_add(*line_offsets, only_text_storage.count);
-
-            line_length := only_text_storage.count - line_start - 1;
             only_text_line := array_view(only_text_storage, line_start, line_length);
 
             //
@@ -3968,8 +3973,8 @@ line_range_in_only_text :: (using window_buffer: *Window_Buffer, line_index: s64
 
 line_in_only_text :: (using window_buffer: *Window_Buffer, line_index: s64) -> string {
     line_start, line_end := inline line_range_in_only_text(window_buffer, line_index);
-    line := slice(only_text, line_start, line_end - line_start);
-    return line;
+    // NOTE: slice() returns "" for count=0, which also makes data=0, but I want data to be valid
+    return string_range(only_text, line_start, line_end);
 }
 
 get_effective_line_index :: (using window_buffer: *Window_Buffer, line_index: s64) -> s64 {
@@ -8346,6 +8351,12 @@ tcsetattr :: (fd: s32, optional_actions: s32, termios: *Termios) -> s32 #foreign
 // miscellaneous helpers
 //
 
+expand_tab_at_column :: (column: int) -> string {
+    padding :: "        "; // @automatic_tab_expansion
+    padding_count := TAB_WIDTH - column % TAB_WIDTH;
+    return string.{padding_count, padding.data};
+}
+
 profile_t0: f64 = 0.0;
 Profile :: (format: string = "", args: ..Any, loc := #caller_location) #expand {
     t1 := seconds_since_init();
@@ -9343,6 +9354,7 @@ parse_text_with_control_codes :: (parser: *Parse_State) {
 
     while !should_exit {
         line_index := line_offsets.count - 1;
+        line_start := line_offsets[line_index];
 
         found:, line:, unparsed_tail = split_from_left(unparsed_tail, #char "\n");
 
@@ -9426,7 +9438,9 @@ parse_text_with_control_codes :: (parser: *Parse_State) {
             // Handle the fucking tab character
             if c == #char "\t" {
                 // TODO keep the tab character and do the fucking tabularization
-                array_add(*only_text_storage, ..cast([] u8, "        ")); // :automatic_tab_expansion:
+                // @automatic_tab_expansion
+                spaces := expand_tab_at_column(only_text_storage.count - line_start);
+                array_add(*only_text_storage, ..spaces.([] u8));
 
                 cursor += 1; // consume the '\t'
                 continue;
@@ -9439,7 +9453,6 @@ parse_text_with_control_codes :: (parser: *Parse_State) {
 
         Maybe_Finish_Current_Backspace_Sequence();
 
-        line_start := last(line_offsets);
         line_end := only_text_storage.count;
 
         if escape_sequences_in_line {

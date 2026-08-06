@@ -113,6 +113,81 @@ is_subslice :: inline (outer: string, inner: string) -> bool {
     return (outer.data <= inner.data) && (inner.data + inner.count <= outer.data + outer.count);
 }
 
+string_range :: inline (s: string, start: int, end: int) -> string {
+    return string.{end - start, s.data + start};
+}
+
+string_view :: inline (s: string, start: int, count: int) -> string {
+    return string.{count, s.data + start};
+}
+
+#if TEST
+test_string_slices :: () {
+    s := "foo bar";
+    {
+        a := string_range(s, 4, 7);
+        pretty_assert(a == "bar");
+        assert(is_subslice(s, a));
+
+        b := string_view(s, 4, 3);
+        pretty_assert(b == "bar");
+        assert(is_subslice(s, b));
+    }
+    {
+        a := string_range(s, 0, 3);
+        pretty_assert(a == "foo");
+        assert(is_subslice(s, a));
+
+        b := string_view(s, 0, 3);
+        pretty_assert(b == "foo");
+        assert(is_subslice(s, b));
+    }
+    {
+        a := string_range(s, 2, 3);
+        pretty_assert(a == "o");
+        assert(is_subslice(s, a));
+
+        b := string_view(s, 2, 1);
+        pretty_assert(b == "o");
+        assert(is_subslice(s, b));
+    }
+    {
+        a := string_range(s, 2, 5);
+        pretty_assert(a == "o b");
+        assert(is_subslice(s, a));
+
+        b := string_view(s, 2, 3);
+        pretty_assert(b == "o b");
+        assert(is_subslice(s, b));
+    }
+    {
+        a := string_range(s, 7, 7);
+        pretty_assert(a == "");
+        assert(is_subslice(s, a));
+
+        b := string_view(s, 7, 0);
+        pretty_assert(b == "");
+        assert(is_subslice(s, b));
+
+        // I don'a like `slice`!
+        assert(!is_subslice(s, slice(s, 7, 0)));
+        //NOTE ^
+    }
+    {
+        a := string_range(s, 0, 0);
+        pretty_assert(a == "");
+        assert(is_subslice(s, a));
+
+        b := string_view(s, 0, 0);
+        pretty_assert(b == "");
+        assert(is_subslice(s, b));
+
+        // I don't like `slice`!
+        assert( is_subslice(s, slice(s, 0, 0)));
+        //NOTE ^
+    }
+}
+
 starts_with_ignoring_case :: (text: string, prefix: string) -> bool {
     if text.count < prefix.count return false;
 
