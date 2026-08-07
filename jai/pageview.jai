@@ -7128,6 +7128,13 @@ operator == :: (l: Color_24bit, r: Color_24bit) -> bool {
     return l.r == r.r && l.g == r.g && l.b == r.b && l.flags == r.flags;
 }
 
+open_style_sequence :: (builder: *String_Builder, using color: Color_24bit) {
+    if #complete flags == {
+    case .FOREGROUND; print(builder, "\e[38;2;%;%;%m", r, g, b);
+    case .BACKGROUND; print(builder, "\e[48;2;%;%;%m", r, g, b);
+    }
+}
+
 Style :: struct {
     union {
         fg_8bit: Color_8bit;
@@ -7193,6 +7200,22 @@ normalize :: inline (flags: Style.Flags) -> Style.Flags {
     if flags & .FG_DEFAULT then result &= ~.FG_24BIT;
     if flags & .BG_DEFAULT then result &= ~.BG_24BIT;
     return result;
+}
+
+open_style_sequence :: (builder: *String_Builder, style: Style) {
+    // The 8bit colors and the attributes are emitted via the Small_Style version
+    fg_is_8bit := !(style.flags & .FG_NOT_8BIT);
+    bg_is_8bit := !(style.flags & .BG_NOT_8BIT);
+    if fg_is_8bit || bg_is_8bit || style.attributes {
+        small: Small_Style;
+        small.attributes = style.attributes;
+        if fg_is_8bit then small.fg_color = style.fg_8bit; else small.flags |= .FG_DEFAULT;
+        if bg_is_8bit then small.bg_color = style.bg_8bit; else small.flags |= .BG_DEFAULT;
+        open_style_sequence(builder, small);
+    }
+
+    if style.flags & .FG_24BIT print(builder, "\e[38;2;%;%;%m", style.fg_24bit.r, style.fg_24bit.g, style.fg_24bit.b);
+    if style.flags & .BG_24BIT print(builder, "\e[48;2;%;%;%m", style.bg_24bit.r, style.bg_24bit.g, style.bg_24bit.b);
 }
 
 Style_Attributes :: enum_flags u8 { BOLD; FAINT; ITALIC; UNDERLINE; BLINKING; INVERSE; HIDDEN; STRIKETHROUGH; };
@@ -7295,7 +7318,7 @@ evaluate_style_sequence :: (using sequence: Small_Escape_Sequence, style: Style)
                     continue;
                 }
             case .FG_DEFAULT;
-                res.bg_8bit = .TRANSPARENT;
+                res.fg_8bit = .TRANSPARENT;
                 res.flags |= .FG_DEFAULT;
                 res.flags &= ~(.FG_24BIT);
 
@@ -7321,8 +7344,8 @@ evaluate_style_sequence :: (using sequence: Small_Escape_Sequence, style: Style)
                     cursor += 4;
                 case 5;
                     if cursor + 1 >= argument_count break;
-                    res.fg_8bit = xx arguments[cursor + 1];
-                    res.flags &= ~(.FG_DEFAULT | .FG_24BIT);
+                    res.bg_8bit = xx arguments[cursor + 1];
+                    res.flags &= ~(.BG_DEFAULT | .BG_24BIT);
                     cursor += 2;
                 case;
                     continue;
@@ -8671,6 +8694,49 @@ test_parse_text_with_control_codes :: () {
     }
 
     //
+    // 24-bit colors
+    //
+
+    {
+        parser: Parse_State;
+        parser.raw_text = "aa\e[38;2;10;20;30mbb\e[48;2;40;50;60mcc\e[31;48;2;40;50;60;1mdd\e[0mee\e[48;2;40;50;60;38;2;10;20;30mff\e[0m";
+        log("%", parser.raw_text);
+
+        parse_text_with_control_codes(*parser);
+
+        log("%", parser);
+
+        pretty_assert(cast(string, parser.only_text_storage) == "aabbccddeeff");
+        pretty_assert(parser.attribute_ranges.count == 4);
+
+        // A single 24-bit color fits into the range inline
+        r0 := parser.attribute_ranges[0];
+        pretty_assert(r0.offset_in_only_text == 2 && r0.range_count == 2);
+        assert(r0.type == .COLOR_24BIT);
+        assert(r0.color_24bit == Color_24bit.{10, 20, 30, .FOREGROUND});
+        pretty_assert(open_style_sequence(*parser, r0) == "\e[38;2;10;20;30m");
+
+        // fg + bg 24-bit colors go into the storage
+        r1 := parser.attribute_ranges[1];
+        pretty_assert(r1.offset_in_only_text == 4 && r1.range_count == 2);
+        pretty_assert(r1.type == type_of(Attribute_Range.type).IN_STORAGE);
+        pretty_assert(open_style_sequence(*parser, r1) == "\e[38;2;10;20;30m\e[48;2;40;50;60m");
+
+        // 8-bit fg + 24-bit bg + attributes go into the storage
+        r2 := parser.attribute_ranges[2];
+        pretty_assert(r2.offset_in_only_text == 6 && r2.range_count == 2);
+        assert(r2.type == type_of(Attribute_Range.type).IN_STORAGE);
+        pretty_assert(open_style_sequence(*parser, r2) == "\e[31;1m\e[48;2;40;50;60m");
+
+        // The same style is deduplicated in the storage
+        r3 := parser.attribute_ranges[3];
+        pretty_assert(r3.offset_in_only_text == 10 && r3.range_count == 2);
+        assert(r3.type == type_of(Attribute_Range.type).IN_STORAGE);
+        pretty_assert(r3.index_in_storage == r1.index_in_storage);
+        pretty_assert(parser.styles_in_storage.count == 2);
+    }
+
+    //
     // from file
     //
 
@@ -8939,6 +9005,8 @@ Parse_State :: struct {
 
     line_offsets: [..] u32;
     attribute_ranges: [..] Attribute_Range;
+    // Styles which don't fit into Attribute_Range inline, see compress_style_attribute
+    styles_in_storage: [..] Style;
 
     // Not used yet
     attribute_range_cursor: u32;
@@ -8956,6 +9024,7 @@ memory_usage :: (using parser: *Parse_State, only_dynamic: bool) -> (raw_text_us
     rest_usage += dynamic_memory_usage(only_text_storage);
     rest_usage += dynamic_memory_usage(line_offsets);
     rest_usage += dynamic_memory_usage(attribute_ranges);
+    rest_usage += dynamic_memory_usage(styles_in_storage);
     rest_usage += dynamic_memory_usage(attribute_range_offsets);
     rest_usage += dynamic_memory_usage(diff_markers);
 
@@ -9310,9 +9379,9 @@ open_style_sequence :: (builder: *String_Builder, parser: *Parse_State, range: A
     case .SMALL_STYLE;
         open_style_sequence(builder, range.small_style);
     case .COLOR_24BIT;
-        assert(false, "not implemented");
+        open_style_sequence(builder, range.color_24bit);
     case .IN_STORAGE;
-        assert(false, "not implemented");
+        open_style_sequence(builder, parser.styles_in_storage[range.index_in_storage]);
     }
 }
 
@@ -9604,7 +9673,7 @@ handle_attribute_escape_sequences :: (using parser: *Parse_State, escape_sequenc
 compress_style_attribute :: (parser: *Parse_State, range: *Attribute_Range, style: Style) {
     fg_24bit := (style.flags & .FG_24BIT);
     bg_24bit := (style.flags & .BG_24BIT);
-    if !(fg_24bit && bg_24bit) {
+    if !fg_24bit && !bg_24bit {
         using range.small_style;
         fg_color = style.fg_8bit;
         bg_color = style.bg_8bit;
@@ -9630,9 +9699,20 @@ compress_style_attribute :: (parser: *Parse_State, range: *Attribute_Range, styl
         return;
     }
 
-    assert(false, "TODO %", style);
+    // The style doesn't fit into the range inline, put it into the storage.
+    // Styles usually come from a color scheme of some program which generated
+    // the text, so there's a bounded number of unique ones and we can afford
+    // deduplicating them by linear search.
+    range.type = .IN_STORAGE;
+    for parser.styles_in_storage {
+        if equals(it, style) {
+            range.index_in_storage = xx it_index;
+            return;
+        }
+    }
 
-    // TODO if not that's a TODO
+    range.index_in_storage = xx parser.styles_in_storage.count;
+    array_add(*parser.styles_in_storage, style);
 }
 
 //
