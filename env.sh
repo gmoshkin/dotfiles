@@ -1,4 +1,4 @@
-2>/dev/null hash vim && export EDITOR="$(which vim)"
+# 2>/dev/null hash vim && export EDITOR="$(which vim)"
 export GDBHISTFILE="$HOME/.gdb_history"
 
 export VIMFILES="$HOME/.vim"
@@ -28,5 +28,3 @@ fi
 
 export CLICOLOR=YES
 export RUST_BACKTRACE=1
-
-export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1
