@@ -1099,6 +1099,8 @@ main :: () {
 
         // @text_search
         maybe_update_search_matches(main_window_buffer);
+        try_resolve_pending_search_jump();
+        update_scrollbar_slider(); // @scrollbar must be called after every `row_offset` change
         if search.flags & .UNFINISHED {
             // log("render requested: text search unfinished");
             main_window_render_requested = true;
@@ -4479,6 +4481,9 @@ handle_input_event :: (_event: Input_Event) {
     if main_window_buffer_history
         main_window_buffer = *main_window_buffer_history[current_shown_buffer_index];
 
+    // Any input cancels a deferred @text_search jump (`n`/`N` re-arm it below).
+    search.pending_jump = .NONE;
+
     if event.kind == {
         case .MOUSE_WHEEL_UP;
             if      event.modifiers & .SHIFT then col_offset += 8;
@@ -4956,59 +4961,28 @@ history_next :: () {
 // navigate mode key handling procs
 //
 
-// FIXME: doesn't work with @sorted_view & @reverse_view
 jump_to_next_search_match :: () {
     using context.state;
-    using main_window_buffer_history[current_shown_buffer_index];
 
-    if row_offset == line_offsets.count - 1 return; // no next match possible
-
-    // @HACK: doing this -------------------------------------V because of the @diff_headers stuff I recently added
-    start_offset := ifx row_offset >= 0 then min(row_offset + 3, line_offsets.count - 1) else 0;
-    search_start := line_offsets[start_offset];
-
-    index := find_index_from_left(only_text, search.search_string, search_start);
-    if index == -1 return; // match not found
-
-    if row_offset < 0 then row_offset = 0;
-    while row_offset < line_offsets.count {
-        if line_offsets[row_offset] > index { // overshot by 1 line
-            // @HACK: doing this ---------V because of the @diff_headers stuff I recently added
-            row_offset = max(row_offset - 3, 0);
-            return;
-        }
-
-        row_offset += 1;
-    }
+    search.pending_jump = .NEXT;
+    search.pending_jump_from_line = xx (row_offset + search_jump_row_reserve());
 }
 
-// FIXME: doesn't work with @sorted_view & @reverse_view
 jump_to_previous_search_match :: () {
     using context.state;
-    using main_window_buffer_history[current_shown_buffer_index];
 
-    if row_offset == 0 return; // no previous match possible
+    search.pending_jump = .PREVIOUS;
+    search.pending_jump_from_line = xx (row_offset + search_jump_row_reserve());
+}
 
-    // @HACK: doing this ----------V  because of the @diff_headers stuff I recently added
-    end_offset := max(row_offset - 2, 0);
-    search_end := line_offsets[end_offset];
+// @diff_headers overwrite the first couple of displayed rows, so we keep the matched line that many
+// rows below the top of the window. Diff headers are not used in @sorted_view or @reverse_view, see
+// build_line_buffer_for_main_window.
+search_jump_row_reserve :: inline () -> s64 {
+    using context.state;
 
-    search_region := substring(only_text, 0, search_end);
-    index := find_index_from_right(search_region, search.search_string);
-
-    if index == -1 return; // match not found
-
-    stick_to_the_bottom = false;
-
-    while row_offset >= 0 {
-        if line_offsets[row_offset] < index {
-            // @HACK: doing this because of the @diff_headers stuff I recently added
-            row_offset = max(row_offset - 2, 0);
-            return;
-        }
-
-        row_offset -= 1;
-    }
+    if sorted_view || reverse_view return 0;
+    return 2;
 }
 
 //
@@ -5023,6 +4997,12 @@ Search_Matches :: struct {
 
     matches: [..] Search_Match;
     window_buffer_line_cursor: s32;
+
+    // The matches are computed incrementally, so the one we want to jump to may
+    // not be known yet => `n`/`N` enqueue a jump which is resolved as soon as
+    // the answer is available. See try_resolve_pending_search_jump.
+    pending_jump: enum u8 { NONE; NEXT; PREVIOUS; };
+    pending_jump_from_line: s32; // display-space line the jump was requested from
 
     search_string_buffer: [..] u8;
     search_string: string; // this is always just the search_string_buffer converted to string
@@ -5114,6 +5094,64 @@ maybe_update_search_matches :: (window_buffer: *Window_Buffer) {
         search.flags &= ~.UNFINISHED;
         search.window_buffer_line_cursor = 0;
     }
+}
+
+// `search.matches` are in display space (see get_effective_line_index) just like `row_offset`, so
+// this works in @sorted_view and @reverse_view for free. It's also the same data the @scrollbar
+// match indicators are built from.
+try_resolve_pending_search_jump :: () -> (jumped := false) {
+    using context.state;
+
+    if search.pending_jump == .NONE return;
+    if !main_window_buffer_history return;
+    window_buffer := *main_window_buffer_history[current_shown_buffer_index];
+
+    from_line := search.pending_jump_from_line;
+
+    found := -1;
+    if search.pending_jump == {
+        case .NEXT;
+            // first match strictly below the line we jumped from
+            i := binary_search(search.matches, from_line + 1, compare_search_match_line);
+            if i < search.matches.count {
+                found = i;
+            } else if search.flags & .UNFINISHED {
+                return; // a match may still turn up further down => keep waiting
+            }
+
+        case .PREVIOUS;
+            // `- 1` is correct whether binary_search hit exactly or returned an insertion point
+            i := binary_search(search.matches, from_line, compare_search_match_line) - 1;
+            if i >= 0 {
+                found = i;
+            } else if (search.flags & .UNFINISHED) && (search.window_buffer_line_cursor <= from_line) {
+                return; // haven't scanned all the way down to the cursor yet => keep waiting
+            }
+            // The matches are appended in ascending order, so once [0, from_line] has been
+            // scanned the answer is final.
+    }
+
+    search.pending_jump = .NONE;
+
+    // TODO: when there's no match in this direction, wrap around to the first/last one and
+    // set_info_message("search hit BOTTOM, continuing at TOP") (and TOP -> BOTTOM).
+    if found < 0 return;
+
+    // NOTE: same clamping as in handle_input_event, needed here as well because the jump may be
+    // resolved long after the key press.
+    row_offset = search.matches[found].line_index - search_jump_row_reserve();
+    row_offset = max(row_offset, -(main_window_height - 1));
+    row_offset = min(row_offset, max(0, window_buffer.line_offsets.count - 1));
+
+    wrapped_line_offset = 0;
+    stick_to_the_bottom = false;
+    main_window_render_requested = true;
+
+    return true;
+}
+
+compare_search_match_line :: (data: *void, a: *s32, b: *Search_Match) -> int {
+    return a.* - b.line_index;
 }
 
 update_just_the_scrollbar_search_matches :: () {
@@ -6665,9 +6703,17 @@ update_scollbar_info :: (window_buffer: *Window_Buffer) {
 
     */
 
+    update_scrollbar_slider();
+}
+
+// Split out of update_scollbar_info because this is the only part which depends on `row_offset`,
+// and `row_offset` may still change after that (see try_resolve_pending_search_jump).
+update_scrollbar_slider :: () {
+    using context.state;
+
     slider_top_y := row_offset * 2 * scrollbar_zoom_ratio;
     slider_top_row := cast(s64) floor(slider_top_y);
-    slider_bottom_row := slider_top_row + slider_size;
+    slider_bottom_row := slider_top_row + scrollbar_slider_height;
 
     scrollbar_slider_top = slider_top_row;
     scrollbar_slider_bottom = slider_bottom_row;
