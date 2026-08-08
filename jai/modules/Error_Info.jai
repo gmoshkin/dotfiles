@@ -257,8 +257,6 @@ write_string :: (buffer: *[] u8, s: string) #no_context {
 }
 
 #if OS == .LINUX {
-    #import "POSIX";
-
     my_get_error_string :: (error_code: OS_Error_Code) -> string {
         error_buffer: [1024] u8;
 
@@ -295,3 +293,4 @@ libc :: #library,system "libc";
 
 using Basic :: #import "Basic";
 System :: #import "System";
+#if OS == .LINUX || OS == .MACOS #import "POSIX";
