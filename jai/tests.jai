@@ -11,6 +11,10 @@ main :: () {
     Log_Header("test_utf8_iterator");                      test_utf8_iterator();
     Log_Header("test_parse_positive_number");              test_parse_positive_number();
     Log_Header("test_string_slices");                      test_string_slices();
+    Log_Header("test_msgpack_encode");                     test_msgpack_encode();
+    Log_Header("test_msgpack_decode");                     test_msgpack_decode();
+    Log_Header("test_mp_print");                           test_mp_print();
+    Log_Header("test_mp_skip_value");                      test_mp_skip_value();
 
     elapsed := seconds_since_init() - t0;
     log("\e[32mall tests passed!\e[0m elapsed: %", fmt(elapsed, 6));
@@ -22,3 +26,4 @@ fmt :: inline (v: float64, digits_after_comma := -1, keep_zero := false) -> Form
 
 #import "Basic";
 #import "My_Util"(TEST=true);
+#import "Msgpack"(TEST=true);
