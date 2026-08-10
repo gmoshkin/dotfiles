@@ -8,6 +8,11 @@ get_process_command_line :: (pid: Pid, log_errors := false) -> (ok: bool, comman
     return false, .[], "";
 }
 
+get_process_cwd :: (pid: Pid, log_errors := false) -> cwd: string, ok: bool {
+    log_error("`get_process_cwd` is not implemented on % yet", OS);
+    return "", false;
+}
+
 get_process_info :: (pid: Pid, info: *Process_Info, system_info: *System_Info = null, log_errors := true) -> bool {
     log_error("`get_process_info` is not implemented on % yet", OS);
     return false;

@@ -75,6 +75,26 @@ get_process_command_line :: (pid: Pid, log_errors := false) -> (ok: bool, comman
     return true, result, executable;
 }
 
+get_process_cwd :: (pid: Pid, log_errors := false) -> cwd: string, ok: bool {
+    path_info: proc_vnodepathinfo;
+    rc := proc_pidinfo(xx pid, PROC_PIDVNODEPATHINFO, 0, *path_info, xx size_of(type_of(path_info)));
+
+    // Returns 0 (with errno set to EPERM) for processes belonging to other users
+    if rc <= 0 {
+        if log_errors {
+            code, message := get_error_value_and_string();
+            log_error("proc_pidinfo(PROC_PIDVNODEPATHINFO) failed: #% %", code, message);
+        }
+        return "", false;
+    }
+
+    // The kernel nul-terminates this one, MAXPATHLEN includes the nul-byte
+    cwd := to_string(path_info.pvi_cdir.vip_path.data);
+    if !cwd return "", false;
+
+    return copy_string(cwd), true;
+}
+
 get_process_info :: (pid: Pid, info: *Process_Info, system_info: *System_Info = null, log_errors := true) -> bool {
     task_info: proc_taskallinfo;
     rc := proc_pidinfo(xx pid, PROC_PIDTASKALLINFO, 0, *task_info, xx size_of(type_of(task_info)));
@@ -96,6 +116,7 @@ get_process_info :: (pid: Pid, info: *Process_Info, system_info: *System_Info = 
     using task_info.ptinfo;
 
     info.pid = pid;
+    info.command_short = pbi_comm;
 
     state: u8 = "?";
     // XXX: clanker came up with these
