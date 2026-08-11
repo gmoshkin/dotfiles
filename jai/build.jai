@@ -158,6 +158,7 @@ Program :: enum {
     PAGEVIEW;
     PS;
     TMUX_UTIL;
+    NVIM_OPEN;
     CONVERT_WSL_PATHS;
     WINDOWS_GET_ENV;
     CLIPBOARD;
@@ -245,6 +246,18 @@ get_program_info :: (program: Program, debug := false) -> Program_Info {
                 exe_name = "tmux-util-linux";
             } else #if OS == .MACOS {
                 exe_name = "tmux-util-macos";
+            }
+
+        case .NVIM_OPEN;
+            source = "nvim-open.jai";
+            arg_name = "nvim-open";
+            #if OS == .WINDOWS {
+                // Unix sockets and tmux, so: LINUX here means "not windows"
+                os = .LINUX;
+            } else #if OS == .LINUX {
+                exe_name = "nvim-open-linux";
+            } else #if OS == .MACOS {
+                exe_name = "nvim-open-macos";
             }
 
         case .CONVERT_WSL_PATHS;

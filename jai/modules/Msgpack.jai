@@ -299,6 +299,34 @@ mp_encode_array :: inline (builder: *String_Builder, a: [] $T) {
     }
 }
 
+mp_encode_array :: (builder: *String_Builder, $items: .. Code)
+#modify { return items.count > 1; }
+{
+    mp_encode_array_count(builder, items.count);
+    #insert #run -> Code {
+        #import "Compiler";
+
+        block := New(Code_Block);
+        block.block_type = .IMPERATIVE;
+        block.statements = NewArray(items.count, *Code_Node);
+
+        code_mp_encode := compiler_get_nodes(#code mp_encode);
+        code_builder := compiler_get_nodes(#code builder);
+
+        for item: items {
+            call := New(Code_Procedure_Call);
+            call.procedure_expression = code_mp_encode;
+            call.arguments_unsorted = NewArray(2, Code_Argument);
+            call.arguments_unsorted[0] = .{code_builder, null};
+            call.arguments_unsorted[1] = .{compiler_get_nodes(item), null};
+
+            block.statements[it_index] = call;
+        }
+
+        return compiler_get_code(block);
+    };
+}
+
 mp_encode_hash_table :: inline (builder: *String_Builder, t: HT.Table) {
     mp_encode_map_count(builder, t.count);
     for t {
@@ -1060,6 +1088,12 @@ test_msgpack_encode :: () {
     check_mp_encode(cast(Any) "hello", "\xa5hello");
 
     check_mp_encode(Any.[42, s32.[1, 2, 3], false, "ok"], "\x94\x2a\x93\x01\x02\x03\xc2\xa2\x6f\x6b");
+
+    {
+        builder: String_Builder;
+        mp_encode_array(*builder, 1, "foo", u8.[1, 2, 3]);
+        pretty_assert(builder_to_string(*builder,) == "\x93\x01\xa3foo\x93\x01\x02\x03");
+    }
 
     {
         t: HT.Table(int, string);
