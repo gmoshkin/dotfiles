@@ -114,7 +114,7 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
                         using info := get_program_info(program, debug=true);
 
                         print("Compiling a debug version...\n");
-                        if !build_program(info, debug_parameters) exit(1);
+                        if !build_program(info, debug_parameters) return false;
 
                         if should_run_tests {
                             if !run_test_process(exe_path, exe_name, run_tests_in_gdb) {
@@ -124,7 +124,7 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
                         }
                     }
                 }
-                if !build_program(info, compile_parameters) exit(1);
+                if !build_program(info, compile_parameters) return false;
             case .TEST;
                 info := get_program_info(program, debug=true);
                 if info.os != OS {
@@ -143,13 +143,26 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
 
     #if JAILS program = .ALL;
     if program == .ALL {
+        failures: [..] Program;
         for type_info(Program).values {
             program = xx it;
             if program == .ALL continue;
-            if !Strategy_Pattern_My_Ass(program) break;
+            if !Strategy_Pattern_My_Ass(program) {
+                array_add(*failures, program);
+            }
+        }
+        if failures {
+            if mode == .COMPILE print("\n\e[31mFailed to compile programs:\e[0m\n");
+            else                print("\n\e[31mFailed to do \e[33m%\e[0m for programs:\e[0m\n", mode);
+
+            for failures {
+                info := get_program_info(it, compile_parameters.debug_build);
+                print("    \e[33m%\e[0m\n", info.exe_name);
+            }
+            exit(1);
         }
     } else {
-        Strategy_Pattern_My_Ass(program);
+        if !Strategy_Pattern_My_Ass(program) exit(1);
     }
 }
 
@@ -568,7 +581,7 @@ run_link_command_on_linux_with_musl :: (using message: *Message_Phase) -> bool {
     process_result := run_command(..command);
 
     if process_result.exit_code != 0 {
-        print("Error: Link step failed! (Exit code %)\n", process_result.exit_code);
+        print("\e[31mError: Link step failed! \e[33m(Exit code %)\e[0m\n", process_result.exit_code);
         return false;
     }
 
