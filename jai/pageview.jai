@@ -3046,10 +3046,12 @@ render_status_line_1_left_side :: (builder: *String_Builder) {
             append(builder, "\e[35m"); // color magenta
             append(builder, "<stdin>");
 
-            widget :: string.["⢎⡀", "⢆⡠", "⢄⡰", "⢀⡱", "⠈⡱", "⠊⠱", "⠎⠑", "⢎⠁"];
-            append(builder, " ");
-            t := cast(int) (frame_time * 10);
-            append(builder, widget[t % widget.count]);
+            if piped_input_fd != -1 {
+                widget :: string.["⢎⡀", "⢆⡠", "⢄⡰", "⢀⡱", "⠈⡱", "⠊⠱", "⠎⠑", "⢎⠁"];
+                append(builder, " ");
+                t := cast(int) (frame_time * 10);
+                append(builder, widget[t % widget.count]);
+            }
 
             append(builder, "\e[0m");
 
@@ -3223,7 +3225,7 @@ render_status_line_1_right_side :: (outer_builder: *String_Builder) {
         }
 
         time := current_time_consensus();
-        if main_window_source == .EXTERNAL_COMMAND && main_window_buffer_history {
+        if (main_window_source == .EXTERNAL_COMMAND || main_window_source == .PIPED_INPUT) && main_window_buffer_history {
             time = main_window_buffer_history[current_shown_buffer_index].time_generated;
         }
         date_time := to_calendar(time, .LOCAL);
