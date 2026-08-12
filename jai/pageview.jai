@@ -193,8 +193,8 @@ State :: struct #type_info_no_size_complaint {
     //
     // source: EXTERNAL_COMMAND
     //
-    command: [..] string;
-    command_version: int; // number of times command changed
+    external_command: [..] string;
+    external_command_version: int; // number of times command changed
 
     external_command_process: Process;
     external_command_started: float64;
@@ -739,10 +739,10 @@ main :: () {
         return;
     }
 
-    command_size := args.count - cursor;
-    array_reserve(*state.command, command_size);
-    for 0..command_size-1 {
-        array_add(*state.command, copy_string(args[cursor + it]));
+    external_command_size := args.count - cursor;
+    array_reserve(*state.external_command, external_command_size);
+    for 0..external_command_size-1 {
+        array_add(*state.external_command, copy_string(args[cursor + it]));
     }
 
     // Preallocate memory
@@ -762,17 +762,17 @@ main :: () {
 
     if !isatty(STDOUT_FILENO) {
         using state;
-        if command {
-            if command.count == 1 && find_index_from_left(command[0], #char " ") != -1 {
-                array_insert_at(*command, "/bin/sh", 0);
-                array_insert_at(*command, "-c", 1);
+        if external_command {
+            if external_command.count == 1 && find_index_from_left(external_command[0], #char " ") != -1 {
+                array_insert_at(*external_command, "/bin/sh", 0);
+                array_insert_at(*external_command, "-c", 1);
             }
 
-            args := NewArray(command.count, *u8);
-            for command args[it_index] = to_c_string(it);
-            execvp(command[0].data, args.data);
+            args := NewArray(external_command.count, *u8);
+            for external_command args[it_index] = to_c_string(it);
+            execvp(external_command[0].data, args.data);
             code, message := get_error_value_and_string();
-            print("execvp(%) failed: [%] %\n", command, code, message);
+            print("execvp(%) failed: [%] %\n", external_command, code, message);
             exit(1);
         }
 
@@ -802,9 +802,9 @@ main :: () {
         log("main window source is external command which comes from stdin");
         gotta_reattach_stdin = true;
     } else if state.main_window_source == .NONE {
-        if state.command {
+        if state.external_command {
             state.main_window_source = .EXTERNAL_COMMAND;
-            log("main window source is external command: %", state.command);
+            log("main window source is external command: %", state.external_command);
         } else {
             show_version_banner();
             print("Specify a command to run or pipe in some text on the stdin\n");
@@ -1329,10 +1329,10 @@ main :: () {
         print("got signal %\n", signalled_with_signal);
     }
 
-    if state.command_version != 0 {
+    if state.external_command_version != 0 {
         print("last external command was:\n");
         builder: String_Builder;
-        display_external_command(*builder, state.command);
+        display_external_command(*builder, state.external_command);
         print(*builder, "\n");
         write_builder(*builder);
     }
@@ -2312,7 +2312,7 @@ parse_tmux_list_panes_output :: (data: string) {
 }
 
 create_tmux_list_panes_process :: () -> bool {
-    using,except.["command"] context.state;
+    using context.state;
 
     process := *tmux_info_process;
 
@@ -2362,7 +2362,7 @@ maybe_read_all_available_data_from_tmux_output :: () -> Read_Result {
 }
 
 tmux_copy_to_clipboard :: (text: string) {
-    using,except.["command"] context.state;
+    using context.state;
 
     if !tmux_env return;
 
@@ -2407,16 +2407,16 @@ maybe_spawn_external_command :: () {
 
     // If the command is a single argument which contains a string,
     // assume it's some shell pipeline & run it in a shell
-    temp_command : [] string = xx command;
-    if command.count == 1 && find_index_from_left(command[0], #char " ") != -1 {
-        temp_command = .["/bin/sh", "-c", command[0]];
+    temp_external_command : [] string = xx external_command;
+    if external_command.count == 1 && find_index_from_left(external_command[0], #char " ") != -1 {
+        temp_external_command = .["/bin/sh", "-c", external_command[0]];
     }
 
     Profile();
 
     t0 := time;
     process := *external_command_process;
-    success := create_process(process, ..temp_command, capture_and_return_output=true);
+    success := create_process(process, ..temp_external_command, capture_and_return_output=true);
 
     Profile();
 
@@ -2796,26 +2796,26 @@ handle_piped_input_end :: () {
         // @YUCK! embarassing shit right here!!!
         main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
 
-        for command free(it); // There's no command though!?!?!??
-        command.count = 0;
+        for external_command free(it); // There's no external_command though!?!?!??
+        external_command.count = 0;
 
-        array_add(*command, copy_string(main_window_buffer.raw_text_and_control_codes));
+        array_add(*external_command, copy_string(main_window_buffer.raw_text_and_control_codes));
 
         time_next_command_run = frame_time;
         // XXX: not sure about this though..
         main_window_source = .EXTERNAL_COMMAND;
         main_window_render_requested = true;
-        log("main window source is now external command: %", command);
+        log("main window source is now external command: %", external_command);
         return;
     }
 
     if !parent_process_command_line return;
     if path_filename(parent_process_command_line[0]) == "git" {
-        for command free(it);
-        command.count = 0;
-        array_reserve(*command, parent_process_command_line.count);
+        for external_command free(it);
+        external_command.count = 0;
+        array_reserve(*external_command, parent_process_command_line.count);
         for parent_process_command_line {
-            array_add(*command, copy_string(it));
+            array_add(*external_command, copy_string(it));
         }
 
         last_command_finish = frame_time;
@@ -2829,7 +2829,7 @@ handle_piped_input_end :: () {
 
         main_window_source = .EXTERNAL_COMMAND;
         main_window_render_requested = true;
-        log("main window source is now external command: %", command);
+        log("main window source is now external command: %", external_command);
     }
 
     return;
@@ -2939,63 +2939,39 @@ render_status_line_1_left_side :: (builder: *String_Builder) {
         //
         // ⢾⠳ ⢾⡓ ⢾⡥ ⢾⡴ ⢦⡷ ⢬⡷ ⢚⡷ ⠞⡷
         case .EXTERNAL_COMMAND; {
-            max_command_string_length : s64 = terminal_size.cols / 2;
-
             // FIXME: show the command of the current shown buffer
             append(builder, "\e[35m"); // color magenta
             append(builder, "$(");
             append(builder, "\e[0m");
 
-            {
-                temp_builder := String_Builder.{ allocator = temp };
-                display_external_command(*temp_builder, command);
-                command_string := to_string(*temp_builder);
-
-                command_string_overflow := count_visible_characters(command_string) - max_command_string_length;
-                if command_string_overflow > 0 {
-                    if frame_time > next_status_scroll_time {
-                        next_status_scroll_time = frame_time + status_scroll_interval_seconds;
-                        current_command_string_scroll_offset += 1;
-
-                        // buffer_zone is kind of a hack which makes it so the
-                        // string doesn't scroll for some time in the left most
-                        // and in the rightmost positions
-                        buffer_zone := cast(int) (before_scroll_time_seconds / status_scroll_interval_seconds);
-                        if current_command_string_scroll_offset > command_string_overflow + buffer_zone {
-                            current_command_string_scroll_offset = -buffer_zone;
-                        }
-                    }
-                    clamped_offset := clamp(current_command_string_scroll_offset, 0, command_string_overflow);
-                    scroll_string_with_control_codes(builder, command_string, clamped_offset, max_command_string_length);
-                } else {
-                    append(builder, command_string);
-                }
-            }
+            render_status_line_sliding_command(builder, external_command);
 
             append(builder, "\e[35m"); // color magenta
             append(builder, ")");
             append(builder, "\e[0m");
 
+            //
+            // last command duration
+            //
+
             duration := last_command_duration;
-            // FIXME: this doesn't work >:c
-            if main_window_source == .PIPED_INPUT && main_window_buffer_history {
-                duration = main_window_buffer_history[current_shown_buffer_index].duration;
-            }
             // TODO: support showing duration of streaming input & duration of
             // partial input from external command
-            if main_window_source == .EXTERNAL_COMMAND
-                && main_window_buffer_history
+            if main_window_buffer_history
                 && current_shown_buffer_index != main_window_buffer_history.count - 1
             {
                 duration = main_window_buffer_history[current_shown_buffer_index].duration;
             }
-            // last command duration
             if duration > 0
             {
                 append(builder, " \e[35m"); // color magenta
                 print(builder, "%s", fmt(duration, digits_after_comma=3, keep_zero=true)); // color magenta
                 append(builder, "\e[0m");
             }
+
+            //
+            // progress widget
+            //
 
             if last_command_result.type == .STILL_RUNNING || (frame_time - second_to_last_command_finish < anti_flicker_period) {
                 append(builder, "\e[35m"); // color magenta
@@ -3043,10 +3019,52 @@ render_status_line_1_left_side :: (builder: *String_Builder) {
         }
         case .EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN; #through;
         case .PIPED_INPUT; {
-            append(builder, "\e[35m"); // color magenta
-            append(builder, "<stdin>");
+            if parent_process_command_line && !array_equals(parent_process_command_line, .["-zsh"]) {
+                append(builder, "\e[35m"); // color magenta
+                append(builder, "$(");
+                append(builder, "\e[0m");
+
+                render_status_line_sliding_command(builder, parent_process_command_line);
+
+                append(builder, "\e[35m"); // color magenta
+                append(builder, ")");
+                append(builder, "\e[0m");
+            } else {
+                append(builder, "\e[35m"); // color magenta
+                append(builder, "<");
+                append(builder, "\e[32m"); // color green
+                append(builder, "stdin");
+                append(builder, "\e[35m"); // color magenta
+                append(builder, ">");
+                append(builder, "\e[0m");
+            }
+
+            //
+            // last command duration
+            //
+
+            duration: float64;
+            if main_window_buffer_history {
+                if piped_input_fd != -1 && current_shown_buffer_index == main_window_buffer_history.count - 1 {
+                    duration = frame_time - started_reading_piped_input;
+                } else {
+                    duration = main_window_buffer_history[current_shown_buffer_index].duration;
+                }
+            }
+            if duration > 0
+            {
+                append(builder, " \e[35m"); // color magenta
+                print(builder, "%s", fmt(duration, digits_after_comma=3, keep_zero=true)); // color magenta
+                append(builder, "\e[0m");
+            }
+
+            //
+            // progress widget
+            //
 
             if piped_input_fd != -1 {
+                append(builder, "\e[35m"); // color magenta
+
                 widget :: string.["⢎⡀", "⢆⡠", "⢄⡰", "⢀⡱", "⠈⡱", "⠊⠱", "⠎⠑", "⢎⠁"];
                 append(builder, " ");
                 t := cast(int) (frame_time * 10);
@@ -3175,6 +3193,36 @@ render_status_line_1_left_side :: (builder: *String_Builder) {
             }
         }
     }
+}
+
+render_status_line_sliding_command :: (builder: *String_Builder, command: [] string) {
+    using context.state;
+
+    temp_builder := String_Builder.{ allocator = temp };
+    display_external_command(*temp_builder, command);
+    command_string := to_string(*temp_builder);
+
+    max_command_string_length : s64 = terminal_size.cols / 2;
+    command_string_overflow := count_visible_characters(command_string) - max_command_string_length;
+    if command_string_overflow <= 0 {
+        append(builder, command_string);
+        return;
+    }
+
+    if frame_time > next_status_scroll_time {
+        next_status_scroll_time = frame_time + status_scroll_interval_seconds;
+        current_command_string_scroll_offset += 1;
+
+        // buffer_zone is kind of a hack which makes it so the
+        // string doesn't scroll for some time in the left most
+        // and in the rightmost positions
+        buffer_zone := cast(int) (before_scroll_time_seconds / status_scroll_interval_seconds);
+        if current_command_string_scroll_offset > command_string_overflow + buffer_zone {
+            current_command_string_scroll_offset = -buffer_zone;
+        }
+    }
+    clamped_offset := clamp(current_command_string_scroll_offset, 0, command_string_overflow);
+    scroll_string_with_control_codes(builder, command_string, clamped_offset, max_command_string_length);
 }
 
 render_status_line_1_right_side :: (outer_builder: *String_Builder) {
@@ -5228,7 +5276,7 @@ proc_wrapper :: (args: .. Any) -> (ok: bool, error_message: string) {
 }
 
 execute_console_command :: (command_line: string) {
-    using,except.["command_line", "command"] context.state;
+    using,except.["command_line"] context.state;
 
     tail := command_line;
     command_name, ok := parse_token(*tail);
@@ -5319,11 +5367,11 @@ complete_console_command :: () {
 
     // If it's a `> command ` insert the current external command for editting
     if command_line[command_line.count - 1] == #char " " && trim(xx command_line) == "command" {
-        if command.count {
-            array_add(*command_line, ..cast([] u8) command[0]);
-            for 1..command.count-1 {
+        if external_command.count {
+            array_add(*command_line, ..cast([] u8) external_command[0]);
+            for 1..external_command.count-1 {
                 array_add(*command_line, #char " ");
-                array_add(*command_line, ..cast([] u8) command[it]);
+                array_add(*command_line, ..cast([] u8) external_command[it]);
             }
         }
         input_cursor = command_line.count;
@@ -5733,12 +5781,12 @@ command_rerun_external_command_now :: () {
 set_external_command :: (new_command: string) -> (ok: bool, error_message: string) {
     using context.state;
 
-    if command.count == 1 && command[0] == new_command return true, "";
+    if external_command.count == 1 && external_command[0] == new_command return true, "";
 
-    for command free(it);
-    command.count = 0;
+    for external_command free(it);
+    external_command.count = 0;
     // FIXME: probably want to split the command and do some special character escaping
-    array_add(*command, copy_string(new_command));
+    array_add(*external_command, copy_string(new_command));
     time_next_command_run = frame_time;
     external_command_backoff_multiplier = 1.0;
     if external_command_backoff_mode & .SMART {
@@ -5746,7 +5794,7 @@ set_external_command :: (new_command: string) -> (ok: bool, error_message: strin
     }
     main_window_source = .EXTERNAL_COMMAND;
 
-    command_version += 1;
+    external_command_version += 1;
     on_new_input_source();
     log("external command changed to '%'", new_command);
 
@@ -6551,7 +6599,7 @@ http_request_handler :: (request: *Http_Request, data: *void) -> bool {
 
     print(builder, "mode: %\n", main_window_source);
     if main_window_source == .EXTERNAL_COMMAND {
-        print(builder, "external command: %\n", command);
+        print(builder, "external command: %\n", external_command);
     }
     if parent_process_command_line {
         print(builder, "parent process: %\n", parent_process_command_line);
