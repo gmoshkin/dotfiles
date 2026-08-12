@@ -39,6 +39,14 @@ on open theFiles
 	end try
 end open
 
+-- A clicked link arrives as its own event, not as `open`, and an applet with no
+-- handler for it does nothing whatsoever -- which is what happens if we ever
+-- become the default browser again. We cannot hand the URL on (opening it would
+-- come straight back to us), so say what is wrong and where it is fixed.
+on open location theURL
+	display alert "NvimOpen is not a web browser" message "Asked to open" & return & return & theURL & return & return & "Something has made NvimOpen the default browser -- most likely it was made the default application for HTML files, which on macos is the same setting. Fix it in System Settings > Desktop & Dock > Default web browser." as warning giving up after 30
+end open location
+
 -- Launched with no file at all: take me back to my editor
 on run
 	do shell script "open -a Alacritty"

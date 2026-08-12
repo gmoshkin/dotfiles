@@ -629,7 +629,11 @@ collect_targets :: (options: *Options) -> targets: [] Target, ok: bool {
     for options.targets {
         target, ok := parse_target(it, options.cwd);
         if !ok {
-            log_error("'%' does not look like a file", it);
+            if looks_like_a_url(it) {
+                log_error("'%' is a URL, not a file -- nvim-open cannot open it. If a link brought you here, something has made NvimOpen.app your default browser: run `swift dotfiles/macos/nvim-open-app/file-types.swift query ~/Applications/NvimOpen.app` to see what it holds.", it);
+            } else {
+                log_error("'%' does not look like a file", it);
+            }
             exit(1);
         }
 
@@ -690,8 +694,31 @@ collect_targets :: (options: *Options) -> targets: [] Target, ok: bool {
 // compilers print them that way. Anything else is taken to be a plain filename,
 // so that a file whose name really does end in digits still opens.
 //
+//
+// A URL is not a file, and telling them apart matters because we can be handed
+// one: on macos, whoever is the default application for public.html is also the
+// default *browser*, so one wrong entry in the app's file-type list sends every
+// clicked link in every app here. Left alone, `https://x.com` parses as a
+// perfectly good relative path and neovim opens an empty buffer named after it,
+// which looks exactly like the link doing nothing at all.
+//
+looks_like_a_url :: (spec: string) -> bool {
+    found, scheme := split_from_left(spec, "://");
+    if !found || !scheme  return false;
+
+    // Deliberately not a general URL check: only enough to be sure this is a
+    // scheme and not a path that happens to contain a colon.
+    for scheme {
+        if is_alpha(it) || is_digit(it) || it == #char "+" || it == #char "-" || it == #char "."  continue;
+        return false;
+    }
+    return true;
+}
+
 parse_target :: (spec: string, base_directory := "") -> Target, bool {
     target: Target;
+
+    if looks_like_a_url(spec)  return target, false;
 
     path := spec;
     if ends_with(path, ":")  path.count -= 1;
