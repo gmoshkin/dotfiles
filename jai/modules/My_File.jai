@@ -69,7 +69,7 @@ my_read_entire_file :: (name: string, log_errors := true) -> string, bool {
     return s, success;
 }
 
-my_read_entire_file :: (f: File, zero_terminated := false, log_errors := true) -> string, bool {
+my_read_entire_file :: (f: $F/.[File, s32], zero_terminated := false, log_errors := true) -> string, bool {
     length, success := my_file_length(f);
 
     if !success || length == 0 {
@@ -79,7 +79,9 @@ my_read_entire_file :: (f: File, zero_terminated := false, log_errors := true) -
 
         while true {
             buffer := ensure_contiguous_space_and_return_available_range(*builder);
-            read_count := fread(buffer.data, 1, xx buffer.count, f.handle);
+            #if F == File   read_count := fread(buffer.data, 1, xx buffer.count, f.handle);
+            else            read_count := read(f, buffer.data, xx buffer.count);
+
             if read_count == 0 break;
             assert(read_count > 0);
 
@@ -97,7 +99,8 @@ my_read_entire_file :: (f: File, zero_terminated := false, log_errors := true) -
     }
 
     // documentation seems to suggest that fread gaurantees size*count is fully read back otherwise error
-    rc := fread(data, 1, cast (u64) length, f.handle);
+    #if F == File   rc := fread(data, 1, cast (u64) length, f.handle);
+    else            rc := read(f, data, cast (u64) length);
     if rc < 0 {
         free(data);
         return "", false;

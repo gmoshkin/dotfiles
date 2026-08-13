@@ -187,6 +187,8 @@ State :: struct #type_info_no_size_complaint {
     //
     piped_input_builder: String_Builder;
     piped_input_fd: s32 = -1;
+    piped_input_path: string;
+    event_queue_add_failed_for_piped_input_fd := false;
     parent_process_command_line: [] string;
     started_reading_piped_input: f64;
 
@@ -876,15 +878,32 @@ main :: () {
 
         ok = event_queue_add(*event_queue, STDIN_FILENO, .READ);
         if !ok {
-            print("%", last_error_to_string());
-            exit(1);
+            print_last_error(.WITH_STACK_TRACE);
+            debug_break();
         }
 
         if main_window_source == .PIPED_INPUT || main_window_source == .EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN {
             ok := event_queue_add(*event_queue, piped_input_fd, .READ);
-            if !ok {
-                print("%", last_error_to_string());
-                exit(1);
+            event_queue_add_failed_for_piped_input_fd = !ok;
+
+            auto_release_temp();
+            fd_path := tprint("/proc/self/fd/%\x00", piped_input_fd);
+            buffer := alloc_string(4096,, temp);
+            rc := readlink(fd_path.data, buffer.data, xx buffer.count);
+            if rc < 0 {
+                set_last_error_from_system(tprint("readlink(%): ", fd_path));
+                print_last_error(.WITH_STACK_TRACE);
+                debug_break();
+            } else {
+                path := string_view(buffer, 0, rc);
+                home := to_string(getenv("HOME"));
+                if starts_with(path, home) {
+                    tail := advance(path, home.count);
+                    if tail && tail[0] == "/" advance(*tail);
+                    piped_input_path = sprint("~/%", tail);
+                } else {
+                    piped_input_path = copy_string(path);
+                }
             }
         }
     }
@@ -894,10 +913,8 @@ main :: () {
     #if DO_HTTP_SERVER if !init_http_server() {
         log_last_error(.WITH_STACK_TRACE);
         if state.http_server_enabled_explicitly {
-            builder: String_Builder;
-            print_last_error(*builder, .WITH_STACK_TRACE);
-            write_builder(*builder);
-            exit(1);
+            print_last_error(.WITH_STACK_TRACE);
+            debug_break();
         }
     }
 
@@ -1017,6 +1034,13 @@ main :: () {
         }
 
         Profile();
+
+        // When piped_input_fd is a regular file epoll will not work with it, so
+        // we have to read the whole file in bulk
+        if event_queue_add_failed_for_piped_input_fd && piped_input_fd != -1 {
+            read_some_from_piped_input();
+            shutdown_fd(*piped_input_fd, from_event_queue=false);
+        }
 
         if external_command_ready {
             read_some_from_external_command(external_command_output_closed, external_command_error_closed);
@@ -2737,7 +2761,7 @@ external_command_backoff_on_change :: () {
 // text source: PIPED_INPUT
 //
 
-read_some_from_piped_input :: () {
+read_some_from_piped_input :: (regular_file := false) {
     using context.state;
     first_time := (main_window_buffer_history.count == 0);
     if !main_window_buffer_history {
@@ -2749,8 +2773,18 @@ read_some_from_piped_input :: () {
 
     if piped_input_fd == -1 return;
 
-    has_new_data := read_all_available_data_from_piped_input();
-    if !has_new_data return;
+    piped_input_data: string;
+
+    if regular_file {
+        piped_input_data=, ok := my_read_entire_file(piped_input_fd);
+        if !ok return;
+    } else {
+        has_new_data := read_all_available_data_from_piped_input();
+        if !has_new_data return;
+
+        // inspect_builder(*piped_input_builder);
+        piped_input_data = builder_to_string(*piped_input_builder, do_reset=false);
+    }
 
     // log("render requested: piped input");
     main_window_render_requested = true;
@@ -2761,8 +2795,7 @@ read_some_from_piped_input :: () {
     window_buffer.duration = seconds_since_init() - started_reading_piped_input;
     free(window_buffer.raw_text_and_control_codes);
     Profile();
-    // inspect_builder(*piped_input_builder);
-    window_buffer.raw_text_and_control_codes = builder_to_string(*piped_input_builder, do_reset=false);
+    window_buffer.raw_text_and_control_codes = piped_input_data;
     Profile("raw_text_and_control_codes.count: %", window_buffer.raw_text_and_control_codes.count);
     window_buffer.hash = Hash_Compute(xx window_buffer.raw_text_and_control_codes);
     Profile("raw_text_and_control_codes.count: %", window_buffer.raw_text_and_control_codes.count);
@@ -3033,7 +3066,7 @@ render_status_line_1_left_side :: (builder: *String_Builder) {
                 append(builder, "\e[35m"); // color magenta
                 append(builder, "<");
                 append(builder, "\e[32m"); // color green
-                append(builder, "stdin");
+                append(builder, ifx piped_input_path else "stdin");
                 append(builder, "\e[35m"); // color magenta
                 append(builder, ">");
                 append(builder, "\e[0m");
@@ -3053,7 +3086,7 @@ render_status_line_1_left_side :: (builder: *String_Builder) {
             }
             if duration > 0
             {
-                append(builder, " \e[35m"); // color magenta
+                append(builder, " \e[2;37m"); // color gray
                 print(builder, "%s", fmt(duration, digits_after_comma=3, keep_zero=true)); // color magenta
                 append(builder, "\e[0m");
             }

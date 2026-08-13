@@ -73,6 +73,13 @@ print_last_error :: (builder: *String_Builder, mode := Error_Info_Log_Mode.WITH_
     print_error_info(builder, *context.last_error, mode);
 }
 
+print_last_error :: (mode := Error_Info_Log_Mode.WITH_SOURCE_LOCATION, to_standard_error := false) {
+    builder: String_Builder;
+    builder.allocator = temp;
+    print_error_info(*builder, *context.last_error, mode);
+    write_builder(*builder, to_standard_error=to_standard_error);
+}
+
 print_error_info :: (builder: *String_Builder, info: *Error_Info, mode := Error_Info_Log_Mode.WITH_SOURCE_LOCATION) {
     if #complete mode == {
         case .NONE; #through;
