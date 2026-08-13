@@ -151,6 +151,8 @@ State :: struct #type_info_no_size_complaint {
     current_command_string_scroll_offset := 0;
     last_status_line_1: [..] u8;
     last_status_line_2: [..] u8;
+    status_line_1_row := 1;
+    status_line_2_row := -1;
 
     //
     // http server
@@ -1181,8 +1183,10 @@ main :: () {
             if changed || redraw_once {
                 time_last_shown = frame_time;
                 redraw_once = false;
-                // "\e[3;1H": move cursor to the first row below the status lines
-                write_string("\e[3;1H");
+                // "\e[2;1H": move cursor to the first row below the status lines
+                assert(status_line_1_row == 1);
+                assert(status_line_2_row == -1);
+                write_string("\e[2;1H");
                 write_string("\e[0J");
                 if line_buffer.count > 0 {
                     all_but_last_line := line_buffer;
@@ -1288,7 +1292,7 @@ main :: () {
                 array_add(*lines, line);
             }
 
-            window_row_offset := terminal_size.rows - lines.count;
+            window_row_offset := terminal_size.rows - 1 - lines.count;
             window_col_offset := terminal_size.cols - max_width;
 
             // render the window
@@ -1403,8 +1407,9 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
     line_buffer.allocator = temp;
     array_reserve(*line_buffer, main_window_height);
 
-    // starts from 1, `+2` for :2_status_lines
-    current_screen_row = 1 + 2;
+    // starts from 1, `+1` @status_line
+    assert(status_line_1_row == 1 && status_line_2_row == -1);
+    current_screen_row = 1 + 1;
 
     // @scrollbar
     do_scrollbar := draw_scrollbar && (scrollbar_slider_height != scrollbar_resolution);
@@ -1819,7 +1824,7 @@ resize_pixel_buffer :: () {
     if #complete pixel_size == {
         case .TWO_CHARACTERS;
             pixel_window_size.x = xx (terminal_size.cols / 2);
-            pixel_window_size.y = xx (terminal_size.rows - 2); // :2_status_lines
+            pixel_window_size.y = xx (terminal_size.rows - 2); // 2 x @status_line
     }
     // TODO: need to move the pixel rows based on old pixel_window_size
     array_resize(*pixel_buffer, xx (pixel_window_size.x * pixel_window_size.y));
@@ -2932,6 +2937,7 @@ render_status_line_1 :: () {
     append(*builder, "\e[?25l");
 
     // "\e[H": move cursor to "home" position (row 0, column 0)
+    assert(status_line_1_row == 1);
     append(*builder, "\e[H");
 
     // "\e[0J": erase from cursor to end of screen
@@ -3480,8 +3486,8 @@ render_status_line_2 :: () {
     cursor_line = -1;
     cursor_column = -1;
 
-    // "\e[H": move cursor to position (row 2, column 1)
-    append(*builder, "\e[2;1H");
+    // "\e[H": move cursor to position (row %, column 1)
+    print(*builder, "\e[%;1H", terminal_size.rows);
     append(*builder, "\e[K"); // "\e[K": erase in line
     append(*builder, "\e[2;37m"); // color gray
 
@@ -3596,12 +3602,14 @@ render_status_line_2_command_line :: (builder: *String_Builder, input_mode: type
         slice_start := clamp(input_cursor - 2, 0, overflow);
         append(builder, substring(text, slice_start, count=visible_columns_budget - 1));
         // `+ 1` because rows start at 1
-        cursor_line = 2;
+        assert(status_line_2_row == -1);
+        cursor_line = terminal_size.rows;
         cursor_column = input_cursor - slice_start + prefix.count + 1;
     } else {
         append(builder, text);
         // `+ 1` because rows start at 1
-        cursor_line = 2;
+        assert(status_line_2_row == -1);
+        cursor_line = terminal_size.rows;
         cursor_column = input_cursor + prefix.count + 1;
     }
 }
@@ -4450,7 +4458,8 @@ handle_input_event :: (_event: Input_Event) {
         width := cast(int) pixel_window_size.x;
         height := cast(int) pixel_window_size.y;
         mouse_x := (mouse_position.column - 1) / 2;
-        mouse_y := (mouse_position.row - 1) - 2; // `- 2` for :2_status_lines
+        assert(status_line_1_row == 1 && status_line_2_row == -1);
+        mouse_y := (mouse_position.row - 1) - 1; // `-1` for @status_line
         pixel_index := mouse_y * width + mouse_x;
 
         if event.kind == {
@@ -4494,7 +4503,8 @@ handle_input_event :: (_event: Input_Event) {
         width := cell_field_width;
         height := cell_field_height;
         // WRONG: mouse_x := (mouse_position.column - 1) / 2;
-        mouse_y := (mouse_position.row - 1) - 2; // `- 2` for :2_status_lines
+        assert(status_line_1_row == 1 && status_line_2_row == -1);
+        mouse_y := (mouse_position.row - 1) - 1; // `-1` for @status_line
 
         // TODO: this is wrong :(
         // if event.kind == {
@@ -6180,7 +6190,8 @@ do_party_mode :: () {
         if y < 0 || y >= terminal_size.rows continue;
 
         col := x;
-        row := y - 2; // :2_status_lines
+        assert(status_line_1_row == 1 && status_line_2_row == -1);
+        row := y - 1; // @status_line
         if row < 0 continue;
 
         get_text_patch :: (col: int, row: int, count: int) -> string {
@@ -6816,8 +6827,9 @@ draw_scrollbar_piece_in_current_line :: (builder: *String_Builder) {
     // "\e[H": move cursor to given position (row, col) (1-based)
     print(builder, "\e[%;%H", current_screen_row, terminal_size.cols);
 
-    // current_screen_row starts at 3 (1-based and skips the :2_status_lines)
-    y_screen := current_screen_row - 3;
+    // current_screen_row starts at 2 (1-based and skips the @status_line)
+    assert(status_line_1_row == 1 && status_line_2_row == -1);
+    y_screen := current_screen_row - 2;
 
     y_scrollbar_top := y_screen * 2;
     y_scrollbar_bottom := y_scrollbar_top + 1;
