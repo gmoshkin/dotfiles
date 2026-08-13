@@ -886,26 +886,33 @@ main :: () {
 
         if main_window_source == .PIPED_INPUT || main_window_source == .EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN {
             ok := event_queue_add(*event_queue, piped_input_fd, .READ);
+            // FIXME: on mac event_queue_add doesn't fail for regular files and
+            // detecting when file ended doesn't work
             event_queue_add_failed_for_piped_input_fd = !ok;
 
-            auto_release_temp();
-            fd_path := tprint("/proc/self/fd/%\x00", piped_input_fd);
-            buffer := alloc_string(4096,, temp);
-            rc := readlink(fd_path.data, buffer.data, xx buffer.count);
-            if rc < 0 {
-                set_last_error_from_system(tprint("readlink(%): ", fd_path));
-                print_last_error(.WITH_STACK_TRACE);
-                debug_break();
-            } else {
-                path := string_view(buffer, 0, rc);
-                home := to_string(getenv("HOME"));
-                if starts_with(path, home) {
-                    tail := advance(path, home.count);
-                    if tail && tail[0] == "/" advance(*tail);
-                    piped_input_path = sprint("~/%", tail);
+            #if OS == .LINUX {
+                auto_release_temp();
+                fd_path := tprint("/proc/self/fd/%\x00", piped_input_fd);
+                buffer := alloc_string(4096,, temp);
+                rc := readlink(fd_path.data, buffer.data, xx buffer.count);
+                if rc < 0 {
+                    set_last_error_from_system(tprint("readlink(%): ", fd_path));
+                    print_last_error(.WITH_STACK_TRACE);
+                    debug_break();
                 } else {
-                    piped_input_path = copy_string(path);
+                    path := string_view(buffer, 0, rc);
+                    home := to_string(getenv("HOME"));
+                    if starts_with(path, home) {
+                        tail := advance(path, home.count);
+                        if tail && tail[0] == "/" advance(*tail);
+                        piped_input_path = sprint("~/%", tail);
+                    } else {
+                        piped_input_path = copy_string(path);
+                    }
                 }
+            }
+            #if OS == .MACOS {
+                // TODO
             }
         }
     }
@@ -1040,7 +1047,7 @@ main :: () {
         // When piped_input_fd is a regular file epoll will not work with it, so
         // we have to read the whole file in bulk
         if event_queue_add_failed_for_piped_input_fd && piped_input_fd != -1 {
-            read_some_from_piped_input();
+            read_some_from_piped_input(regular_file=true);
             shutdown_fd(*piped_input_fd, from_event_queue=false);
         }
 
