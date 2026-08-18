@@ -733,6 +733,110 @@ test_append_padding :: () {
     Check(64 * 7 + 13, "@");
 }
 
+//
+// Appends the contents of a json string -- what goes between the quotes, which
+// the caller writes itself.
+//
+// Not to be confused with print_ascii_or_hex below, which is a byte dump for
+// looking at with your eyes: it writes anything unprintable as `\xe2`, and json
+// has no such escape, so a single em dash in the output is enough to make the
+// whole document unparseable for whoever we hand it to. A json string is utf8,
+// so a character above ascii is written as itself.
+//
+escape_as_json_string :: (builder: *String_Builder, s: string) {
+    cursor := 0;
+    while cursor < s.count {
+        char := s[cursor];
+
+        if char == #char "\"" || char == #char "\\" {
+            append(builder, #char "\\");
+            append(builder, char);
+            cursor += 1;
+            continue;
+        }
+
+        if char < 0x20 {
+            // The three worth being able to recognise on sight. Json spells \b
+            // and \f the same way, but nobody reads those, so they can go
+            // through the numeric escape that covers every control character.
+            if char == {
+                case #char "\n"; append(builder, "\\n");
+                case #char "\t"; append(builder, "\\t");
+                case #char "\r"; append(builder, "\\r");
+                case;
+                    print_to_builder(builder, "\\u%", FormatInt.{ value = char, base = 16, minimum_digits = 4 });
+            }
+            cursor += 1;
+            continue;
+        }
+
+        if char < 0x80 {
+            append(builder, char);
+            cursor += 1;
+            continue;
+        }
+
+        //
+        // The text is not guaranteed to be well-formed utf8 -- a terminal line
+        // caught halfway through being redrawn, a binary file cat'ed by mistake
+        // -- and a single stray byte passed on would make the document
+        // undecodable again, which is the whole failure this is here to avoid.
+        // So anything that is not a character becomes the replacement one,
+        // written as an escape so that the output stays ascii either way.
+        //
+        trailing := trailing_bytes_for_utf8[char];
+        valid := trailing > 0 && cursor + trailing < s.count;
+        if valid {
+            for 1..trailing {
+                if (s[cursor + it] & 0xc0) != 0x80 { valid = false; break; }
+            }
+        }
+
+        if !valid {
+            append(builder, "\\ufffd");
+            cursor += 1;
+            continue;
+        }
+
+        append(builder, slice(s, cursor, trailing + 1));
+        cursor += trailing + 1;
+    }
+}
+
+#if TEST
+test_escape_as_json_string :: () {
+    Check :: (input: string, expected: string) {
+        builder: String_Builder;
+        escape_as_json_string(*builder, input);
+        result := builder_to_string(*builder);
+        pretty_assert(result == expected);
+    }
+
+    Check("", "");
+    Check("plain text", "plain text");
+
+    // The two characters json spells with a backslash
+    Check("say \"hi\"", "say \\\"hi\\\"");
+    Check("C:\\Program Files", "C:\\\\Program Files");
+
+    // Control characters: the three we spell out, and the rest
+    Check("tab\there", "tab\\there");
+    Check("two\nlines", "two\\nlines");
+    Check("cr\rlf\n", "cr\\rlf\\n");
+    Check("bell\x07 and \x1b[0m", "bell\\u0007 and \\u001b[0m");
+
+    // Characters above ascii go through untouched, one, two, three and four
+    // bytes wide
+    Check("em dash — here", "em dash — here");
+    Check("naïve Ω 😀", "naïve Ω 😀");
+
+    // ... and anything that isn't a character does not
+    Check("\x80", "\\ufffd");                     // a continuation byte on its own
+    Check("bad \xff byte", "bad \\ufffd byte");   // never valid utf8 anywhere
+    Check("cut \xe2\x80", "cut \\ufffd\\ufffd");  // a sequence the text ends in the middle of
+    Check("\xe2(\xa1", "\\ufffd(\\ufffd");        // a lead byte whose continuations aren't
+}
+
 print_ascii_or_hex :: (builder: *String_Builder, s: string) {
     for 0..s.count-1 {
         char := s[it];

@@ -11,6 +11,7 @@ main :: () {
     Log_Header("test_utf8_iterator");                      test_utf8_iterator();
     Log_Header("test_parse_positive_number");              test_parse_positive_number();
     Log_Header("test_string_slices");                      test_string_slices();
+    Log_Header("test_escape_as_json_string");              test_escape_as_json_string();
     Log_Header("test_msgpack_encode");                     test_msgpack_encode();
     Log_Header("test_msgpack_decode");                     test_msgpack_decode();
     Log_Header("test_mp_print");                           test_mp_print();

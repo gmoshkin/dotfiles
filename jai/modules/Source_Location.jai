@@ -20,7 +20,21 @@ parse_source_location :: (text: string, line_start: bool) -> (cursor: int, filen
     // @Incomplete support other stuff as well?
     // if text[cursor] == #char "[" cursor += 1;
 
+    // A path quoted in prose or in a diagnostic often comes wrapped in
+    // parentheses -- `(jai/pageview.jai)`. Parentheses are path characters
+    // because of MSVC's `filename.ext(123)` and Windows' `Program Files (x86)`,
+    // so they cannot simply be dropped: instead a parenthesis we start on is
+    // taken to be somebody else's, and the loop below stops at a `)` that closes
+    // nothing we opened ourselves.
+    //
+    // Skipping the one we start on is also what keeps this from consuming
+    // nothing at all. Callers walk a line by advancing over whatever we report,
+    // and a `)` is a path character, so returning 0 for one leaves them standing
+    // on it forever.
+    if cursor < text.count && (text[cursor] == #char "(" || text[cursor] == #char ")") cursor += 1;
+
     filename_start := cursor;
+    open_parens := 0;
 
     //
     // optional windows style drive prefix
@@ -40,6 +54,11 @@ parse_source_location :: (text: string, line_start: bool) -> (cursor: int, filen
     while cursor < text.count {
         c := text[cursor];
         if (!inline is_file_path_char(c)) && !(is_windows && c == #char " ") break;
+
+        if c == #char ")" && open_parens == 0 break;
+        if c == #char "(" open_parens += 1;
+        if c == #char ")" open_parens -= 1;
+
         cursor += 1;
 
         if c == #char "/" || c == #char "\\" {

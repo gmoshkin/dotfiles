@@ -396,9 +396,10 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
         append(builder, "\"filename\": \"");
 
         if OS == .LINUX && is_windows_path(filename) {
+            // Comes out as /mnt/c/..., nothing left to escape
             convert_windows_path_to_wsl(builder, filename);
         } else {
-            append(builder, filename);
+            escape_as_json_string(builder, filename);
         }
         append(builder, "\"");
 
@@ -407,7 +408,7 @@ crawl_locations_subcommand :: (args: [] string) -> (ok: bool, error: string) {
 
         if info {
             append(builder, ", \"text\": \"");
-            print_ascii_or_hex(builder, info);
+            escape_as_json_string(builder, info);
             append(builder, "\"");
         }
 
