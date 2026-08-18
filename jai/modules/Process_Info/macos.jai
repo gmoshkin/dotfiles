@@ -95,6 +95,95 @@ get_process_cwd :: (pid: Pid, log_errors := false) -> cwd: string, ok: bool {
     return copy_string(cwd), true;
 }
 
+// Direct children of `parent`, via `proc_listchildpids` — no full-system scan
+// required.
+get_child_pids :: (parent: Pid, log_errors := false) -> ok: bool, children: [] Pid {
+    bytes := proc_listchildpids(xx parent, null, 0);
+    if bytes < 0 {
+        if log_errors {
+            code, message := get_error_value_and_string();
+            log_error("proc_listchildpids failed: % %", code, message);
+        }
+        return false, .[];
+    }
+    if bytes == 0 return true, .[];
+
+    assert(bytes % size_of(pid_t) == 0, "%", bytes);
+    count := bytes / size_of(pid_t);
+    sys_pids := NewArray(count, pid_t,, temp);
+
+    rc := proc_listchildpids(xx parent, sys_pids.data, bytes);
+    if rc < 0 {
+        if log_errors {
+            code, message := get_error_value_and_string();
+            log_error("proc_listchildpids failed: % %", code, message);
+        }
+        return false, .[];
+    }
+
+    pids := NewArray(count, Pid);
+    for sys_pids pids[it_index] = xx it;
+
+    return true, pids;
+}
+
+// Resolves fd `fd` of process `pid` to a pipe id (its `pipe_handle`) if it's a
+// pipe. `proc_pidfdinfo` doesn't cleanly distinguish "fd isn't a pipe" from
+// "error" via its return value alone, so any failure here is reported as
+// `is_pipe = false` rather than `ok = false`.
+get_pipe_id_for_fd :: (pid: Pid, fd: s32, log_errors := false) -> ok: bool, is_pipe: bool, pipe_id: u64 {
+    info: pipe_fdinfo;
+    rc := proc_pidfdinfo(xx pid, fd, PROC_PIDFDPIPEINFO, *info, xx size_of(pipe_fdinfo));
+    if rc <= 0 {
+        if log_errors {
+            code, message := get_error_value_and_string();
+            log_error("proc_pidfdinfo(PROC_PIDFDPIPEINFO, pid=%, fd=%) failed: #% %", pid, fd, code, message);
+        }
+        return true, false, 0;
+    }
+
+    return true, true, info.pipeinfo.pipe_handle;
+}
+
+// Returns the first of `candidates` with an open, write-capable fd on the pipe
+// identified by `pipe_id` (matching either `pipe_handle` or `pipe_peerhandle`,
+// since a pipe's two ends see the values swapped). The write-capable check
+// matters because matching by handle alone can't tell "this candidate is
+// writing into our pipe" from "this candidate merely still holds a stale copy
+// of the read end" (e.g. an intermediate shell that forked us and hasn't
+// closed its inherited copy of our stdin yet) — `fi_openflags` (from
+// `proc_fileinfo`, embedded in `pipe_fdinfo`) carries the same O_ACCMODE bits
+// as <fcntl.h>. Candidates we can't inspect are silently skipped, not treated
+// as a failure of the whole call.
+find_process_attached_to_pipe :: (candidates: [] Pid, pipe_id: u64, log_errors := false) -> ok: bool, writer: Pid {
+    for candidate: candidates {
+        bytes := proc_pidinfo(xx candidate, PROC_PIDLISTFDS, 0, null, 0);
+        if bytes <= 0 continue;
+
+        count := bytes / size_of(proc_fdinfo);
+        fds := NewArray(count, proc_fdinfo,, temp);
+
+        rc := proc_pidinfo(xx candidate, PROC_PIDLISTFDS, 0, fds.data, bytes);
+        if rc <= 0 continue;
+
+        for fd_entry: fds {
+            if fd_entry.proc_fdtype != PROX_FDTYPE_PIPE continue;
+
+            info: pipe_fdinfo;
+            fd_rc := proc_pidfdinfo(xx candidate, fd_entry.proc_fd, PROC_PIDFDPIPEINFO, *info, xx size_of(pipe_fdinfo));
+            if fd_rc <= 0 continue;
+
+            matches_pipe := info.pipeinfo.pipe_handle == pipe_id || info.pipeinfo.pipe_peerhandle == pipe_id;
+            if !matches_pipe continue;
+
+            writable := (info.pfi.fi_openflags & O_ACCMODE) != O_RDONLY;
+            if writable return true, candidate;
+        }
+    }
+
+    return false, 0;
+}
+
 get_process_info :: (pid: Pid, info: *Process_Info, system_info: *System_Info = null, log_errors := true) -> bool {
     task_info: proc_taskallinfo;
     rc := proc_pidinfo(xx pid, PROC_PIDTASKALLINFO, 0, *task_info, xx size_of(type_of(task_info)));

@@ -83,6 +83,121 @@ get_process_cwd :: (pid: Pid, log_errors := false) -> cwd: string, ok: bool {
     return copy_string(slice(buffer, 0, rc)), true;
 }
 
+// Immediate children of `parent`'s main thread, from `/proc/<pid>/task/<pid>/children`
+// (a Linux-since-3.5 procfs file, see `man 5 proc`). Space-separated pid list, no
+// full-system scan required.
+get_child_pids :: (parent: Pid, log_errors := false) -> ok: bool, children: [] Pid {
+    contents, ok := my_read_entire_file(tprint("/proc/%/task/%/children", parent, parent), log_errors=log_errors,, temp);
+    if !ok return false, .[];
+
+    result: [..] Pid;
+    tail := contents;
+    while tail {
+        found:, s:, tail = split_from_left(tail, #char " ");
+        s = trim(s);
+        if !s continue;
+
+        pid_value, parse_ok := string_to_int(s, base=10, T=Pid);
+        if parse_ok array_add(*result, pid_value);
+    }
+    return true, result;
+}
+
+// Resolves `/proc/<pid>/fd/<fd>` and, if it's a pipe (`pipe:[<inode>]`), returns the
+// inode number as an opaque id that's shared by both ends of the pipe.
+get_pipe_id_for_fd :: (pid: Pid, fd: s32, log_errors := false) -> ok: bool, is_pipe: bool, pipe_id: u64 {
+    proc_fd := tprint("/proc/%/fd/%\x00", pid, fd);
+
+    auto_release_temp();
+    buffer := alloc_string(4096,, temp);
+    rc := readlink(proc_fd.data, buffer.data, xx buffer.count);
+    if rc < 0 {
+        if log_errors {
+            set_last_error_from_system("readlink: ");
+            log_error("readlink(%) failed: %", proc_fd, last_error_to_string(.NONE));
+        }
+        return false, false, 0;
+    }
+
+    target := slice(buffer, 0, rc);
+
+    PREFIX :: "pipe:[";
+    if !begins_with(target, PREFIX) || !ends_with(target, "]") {
+        return true, false, 0; // not a pipe, but we did successfully determine that
+    }
+
+    inode_string := slice(target, PREFIX.count, target.count - PREFIX.count - 1);
+    inode, parse_ok := string_to_int(inode_string, base=10, T=u64);
+    if !parse_ok return false, false, 0;
+
+    return true, true, inode;
+}
+
+// A pipe's two ends share the same inode, so matching by inode alone can't tell
+// "this candidate is writing into our pipe" from "this candidate merely still
+// holds a stale copy of the read end" (e.g. an intermediate shell that forked us
+// and hasn't closed its inherited copy of our stdin yet). `/proc/<pid>/fdinfo/<fd>`'s
+// `flags:` line (octal, low 2 bits are the access mode, matching <fcntl.h>'s
+// O_ACCMODE) lets us additionally require the fd to be write-capable.
+is_fd_writable :: (pid: Pid, fd: s32, log_errors := false) -> ok: bool, writable: bool {
+    contents, ok := my_read_entire_file(tprint("/proc/%/fdinfo/%", pid, fd), log_errors=log_errors,, temp);
+    if !ok return false, false;
+
+    tail := contents;
+    while tail {
+        found:, line:, tail = split_from_left(tail, #char "\n");
+        if !begins_with(line, "flags:") continue;
+
+        value := trim(slice(line, "flags:".count, line.count - "flags:".count));
+        flags, parse_ok := string_to_int(value, base=8, T=s32);
+        if !parse_ok return false, false;
+
+        return true, (flags & O_ACCMODE) != O_RDONLY;
+    }
+    return false, false;
+}
+
+// Returns the first of `candidates` that has an open, write-capable fd on the
+// pipe identified by `pipe_id`. Candidates we can't inspect (permission denied,
+// already exited) are silently skipped, not treated as a failure of the whole call.
+find_process_attached_to_pipe :: (candidates: [] Pid, pipe_id: u64, log_errors := false) -> ok: bool, writer: Pid {
+    for candidates {
+        fd_names: [..] string;
+        fd_names.allocator = temp;
+
+        visitor :: (info: *File_Visit_Info, fd_names: *[..] string) {
+            array_add(fd_names, copy_string(info.short_name,, temp));
+        };
+
+        saved_logger: type_of(context.logger);
+        if !log_errors {
+            saved_logger = context.logger;
+            context.logger = (_: string, _: *void, _: Log_Info) {};
+        }
+        // `/proc/<pid>/fd/*` entries are symlinks to non-directories (pipes,
+        // sockets, regular files, ...), so they're only visited when
+        // `visit_files` is set — `visit_symlinks` alone just narrows which of
+        // the visited entries are symlinks, it doesn't select them on its own.
+        dir_ok := visit_files(tprint("/proc/%/fd", it), recursive=false, user_data=*fd_names, proc=visitor,
+                               visit_files=true, visit_directories=false, visit_symlinks=true);
+        if !log_errors context.logger = saved_logger;
+        if !dir_ok continue;
+
+        for fd_name: fd_names {
+            fd, parse_ok := string_to_int(fd_name, base=10, T=s32);
+            if !parse_ok continue;
+
+            candidate_ok, candidate_is_pipe, candidate_pipe_id := get_pipe_id_for_fd(it, fd, log_errors=false);
+            if !candidate_ok || !candidate_is_pipe || candidate_pipe_id != pipe_id continue;
+
+            writable_ok, writable := is_fd_writable(it, fd, log_errors=false);
+            if writable_ok && writable return true, it;
+        }
+    }
+
+    return false, 0;
+}
+
 get_process_info :: (pid: Pid, info: *Process_Info, system_info: *System_Info = null, log_errors := true) -> bool {
     stat, ok := my_read_entire_file(tprint("/proc/%/stat", pid), log_errors=log_errors,, temp);
     if !ok return false;

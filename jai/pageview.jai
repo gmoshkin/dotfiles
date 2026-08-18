@@ -191,7 +191,7 @@ State :: struct #type_info_no_size_complaint {
     piped_input_fd: s32 = -1;
     piped_input_path: string;
     event_queue_add_failed_for_piped_input_fd := false;
-    parent_process_command_line: [] string;
+    writer_process_command_line: [] string;
     started_reading_piped_input: f64;
 
     //
@@ -839,11 +839,22 @@ main :: () {
         info: Process_Info;
         ok := get_process_info(my_pid, *info, log_errors=false,, temp);
         if ok {
-            ok=, parent_command_line := get_process_command_line(info.parent_pid,, temp);
-            if ok {
-                parent_process_command_line = NewArray(parent_command_line.count, string);
-                for parent_command_line {
-                    parent_process_command_line[it_index] = copy_string(it);
+            _, is_pipe, pipe_id := get_pipe_id_for_fd(my_pid, STDIN_FILENO, log_errors=false,, temp);
+            if is_pipe {
+                ok, parent_command_line := get_process_command_line(info.parent_pid,, temp);
+
+                // In case our parent is a shell, we are probably in a shell
+                // pipeline situation so we need to check who is actually
+                // writing into the pipe
+                if ok && parent_command_line && command_line_is_a_shell(parent_command_line[0]) {
+                    ok, writer_pid := find_writer_in_process_tree(info.parent_pid, my_pid, pipe_id, log_errors=false, check_root=false,, temp);
+                    if ok {
+                        ok, writer_command_line := get_process_command_line(writer_pid,, temp);
+                        if ok
+                            writer_process_command_line = deep_copy_array(writer_command_line);
+                    }
+                } else {
+                    writer_process_command_line = deep_copy_array(parent_command_line);
                 }
             }
         }
@@ -2831,6 +2842,49 @@ inspect_builder :: (builder: *String_Builder) {
     log("%", builder_to_string(*b,, temp));
 }
 
+// Strips the login-shell "-" prefix (if any) and checks the basename against
+// known shell names, so both "-zsh" (interactive login shell) and "sh" (e.g.
+// the `sh -c "cmd | pageview"` wrapper tmux and friends use) are recognized.
+command_line_is_a_shell :: (argv0: string) -> bool {
+    name := argv0;
+    if name && name[0] == #char "-"  advance(*name);
+    name = path_filename(name);
+
+    SHELL_NAMES :: string.["sh", "bash", "zsh", "dash", "fish", "ksh", "tcsh", "csh"];
+    for SHELL_NAMES if name == it return true;
+    return false;
+}
+
+MAX_PROCESS_TREE_DEPTH :: 64;
+
+// Searches `root`'s descendant subtree, excluding `exclude`, for the first
+// process attached to the pipe identified by `pipe_id`. `check_root` controls
+// whether `root` itself is checked before its children — the caller passes
+// `false` for the top-level call when `root` (our parent) has already been
+// ruled out as a shell wrapper (see `command_line_is_a_shell`): a shell
+// briefly holds a write-capable copy of both pipe ends while it's setting up
+// the pipeline, before closing them, so re-checking it here can race-match the
+// shell itself rather than the sibling command it forked. Recursive calls
+// always check the child being visited (`check_root` stays true past the top
+// level).
+find_writer_in_process_tree :: (root: Pid, exclude: Pid, pipe_id: u64, log_errors := false, depth := 0, check_root := true) -> ok: bool, writer: Pid {
+    if depth > MAX_PROCESS_TREE_DEPTH return false, 0;
+
+    if check_root && root != exclude {
+        found, writer := find_process_attached_to_pipe(.[root], pipe_id, log_errors,, temp);
+        if found return true, writer;
+    }
+
+    children_ok, children := get_child_pids(root, log_errors,, temp);
+    if children_ok {
+        for children {
+            found, writer := find_writer_in_process_tree(it, exclude, pipe_id, log_errors, depth + 1,, temp);
+            if found return true, writer;
+        }
+    }
+    return false, 0;
+}
+
 handle_piped_input_end :: () {
     log("piped input pipe is no longer!");
     using context.state;
@@ -2854,12 +2908,12 @@ handle_piped_input_end :: () {
         return;
     }
 
-    if !parent_process_command_line return;
-    if path_filename(parent_process_command_line[0]) == "git" {
+    if !writer_process_command_line return;
+    if path_filename(writer_process_command_line[0]) == "git" {
         for external_command free(it);
         external_command.count = 0;
-        array_reserve(*external_command, parent_process_command_line.count);
-        for parent_process_command_line {
+        array_reserve(*external_command, writer_process_command_line.count);
+        for writer_process_command_line {
             array_add(*external_command, copy_string(it));
         }
 
@@ -3065,12 +3119,12 @@ render_status_line_1_left_side :: (builder: *String_Builder) {
         }
         case .EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN; #through;
         case .PIPED_INPUT; {
-            if parent_process_command_line && !array_equals(parent_process_command_line, .["-zsh"]) {
+            if writer_process_command_line {
                 append(builder, "\e[35m"); // color magenta
                 append(builder, "$(");
                 append(builder, "\e[0m");
 
-                render_status_line_sliding_command(builder, parent_process_command_line);
+                render_status_line_sliding_command(builder, writer_process_command_line);
 
                 append(builder, "\e[35m"); // color magenta
                 append(builder, ")");
@@ -6652,8 +6706,8 @@ http_request_handler :: (request: *Http_Request, data: *void) -> bool {
     if main_window_source == .EXTERNAL_COMMAND {
         print(builder, "external command: %\n", external_command);
     }
-    if parent_process_command_line {
-        print(builder, "parent process: %\n", parent_process_command_line);
+    if writer_process_command_line {
+        print(builder, "writer process: %\n", writer_process_command_line);
     }
 
     if request.parameters {
@@ -8080,6 +8134,12 @@ test_parse_human_readable_memory_size :: () {
 //
 // array utilities
 //
+
+deep_copy_array :: (array: [] string) -> [] string {
+    result := NewArray(array.count, string);
+    for array result[it_index] = copy_string(it);
+    return result;
+}
 
 array_ordered_remove_range :: inline (array_pointer: *[] $T, start: s64, end: s64) {
     assert(0 <= start, "start: %", start);
