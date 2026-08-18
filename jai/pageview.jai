@@ -2963,7 +2963,7 @@ render_status_line_1 :: () {
     append(*builder, "\n");
 
     status_line_1 := to_string(*builder);
-    if status_line_1 != xx last_status_line_1 {
+    if redraw_once || status_line_1 != xx last_status_line_1 {
         write_string(status_line_1);
 
         last_status_line_1.count = 0;
@@ -3579,7 +3579,7 @@ render_status_line_2 :: () {
     assert(get_current_buffer(*builder) == buffer);
 
     status_line_2 := to_string(*builder);
-    if status_line_2 != xx last_status_line_2 {
+    if redraw_once || status_line_2 != xx last_status_line_2 {
         write_string(status_line_2);
 
         last_status_line_2.count = 0;
