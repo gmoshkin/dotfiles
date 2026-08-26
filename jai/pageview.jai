@@ -1177,6 +1177,8 @@ main :: () {
                     {
                         // log("last_shown_line_buffer.count: %", last_shown_line_buffer.count);
                         line_buffer = build_line_buffer_for_main_window(main_window_buffer);
+                        // XXX: I think each line must end with a '\n', which is
+                        // dumb... we better refactor this
                         main_window_render_requested = false;
                         changed = true;
                     } else {
@@ -1199,21 +1201,39 @@ main :: () {
             }
 
             if changed || redraw_once {
+                //
+                // Display window
+                //
                 time_last_shown = frame_time;
                 redraw_once = false;
                 // "\e[2;1H": move cursor to the first row below the status lines
                 assert(status_line_1_row == 1);
                 assert(status_line_2_row == -1);
                 write_string("\e[2;1H");
-                write_string("\e[0J");
+                // "\e[0J": erase from cursor to end of screen
+                // write_string("\e[0J");
                 if line_buffer.count > 0 {
                     all_but_last_line := line_buffer;
                     all_but_last_line.count -= 1;
-                    write_strings(..all_but_last_line);
+                    for line: all_but_last_line {
+                        // "\e[K": erase in line
+                        write_string("\e[K");
+                        write_string(line);
+                    }
 
                     last_line := line_buffer[line_buffer.count - 1];
                     if last_line[last_line.count - 1] == #char "\n" last_line.count -= 1;
+                    // "\e[K": erase in line
+                    write_string("\e[K");
                     write_string(last_line);
+
+                    if line_buffer.count < main_window_height {
+                        for 1..main_window_height - line_buffer.count {
+                            // "\e[K": erase in line
+                            write_string("\n\e[K");
+                        }
+
+                    }
                 }
 
                 // Save last shown line buffer
@@ -1816,6 +1836,7 @@ build_line_buffer_for_main_window :: (window_buffer: *Window_Buffer) -> [] strin
         while line_buffer.count < main_window_height {
             // This should only happen when there's not enough lines to fill the screen
             draw_scrollbar_piece_in_current_line(*builder);
+            append(*builder, "\n");
             array_add(*line_buffer, builder_to_string(*builder,, temp));
             current_screen_row += 1;
         }
@@ -3540,37 +3561,27 @@ render_status_line_2 :: () {
     // TODO: status line 2 shows up twice if termimal height is exactly 2
     if terminal_size.rows < 2 return;
 
-    builder: String_Builder;
-    builder.allocator = temp;
-    buffer := get_base_buffer(*builder);
+    no_color_builder: String_Builder;
+    no_color_builder.allocator = temp;
 
     cursor_line = -1;
     cursor_column = -1;
 
-    // "\e[H": move cursor to position (row %, column 1)
-    print(*builder, "\e[%;1H", terminal_size.rows);
-    append(*builder, "\e[K"); // "\e[K": erase in line
-    append(*builder, "\e[2;37m"); // color gray
-
     if frame_time < info_message_deadline {
-        append(*builder, to_string(*info_message_builder));
+        append(*no_color_builder, to_string(*info_message_builder));
     } else if main_window_source == .DRAWING_MODE {
         if input_mode == {
             case .NAVIGATE;
-                append(*builder, "drawing mode");
+                append(*no_color_builder, "drawing mode");
 
-                print(*builder, " mouse %, %", mouse_position.column, mouse_position.row);
+                print(*no_color_builder, " mouse %, %", mouse_position.column, mouse_position.row);
             case .INPUT_SEARCH_STRING; #through;
             case .INPUT_COMMAND;
-                render_status_line_2_command_line(*builder, input_mode);
+                render_status_line_2_command_line(*no_color_builder, input_mode);
         }
     } else {
         if input_mode ==  {
             case .NAVIGATE;
-                // hide the cursor, so it doesn't flicker all around the screen
-                // while the ui is being drawn
-                append(*builder, "\e[?25l");
-
                 line_count := 0;
                 if main_window_buffer_history {
                     main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
@@ -3586,53 +3597,61 @@ render_status_line_2 :: () {
                     //     "⠛⠛", "⠛⠋", "⠛⠉", "⠋⠉", "⠉⠉", "⠉⠁", "⠉ ", "⠁ ",
                     // ];
                     // i := main_window_renderred_times % values.count;
-                    // append(*builder, values[i]);
+                    // append(*no_color_builder, values[i]);
                     i := main_window_renderred_times % 0x10000; // 2 ^ 16
                     braille_pair := make_binary_representation(xx i);
-                    print_braille(*builder, braille_pair.left);
-                    print_braille(*builder, braille_pair.right);
-                    append(*builder, "  ");
+                    print_braille(*no_color_builder, braille_pair.left);
+                    print_braille(*no_color_builder, braille_pair.right);
+                    append(*no_color_builder, "  ");
                 }
 
-                text_start := buffer.count;
                 {
-                    print(*builder, "[%", row_offset);
-                    if line_wrapping then print(*builder, "(+%)", wrapped_line_offset);
-                    print(*builder, "/%", line_count);
-                    if !line_wrapping && col_offset then print(*builder, " %", col_offset);
-                    append(*builder, "]  ");
-                    if stick_to_the_bottom then append(*builder, "sinking   ");
+                    print(*no_color_builder, "[%", row_offset);
+                    if line_wrapping then print(*no_color_builder, "(+%)", wrapped_line_offset);
+                    print(*no_color_builder, "/%", line_count);
+                    if !line_wrapping && col_offset then print(*no_color_builder, " %", col_offset);
+                    append(*no_color_builder, "]  ");
+                    if stick_to_the_bottom then append(*no_color_builder, "sinking   ");
 
                     // Print current input buffer
-                    append(*builder, "input: ");
+                    append(*no_color_builder, "input: ");
 
-                    print_to_builder(*builder, "%", cast(Ascii_Or_Hex) input_buffer);
+                    print_to_builder(*no_color_builder, "%", cast(Ascii_Or_Hex) input_buffer);
                 }
 
                 {
                     // status line debug stuff section
                     // if main_window_buffer_history {
                     //     main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
-                    //     print(*builder, "  % % %", scrollbar_slider_top, scrollbar_slider_bottom, scrollbar_slider_height);
+                    //     print(*no_color_builder, "  % % %", scrollbar_slider_top, scrollbar_slider_bottom, scrollbar_slider_height);
                     // }
                 }
 
-                text_length := buffer.count - text_start;
-                overflow := text_length - terminal_size.cols;
-                if overflow > 0 {
-                    buffer.count -= overflow;
-                }
             case .INPUT_SEARCH_STRING; #through;
             case .INPUT_COMMAND;
-                render_status_line_2_command_line(*builder, input_mode);
+                render_status_line_2_command_line(*no_color_builder, input_mode);
         }
     }
 
-    append(*builder, "\e[0m");
+    no_color := to_string(*no_color_builder);
+    no_color = utf8_substring(no_color, 0, terminal_size.cols);
 
-    assert(get_current_buffer(*builder) == buffer);
+    line_builder: String_Builder;
+    line_builder.allocator = temp;
 
-    status_line_2 := to_string(*builder);
+    // "\e[H": move cursor to position (row %, column 1)
+    print(*line_builder, "\e[%;1H", terminal_size.rows);
+    append(*line_builder, "\e[K"); // "\e[K": erase in line
+    append(*line_builder, "\e[2;37m"); // color gray
+    // hide the cursor, so it doesn't flicker all around the screen
+    // while the ui is being drawn
+    append(*line_builder, "\e[?25l");
+
+    append(*line_builder, no_color);
+
+    append(*line_builder, "\e[0m");
+
+    status_line_2 := to_string(*line_builder);
     if redraw_once || status_line_2 != xx last_status_line_2 {
         write_string(status_line_2);
 
