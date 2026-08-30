@@ -7,8 +7,14 @@ SANDBOX_GAME_State :: struct {
     next_tick_time: float64 = -1.0;
     debug_one_tick_per_render := false;
     tick: int = 0;
+    sleeping := false;
 
     brush: type_of(SANDBOX_GAME_Cell.type) = .SAND;
+    screen_mouse_x: int;
+    screen_mouse_y: int;
+    enqueued_clicks: [..] struct { x: int; y: int; type: SANDBOX_GAME_Cell_Type; };
+    mouse_down := false;
+    click_type: SANDBOX_GAME_Cell_Type;
 
     world_size_x: int = 50;
     world_size_y: int = 50;
@@ -119,31 +125,37 @@ handle_input_event_SANDBOX_GAME :: (event: Input_Event) {
     }
 
     assert(pixel_size == .TWO_CHARACTERS);
-    width := cast(int) pixel_window_size.x;
-    height := cast(int) pixel_window_size.y;
-    screen_mouse_x := (mouse_position.column - 1) / 2;
+    sandbox.screen_mouse_x = (mouse_position.column - 1) / 2;
     assert(status_line_1_row == 1 && status_line_2_row == -1);
-    screen_mouse_y := (mouse_position.row - 1) - 1; // `-1` for @status_line
+    sandbox.screen_mouse_y = (mouse_position.row - 1) - 1; // `-1` for @status_line
 
-    cell := get_cell_ptr(*sandbox, screen_mouse_x, screen_mouse_y);
-    if !cell return;
-
-    click := false;
-    type: SANDBOX_GAME_Cell_Type;
     if event.kind == {
-        case .MOUSE_LEFT_DRAG; #through;
-        case .MOUSE_LEFT_DOWN;
-            type = sandbox.brush;
-            click = true;
-        case .MOUSE_RIGHT_DRAG; #through;
-        case .MOUSE_RIGHT_DOWN;
-            type = .AIR;
-            click = true;
+        case .MOUSE_LEFT_DOWN; #through;
+        case .MOUSE_LEFT_DRAG;
+            sandbox.click_type = sandbox.brush;
+            sandbox.mouse_down = true;
+        case .MOUSE_RIGHT_DOWN; #through;
+        case .MOUSE_RIGHT_DRAG;
+            sandbox.click_type = .AIR;
+            sandbox.mouse_down = true;
+        case .MOUSE_ANY_UP;
+            sandbox.mouse_down = false;
     }
 
-    if click then cell.* = make_cell(type, sandbox.tick);
+    if sandbox.mouse_down {
+        enqueue_click(*sandbox, sandbox.screen_mouse_x, sandbox.screen_mouse_y, sandbox.click_type);
+    }
 
     return;
+}
+
+enqueue_click :: (sandbox: *SANDBOX_GAME_State, x: int, y: int, type: SANDBOX_GAME_Cell_Type) {
+    last_click := last(*sandbox.enqueued_clicks);
+    if last_click && (last_click.x == x) && (last_click.y == y) && (last_click.type == type) {
+        return;
+    }
+
+    array_add(*sandbox.enqueued_clicks, .{ x, y, type });
 }
 
 update_SANDBOX_GAME :: () {
@@ -251,6 +263,10 @@ tick_SANDBOX_GAME :: () {
     width := sandbox.world_size_x;
     height := sandbox.world_size_y;
 
+    Already_Moved :: (cell: SANDBOX_GAME_Cell) -> bool #expand {
+        return cell.tick == (sandbox.tick % U8_MAX);
+    }
+
     Get :: (x: int, y: int) -> SANDBOX_GAME_Cell #expand {
         if x < 0 || x > sandbox.world_size_x - 1 return make_cell(.BOUNDARY, 0);
         if y < 0 || y > sandbox.world_size_y - 1 return make_cell(.BOUNDARY, 0);
@@ -275,12 +291,35 @@ tick_SANDBOX_GAME :: () {
         Set(x2, y2, cell1);
     }
 
+    Check_Move :: (x: int, y: int, move: Move_Directions, candidates: [] SANDBOX_GAME_Cell_Type) -> bool #expand {
+        cell := Get(x, y, move);
+        if (cell.type != .AIR) && Already_Moved(cell) return false;
+        return is_any_of(cell.type, ..candidates);
+    }
+
     Move :: (x: int, y: int, move: Move_Directions) #expand {
         offset := move_offset(move);
         Swap(x, y, x + offset.x, y + offset.y);
+        sandbox.sleeping = false;
     }
 
+    // Keep adding cells every tick while mouse is down
+    if sandbox.mouse_down {
+        enqueue_click(*sandbox, sandbox.screen_mouse_x, sandbox.screen_mouse_y, sandbox.click_type);
+    }
+
+    if !sandbox.enqueued_clicks && sandbox.sleeping return;
+
     sandbox.tick += 1;
+    sandbox.sleeping = true;
+
+    for sandbox.enqueued_clicks {
+        cell := get_cell_ptr(*sandbox, it.x, it.y);
+        if cell && (cell.type != it.type) {
+            cell.* = make_cell(it.type, sandbox.tick);
+        }
+    }
+    sandbox.enqueued_clicks.count = 0;
 
     for sandbox.world_cells {
         if it.type == {
@@ -289,8 +328,7 @@ tick_SANDBOX_GAME :: () {
             continue;
         }
 
-        // Already handled
-        if it.tick == (sandbox.tick % U8_MAX) continue;
+        if Already_Moved(it) continue;
 
         x := it_index % width;
         y := it_index / width;
@@ -305,35 +343,40 @@ tick_SANDBOX_GAME :: () {
 
         case .HAZE;
             can_move_to :: SANDBOX_GAME_Cell_Type.[.AIR];
-            for move: Move_Directions.[.LEFT, .RIGHT, .UP, .UP_LEFT, .UP_RIGHT] {
-                if is_any_of(Get(x, y, move).type, ..can_move_to)
+            for move: Move_Directions.[.UP, .UP_LEFT, .UP_RIGHT] {
+                if Check_Move(x, y, move, can_move_to)
+                    then moves |= move;
+            }
+
+            if !moves for move: Move_Directions.[.LEFT, .RIGHT] {
+                if Check_Move(x, y, move, can_move_to)
                     then moves |= move;
             }
 
         case .SAND;
             can_move_to :: SANDBOX_GAME_Cell_Type.[.AIR, .WATER, .HAZE];
             move := Move_Directions.DOWN;
-            if is_any_of(Get(x, y, move).type, ..can_move_to)
+            if Check_Move(x, y, move, can_move_to)
                 then moves |= move;
 
             if !moves for move: Move_Directions.[.DOWN_LEFT, .DOWN_RIGHT] {
-                if is_any_of(Get(x, y, move).type, ..can_move_to)
+                if Check_Move(x, y, move, can_move_to)
                     then moves |= move;
             }
 
         case .WATER;
             can_move_to :: SANDBOX_GAME_Cell_Type.[.AIR, .HAZE];
             move := Move_Directions.DOWN;
-            if is_any_of(Get(x, y, move).type, ..can_move_to)
+            if Check_Move(x, y, move, can_move_to)
                 then moves |= move;
 
             if !moves for move: Move_Directions.[.DOWN_LEFT, .DOWN_RIGHT] {
-                if is_any_of(Get(x, y, move).type, ..can_move_to)
+                if Check_Move(x, y, move, can_move_to)
                     then moves |= move;
             }
 
             if !moves for move: Move_Directions.[.LEFT, .RIGHT] {
-                if is_any_of(Get(x, y, move).type, ..can_move_to)
+                if Check_Move(x, y, move, can_move_to)
                     then moves |= move;
             }
         }
