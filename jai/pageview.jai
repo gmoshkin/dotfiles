@@ -180,6 +180,7 @@ State :: struct #type_info_no_size_complaint {
         EXTERNAL_COMMAND_WHICH_COMES_FROM_STDIN;
         PIPED_INPUT;
         DRAWING_MODE;
+        SANDBOX_GAME;
         GAME_OF_LIFE;
         // TODO: FILE;
     }
@@ -276,6 +277,11 @@ State :: struct #type_info_no_size_complaint {
     game_of_life_tick_needed: bool;
     tick_period := 1.0;
     next_tick_time := 0.0;
+
+    //
+    // SANDBOX_GAME
+    //
+    sandbox: SANDBOX_GAME_State;
 
     //
     // rendering
@@ -405,7 +411,7 @@ Pixel_Value :: union type: Pixel_Value_Type {
         return res;
     }
 
-    id :: (id: u8) -> Self {
+    id :: (id: Color_8bit) -> Self {
         res: Self;
         res.type = .COLOR_8BIT;
         res._8bit = xx id;
@@ -605,8 +611,12 @@ main :: () {
 
     cursor := 1;
     while cursor < args.count {
-        arg := args[cursor];
-        if arg == {
+        flag := args[cursor];
+        after_equals := "";
+        if starts_with(flag, "-") {
+            found:, flag, after_equals = split_from_left(flag, #char "=");
+        }
+        if flag == {
             case "-v"; #through;
             case "--version"; #through;
             case "version";
@@ -635,6 +645,35 @@ main :: () {
             case "--draw";
                 state.main_window_source = .DRAWING_MODE;
 
+            case "-S"; #through;
+            case "--sandbox";
+                state.main_window_source = .SANDBOX_GAME;
+
+            case "--sandbox-width";
+                cursor += 1;
+                if cursor >= args.count {
+                    print("Expected a number '%'\n", flag);
+                    exit(1);
+                }
+                width, ok := string_to_int(args[cursor]);
+                if !ok {
+                    print("Expected a number after '%', got '%'\n", flag, args[cursor]);
+                    exit(1);
+                }
+                state.sandbox.world_size_x = width;
+            case "--sandbox-height";
+                cursor += 1;
+                if cursor >= args.count {
+                    print("Expected a number '%'\n", flag);
+                    exit(1);
+                }
+                height, ok := string_to_int(args[cursor]);
+                if !ok {
+                    print("Expected a number after '%', got '%'\n", flag, args[cursor]);
+                    exit(1);
+                }
+                state.sandbox.world_size_y = height;
+
             case "-g"; #through;
             case "--game-of-life";
                 state.main_window_source = .GAME_OF_LIFE;
@@ -644,12 +683,12 @@ main :: () {
             case "--time-before-repeat";
                 cursor += 1;
                 if cursor >= args.count {
-                    print("Expected a number of seconds after '%'\n", arg);
+                    print("Expected a number of seconds after '%'\n", flag);
                     exit(1);
                 }
                 seconds, ok := string_to_float(args[cursor]);
                 if !ok {
-                    print("Expected a number of seconds after '%', got '%'\n", arg, args[cursor]);
+                    print("Expected a number of seconds after '%', got '%'\n", flag, args[cursor]);
                     exit(1);
                 }
                 state.external_command_run_period_seconds = seconds;
@@ -658,12 +697,12 @@ main :: () {
             case "--max-time-before-repeat";
                 cursor += 1;
                 if cursor >= args.count {
-                    print("Expected a number of seconds after '%'\n", arg);
+                    print("Expected a number of seconds after '%'\n", flag);
                     exit(1);
                 }
                 seconds, ok := string_to_float(args[cursor]);
                 if !ok {
-                    print("Expected a number of seconds after '%', got '%'\n", arg, args[cursor]);
+                    print("Expected a number of seconds after '%', got '%'\n", flag, args[cursor]);
                     exit(1);
                 }
                 state.external_command_run_period_max = seconds;
@@ -698,7 +737,7 @@ main :: () {
             case "--log";
                 cursor += 1;
                 if cursor >= args.count {
-                    print("Expected a log file after '%'\n", arg);
+                    print("Expected a log file after '%'\n", flag);
                     exit(1);
                 }
                 state.log_file_name = copy_string_with_nul(args[cursor]);
@@ -706,12 +745,12 @@ main :: () {
             case "--listen";
                 cursor += 1;
                 if cursor >= args.count {
-                    print("Expected a port number after '%'\n", arg);
+                    print("Expected a port number after '%'\n", flag);
                     exit(1);
                 }
                 port, ok, remainder := string_to_int(args[cursor]);
                 if !ok || remainder != "" {
-                    print("Expected a port number after '%', got '%'\n", arg, args[cursor]);
+                    print("Expected a port number after '%', got '%'\n", flag, args[cursor]);
                     exit(1);
                 }
                 if port > U16_MAX {
@@ -960,8 +999,11 @@ main :: () {
         assert(rc != -1);
     }
 
-    if state.main_window_source == .GAME_OF_LIFE {
+    if state.main_window_source == {
+    case .GAME_OF_LIFE;
         init_game_of_life();
+    case .SANDBOX_GAME;
+        init_SANDBOX_GAME();
     }
 
     // Initialize @status_line
@@ -989,6 +1031,7 @@ main :: () {
             case .EXTERNAL_COMMAND;
                 maybe_spawn_external_command();
 
+            case .SANDBOX_GAME; #through;
             case .DRAWING_MODE;
                 if !pixel_buffer resize_pixel_buffer();
         }
@@ -1090,7 +1133,13 @@ main :: () {
 
             update_main_window_height();
 
-            if main_window_source == .DRAWING_MODE resize_pixel_buffer();
+            if main_window_source == {
+            case .SANDBOX_GAME;
+                on_window_resize_SANDBOX_GAME();
+
+            case .DRAWING_MODE;
+                resize_pixel_buffer();
+            }
 
             row_offset = max(row_offset, -(main_window_height - 1));
 
@@ -1134,6 +1183,12 @@ main :: () {
                 tick_game_of_life();
                 game_of_life_ticked = true;
             }
+        }
+
+        Profile();
+
+        if main_window_source == .SANDBOX_GAME {
+            update_SANDBOX_GAME();
         }
 
         Profile();
@@ -1193,6 +1248,10 @@ main :: () {
                     line_buffer = build_line_buffer_for_game_of_life();
                     changed = true;
 
+                case .SANDBOX_GAME;
+                    line_buffer = build_line_buffer_for_SANDBOX_GAME();
+                    changed = true;
+
                 case .NONE;
             }
 
@@ -1206,33 +1265,38 @@ main :: () {
                 //
                 time_last_shown = frame_time;
                 redraw_once = false;
-                // "\e[2;1H": move cursor to the first row below the status lines
-                assert(status_line_1_row == 1);
-                assert(status_line_2_row == -1);
-                write_string("\e[2;1H");
+
                 // "\e[0J": erase from cursor to end of screen
                 // write_string("\e[0J");
+
                 if line_buffer.count > 0 {
-                    all_but_last_line := line_buffer;
-                    all_but_last_line.count -= 1;
-                    for line: all_but_last_line {
+                    assert(status_line_1_row == 1);
+                    assert(status_line_2_row == -1);
+                    first_row := 2;
+                    line_index := 0;
+
+                    while line_index < main_window_height {
+                        defer line_index += 1;
+
+                        line: string;
+                        if line_index < line_buffer.count
+                            line = line_buffer[line_index];
+                        if !redraw_once &&
+                           (line_index < last_shown_line_buffer.count) &&
+                           (line == last_shown_line_buffer[line_index]) continue;
+
+                        // "\e[{row};{col}H": move cursor
+                        write_string("\e[");
+                        write_nonnegative_number(xx (first_row + line_index));
+                        write_string(";1H");
+
                         // "\e[K": erase in line
                         write_string("\e[K");
-                        write_string(line);
-                    }
 
-                    last_line := line_buffer[line_buffer.count - 1];
-                    if last_line[last_line.count - 1] == #char "\n" last_line.count -= 1;
-                    // "\e[K": erase in line
-                    write_string("\e[K");
-                    write_string(last_line);
-
-                    if line_buffer.count < main_window_height {
-                        for 1..main_window_height - line_buffer.count {
-                            // "\e[K": erase in line
-                            write_string("\n\e[K");
+                        if line {
+                            if ends_with(line, "\n") line.count -= 1;
+                            write_string(line);
                         }
-
                     }
                 }
 
@@ -1872,9 +1936,21 @@ resize_pixel_buffer :: () {
     for *pixel_buffer it.* = current_pixel_bg;
 
     width = xx pixel_window_size.x;
-    for 1..22 pixel_buffer[5 * width + (it - 1) * 2] = current_pixel_fg;
-    for 1..5 pixel_buffer[6 * width + (it - 1) * 10] = current_pixel_fg;
-    for 1..3 pixel_buffer[(it - 1) * 2 * width + 43] = current_pixel_fg;
+    for 1..22 {
+        index := 5 * width + (it - 1) * 2;
+        if index >= pixel_buffer.count break;
+        pixel_buffer[index] = current_pixel_fg;
+    }
+    for 1..5 {
+        index := 6 * width + (it - 1) * 10;
+        if index >= pixel_buffer.count break;
+        pixel_buffer[index] = current_pixel_fg;
+    }
+    for 1..3 {
+        index := (it - 1) * 2 * width + 43;
+        if index >= pixel_buffer.count break;
+        pixel_buffer[index] = current_pixel_fg;
+    }
     pixel_buffer[44] = current_pixel_fg;
 
 }
@@ -2999,6 +3075,8 @@ shutdown_fd :: (fd: *s32, from_event_queue := true) {
 // @status_line-s
 //
 
+Status_Line_Side :: enum { LEFT; RIGHT; }
+
 status_line_init :: () {
     using context.state;
 
@@ -3313,6 +3391,9 @@ render_status_line_1_left_side :: (builder: *String_Builder) {
                 append(builder, "play");
             }
         }
+        case .SANDBOX_GAME; {
+            status_line_1_SANDBOX_GAME(builder, .LEFT);
+        }
     }
 }
 
@@ -3377,6 +3458,10 @@ render_status_line_1_right_side :: (outer_builder: *String_Builder) {
             }
             append(*builder, "\e[0m");
             buffer_number_in_history = builder_to_string(*builder,, temp);
+        }
+        else if main_window_source == .SANDBOX_GAME
+        {
+            buffer_number_in_history = status_line_1_buffer_number_SANDBOX_GAME();
         }
         else
         {
@@ -3590,6 +3675,11 @@ render_status_line_2 :: () {
 
                 // render counter
                 {
+                    render_counter := main_window_renderred_times;
+                    if main_window_source == .SANDBOX_GAME {
+                        render_counter = status_line_2_render_counter_SANDBOX_GAME();
+                    }
+
                     // values :: string.[
                     //     "  ", " ⢀", " ⣀", "⢀⣀", "⣀⣀", "⣀⣠", "⣀⣤", "⣠⣤",
                     //     "⣤⣤", "⣤⣴", "⣤⣶", "⣴⣶", "⣶⣶", "⣶⣾", "⣶⣿", "⣾⣿",
@@ -3598,7 +3688,7 @@ render_status_line_2 :: () {
                     // ];
                     // i := main_window_renderred_times % values.count;
                     // append(*no_color_builder, values[i]);
-                    i := main_window_renderred_times % 0x10000; // 2 ^ 16
+                    i := render_counter % 0x10000; // 2 ^ 16
                     braille_pair := make_binary_representation(xx i);
                     print_braille(*no_color_builder, braille_pair.left);
                     print_braille(*no_color_builder, braille_pair.right);
@@ -4576,6 +4666,11 @@ handle_input_event :: (_event: Input_Event) {
                 }
         }
 
+        return;
+    }
+
+    if main_window_source == .SANDBOX_GAME {
+        handle_input_event_SANDBOX_GAME(event);
         return;
     }
 
@@ -5811,6 +5906,9 @@ init_commands :: () {
         array_add(*console_commands, make_command("fg_256", set_current_pixel_fg_256));
         array_add(*console_commands, make_command("bg_rgb", set_current_pixel_bg_rgb));
         array_add(*console_commands, make_command("bg_256", set_current_pixel_bg_256));
+
+        array_add(*console_commands, make_command("sandbox_tick_rate", set_sandbox_tick_rate));
+        array_add(*console_commands, make_command("sandbox_debug_tick_rate", toggle_debug_one_tick_per_update));
     }
 }
 
@@ -7737,6 +7835,8 @@ Color_8bit :: enum u8 {
     GRAY_6  :: 238; GRAY_7  :: 239; GRAY_8  :: 240; GRAY_9  :: 241; GRAY_10 :: 242; GRAY_11 :: 243;
     GRAY_12 :: 244; GRAY_13 :: 245; GRAY_14 :: 246; GRAY_15 :: 247; GRAY_16 :: 248; GRAY_17 :: 249;
     GRAY_18 :: 250; GRAY_19 :: 251; GRAY_20 :: 252; GRAY_21 :: 253; GRAY_22 :: 254; GRAY_23 :: 255;
+
+    BLACK :: GRAY_0;
 }
 
 make_fg :: (fg_color: Color_8bit) -> string {
@@ -9955,6 +10055,9 @@ else             using POSIX;
 #if DO_HTTP_SERVER #import "Http";
 #import "Bit_Array";
 #import "Process_Info";
+#import "Random";
+
+#load "sandbox.jai";
 
 #if CPU == .X64     Meow_Hash :: #import "meow_hash";
 #if CPU == .ARM64   XXHash :: #import "xxHash";

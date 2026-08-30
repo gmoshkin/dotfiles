@@ -18,9 +18,20 @@ main :: () {
     Log_Header("test_mp_skip_value");                      test_mp_skip_value();
     Log_Header("test_coro_stack_alloc");                   test_coro_stack_alloc();
     Log_Header("test_coroutine");                          test_coroutine();
+    Log_Header("test_bit_scan_forward");                   test_bit_scan_forward();
 
     elapsed := seconds_since_init() - t0;
     log("\e[32mall tests passed!\e[0m elapsed: %", fmt(elapsed, 6));
+}
+
+test_bit_scan_forward :: () {
+    numbers := int.[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+    indexes := int.[0, 1, 2, 1, 3, 1, 2, 1, 4, 1,  2,  1,  3,  1,  2,  1,  5,  1,  2,  1];
+
+    for number: numbers {
+        index := bit_scan_forward(number);
+        pretty_assert(index == indexes[it_index]);
+    }
 }
 
 fmt :: inline (v: float64, digits_after_comma := -1, keep_zero := false) -> FormatFloat #expand {
@@ -28,6 +39,7 @@ fmt :: inline (v: float64, digits_after_comma := -1, keep_zero := false) -> Form
 }
 
 #import "Basic";
+#import "Bit_Operations";
 #import "My_Util"(TEST=true);
 #import "Msgpack"(TEST=true);
 #import "Coroutine"(TEST=true);
