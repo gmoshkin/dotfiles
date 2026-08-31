@@ -174,6 +174,11 @@ test_shuffle :: () {
     pretty_assert(array_equals(shuffled_array, original_array));
 }
 
+pick :: (array: [] $T) -> T, int {
+    i := random_get() % xx array.count;
+    return array[i], xx i;
+}
+
 //
 // array utilities
 //
@@ -372,6 +377,108 @@ test_string_slices :: () {
         // I don't like `slice`!
         assert( is_subslice(s, slice(s, 0, 0)));
         //NOTE ^
+    }
+}
+
+to_upper :: (s: string) -> string {
+    t := copy_string(s);
+    for *t it.* = to_upper(it.*);
+    return t;
+}
+
+to_lower :: (s: string) -> string {
+    t := copy_string(s);
+    for *t it.* = to_lower(it.*);
+    return t;
+}
+
+#if TEST
+test_to_upper_to_lower :: () {
+    pretty_assert(to_upper("aBcDe") == "ABCDE");
+    pretty_assert(to_upper("") == "");
+    pretty_assert(to_upper("FOO") == "FOO");
+    pretty_assert(to_lower("aBcDe") == "abcde");
+    pretty_assert(to_lower("") == "");
+    pretty_assert(to_lower("bar") == "bar");
+}
+
+
+my_split :: (s: string, separator := " ") -> [] string {
+    result: [..] string;
+
+    tail := s;
+    while tail {
+        found:, left:, tail = split_from_left(tail, separator);
+        if left array_add(*result, left);
+    }
+
+    return result;
+}
+
+#if TEST
+test_my_split :: () {
+    pretty_assert(array_equals(my_split("  a bc  def g  h "), string.["a", "bc", "def", "g", "h"]));
+    pretty_assert(array_equals(my_split("  "), string.[]));
+    pretty_assert(array_equals(my_split("   boo   "), string.["boo"]));
+}
+
+string_to_enum :: (s: string, $E: Type, $ignore_case := true) -> bool, E {
+    #assert E.(*Type_Info).type == .ENUM;
+    #if ignore_case {
+        t := to_upper(s,, temp);
+    }
+
+    info := type_info(E);
+    for info.names {
+        #if ignore_case {
+            match := (to_upper(it) == t);
+        } else {
+            match := (it == s);
+        }
+        if match return true, xx info.values[it_index];
+    }
+
+    return false, 0;
+}
+
+#if TEST
+test_string_to_enum :: () {
+    E :: enum { AAA; foo_bar; Baz; }
+    {
+        ok, e := string_to_enum("AAA", E, ignore_case=false);
+        assert(ok);
+        pretty_assert(e == E.AAA);
+    }
+    {
+        ok, e := string_to_enum("foo_bar", E, ignore_case=false);
+        assert(ok);
+        pretty_assert(e == E.foo_bar);
+    }
+    {
+        ok, e := string_to_enum("FOO_BAR", E, ignore_case=false);
+        assert(!ok);
+    }
+    {
+        ok, e := string_to_enum("FOO_BAR", E, ignore_case=true);
+        assert(ok);
+        pretty_assert(e == E.foo_bar);
+    }
+    {
+        ok, e := string_to_enum("baz", E, ignore_case=false);
+        assert(!ok);
+    }
+    {
+        ok, e := string_to_enum("baz", E, ignore_case=true);
+        assert(ok);
+        pretty_assert(e == E.Baz);
+    }
+    {
+        ok, e := string_to_enum("", E, ignore_case=false);
+        assert(!ok);
+    }
+    {
+        ok, e := string_to_enum("", E, ignore_case=true);
+        assert(!ok);
     }
 }
 

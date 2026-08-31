@@ -5911,11 +5911,7 @@ init_commands :: () {
         array_add(*console_commands, make_command("bg_rgb", set_current_pixel_bg_rgb));
         array_add(*console_commands, make_command("bg_256", set_current_pixel_bg_256));
 
-        array_add(*console_commands, make_command("tick_rate", console_set_sandbox_tick_rate));
-        array_add(*console_commands, make_command("debug_tick_rate", console_toggle_debug_one_tick_per_update));
-        array_add(*console_commands, make_command("swap", console_swap_cell_types));
-        array_add(*console_commands, make_command("clear", console_sandbox_clear));
-        array_add(*console_commands, make_command("save", console_sandbox_save));
+        console_commands_SANDBOX_GAME(*console_commands);
     }
 }
 

@@ -24,6 +24,9 @@ main :: () {
     Log_Header("test_binary_stuff");                       test_binary_stuff();
     Log_Header("test_for_each_bit");                       test_for_each_bit();
     Log_Header("test_shuffle");                            test_shuffle();
+    Log_Header("test_my_split");                           test_my_split();
+    Log_Header("test_to_upper_to_lower");                  test_to_upper_to_lower();
+    Log_Header("test_string_to_enum");                     test_string_to_enum();
 
     elapsed := seconds_since_init() - t0;
     log("\e[32mall tests passed!\e[0m elapsed: %", fmt(elapsed, 6));

@@ -3,6 +3,12 @@ SANDBOX_GAME_State :: struct {
     offset_x: int = 0;
     offset_y: int = 0;
 
+    world_size_x: int = 50;
+    world_size_y: int = 50;
+    world_cells: [] SANDBOX_GAME_Cell;
+
+    color_scheme: SANDBOX_GAME_Color_Scheme;
+
     tick_rate_seconds: float64 = .1;
     next_tick_time: float64 = -1.0;
     debug_one_tick_per_render := false;
@@ -10,9 +16,15 @@ SANDBOX_GAME_State :: struct {
     sleeping := false;
     paused := false;
 
+    can_mutate_after_ticks: int = 10;
+    mutate_rate_one_in: u64 = 50;
+    mutate_sand := true;
+
     swap_types: [2] SANDBOX_GAME_Cell_Type;
     swap_timer: float64 = FLOAT64_INFINITY;
     next_swap_time: float64 = FLOAT64_INFINITY;
+
+    braille := false;
 
     brush: SANDBOX_GAME_Cell_Type = .SAND;
     screen_mouse_x: int;
@@ -20,10 +32,6 @@ SANDBOX_GAME_State :: struct {
     enqueued_clicks: [..] struct { x: int; y: int; type: SANDBOX_GAME_Cell_Type; };
     mouse_down := false;
     click_type: SANDBOX_GAME_Cell_Type;
-
-    world_size_x: int = 50;
-    world_size_y: int = 50;
-    world_cells: [] SANDBOX_GAME_Cell;
 
     filepath: string;
 }
@@ -39,6 +47,16 @@ SANDBOX_GAME_Cell_Type :: enum {
     SAND;
     WATER;
     HAZE;
+    GASS;
+}
+
+SANDBOX_GAME_Color_Scheme :: struct {
+    BOUNDARY : Pixel_Value;
+    AIR      : Pixel_Value;
+    SAND     : Pixel_Value;
+    WATER    : Pixel_Value;
+    HAZE     : Pixel_Value;
+    GASS     : Pixel_Value;
 }
 
 make_cell :: inline (type: SANDBOX_GAME_Cell_Type, tick: int) -> SANDBOX_GAME_Cell {
@@ -77,15 +95,28 @@ get_cell :: (sandbox: *SANDBOX_GAME_State, screen_x: int, screen_y: int, or: SAN
     return cell.*;
 }
 
-cell_to_pixel_value :: (type: SANDBOX_GAME_Cell_Type) -> Pixel_Value {
+cell_to_pixel_value :: (colors: *SANDBOX_GAME_Color_Scheme, type: SANDBOX_GAME_Cell_Type) -> Pixel_Value {
     if #complete type == {
-    case .BOUNDARY; return Pixel_Value.id(.GRAY_4);
-    case .AIR;      return Pixel_Value.id(.TRANSPARENT);
-    case .SAND;     return Pixel_Value.id(.YELLOW);
-    case .WATER;    return Pixel_Value.id(.BLUE);
-    case .HAZE;     return Pixel_Value.id(.RGB_4_1_2);
+    case .BOUNDARY; return colors.BOUNDARY;
+    case .AIR;      return colors.AIR;
+    case .SAND;     return colors.SAND;
+    case .WATER;    return colors.WATER;
+    case .HAZE;     return colors.HAZE;
+    case .GASS;     return colors.GASS;
     }
 }
+
+set_color :: (colors: *SANDBOX_GAME_Color_Scheme, type: SANDBOX_GAME_Cell_Type, color: Pixel_Value) {
+    if #complete type == {
+    case .BOUNDARY; colors.BOUNDARY = color;
+    case .AIR;      colors.AIR      = color;
+    case .SAND;     colors.SAND     = color;
+    case .WATER;    colors.WATER    = color;
+    case .HAZE;     colors.HAZE     = color;
+    case .GASS;     colors.GASS     = color;
+    }
+}
+
 
 serialize_cell :: (builder: *String_Builder, type: SANDBOX_GAME_Cell_Type) {
     if #complete type == {
@@ -94,6 +125,7 @@ serialize_cell :: (builder: *String_Builder, type: SANDBOX_GAME_Cell_Type) {
     case .SAND;     append(builder, "S ");
     case .WATER;    append(builder, "W ");
     case .HAZE;     append(builder, "H ");
+    case .GASS;     append(builder, "G ");
     }
 }
 
@@ -104,12 +136,13 @@ deserialize_cell :: (input: *string) -> bool, SANDBOX_GAME_Cell_Type {
     result: SANDBOX_GAME_Cell_Type;
 
     serialized_cell := slice(input.*, 0, 2);
-    if serialized_cell == {
-    case "B "; ok = true; result = .BOUNDARY;
-    case "  "; ok = true; result = .AIR;
-    case "S "; ok = true; result = .SAND;
-    case "W "; ok = true; result = .WATER;
-    case "H "; ok = true; result = .HAZE;
+    if serialized_cell[0] == {
+    case "B"; ok = true; result = .BOUNDARY;
+    case " "; ok = true; result = .AIR;
+    case "S"; ok = true; result = .SAND;
+    case "W"; ok = true; result = .WATER;
+    case "H"; ok = true; result = .HAZE;
+    case "G"; ok = true; result = .GASS;
     }
 
     if ok then advance(input, 2);
@@ -129,6 +162,13 @@ init_SANDBOX_GAME :: () {
         sandbox.world_cells = NewArray(sandbox.world_size_x * sandbox.world_size_y, SANDBOX_GAME_Cell);
         for *sandbox.world_cells it.* = make_cell(.AIR, 0);
     }
+
+    sandbox.color_scheme.BOUNDARY = Pixel_Value.id(.GRAY_4);
+    sandbox.color_scheme.AIR      = Pixel_Value.id(.TRANSPARENT);
+    sandbox.color_scheme.SAND     = Pixel_Value.id(.YELLOW);
+    sandbox.color_scheme.WATER    = Pixel_Value.id(.BLUE);
+    sandbox.color_scheme.HAZE     = Pixel_Value.id(.RGB_4_1_2);
+    sandbox.color_scheme.GASS     = Pixel_Value.id(.RGB_2_4_2);
 
     sandbox.next_tick_time = seconds_since_init();
 }
@@ -166,6 +206,7 @@ handle_input_event_SANDBOX_GAME :: (event: Input_Event) {
             case #char "w"; sandbox.brush = .WATER;     return;
             case #char "h"; sandbox.brush = .HAZE;      return;
             case #char "b"; sandbox.brush = .BOUNDARY;  return;
+            case #char "g"; sandbox.brush = .GASS;      return;
 
             }
         }
@@ -356,6 +397,11 @@ tick_SANDBOX_GAME :: () {
         sandbox.world_cells[x + y * sandbox.world_size_x] = with_tick(cell, sandbox.tick);
     }
 
+    Mutate :: (x: int, y: int, type: SANDBOX_GAME_Cell_Type) #expand {
+        Set(x, y, make_cell(type, 0));
+        sandbox.sleeping = false;
+    }
+
     Swap :: (x1: int, y1: int, x2: int, y2: int) #expand {
         cell1 := Get(x1, y1);
         cell2 := Get(x2, y2);
@@ -436,6 +482,7 @@ tick_SANDBOX_GAME :: () {
         assert(x + y * width == index, "% % %", index, x, y);
 
         moves: Move_Directions;
+        mutations: [] SANDBOX_GAME_Cell_Type;
 
         if #complete cell.type == {
         case .BOUNDARY; #through;
@@ -448,25 +495,60 @@ tick_SANDBOX_GAME :: () {
                   (.LEFT | .RIGHT)],
                 .[.AIR]);
 
+            if sandbox.mutate_sand
+                mutations = .[.WATER, .WATER, .SAND];
+            else
+                mutations = .[.WATER];
+
+        case .GASS;
+            moves = Check_Moves(x, y,
+                .[(.UP | .UP_LEFT | .UP_RIGHT),
+                  (.LEFT | .RIGHT)],
+                .[.AIR, .HAZE]);
+
+            if sandbox.mutate_sand
+                mutations = .[.WATER, .WATER, .SAND];
+            else
+                mutations = .[.WATER];
+
         case .SAND;
             moves = Check_Moves(x, y,
                 .[(.DOWN),
                   (.DOWN_LEFT | .DOWN_RIGHT)],
-                .[.AIR, .WATER, .HAZE]);
+                .[.AIR, .WATER, .HAZE, .GASS]);
+
+            if sandbox.mutate_sand
+                mutations = .[.HAZE, .GASS];
 
         case .WATER;
             moves = Check_Moves(x, y,
                 .[(.DOWN),
                   (.DOWN_LEFT | .DOWN_RIGHT),
                   (.LEFT | .RIGHT)],
-                .[.AIR, .HAZE]);
+                .[.AIR, .HAZE, .GASS]);
+
+            mutations = .[.HAZE, .GASS];
         }
 
-        if !moves continue;
+        if !moves {
+            if mutations && roll_mutation(cell)
+                then Mutate(x, y, pick(mutations));
+            continue;
+        }
 
         move := pick_move(moves);
         Move(x, y, move);
     }
+}
+
+roll_mutation :: inline (cell: SANDBOX_GAME_Cell) -> bool {
+    using context.state;
+
+    if sandbox.can_mutate_after_ticks < 0 return false;
+
+    if ((cell.tick + sandbox.can_mutate_after_ticks) % U8_MAX) > (sandbox.tick % U8_MAX)
+        return false;
+    return random_get() % sandbox.mutate_rate_one_in == 0;
 }
 
 save_to_file_SANDBOX_GAME :: (filepath: string, sandbox: *SANDBOX_GAME_State) -> bool {
@@ -560,12 +642,20 @@ build_line_buffer_for_\ SANDBOX_GAME :: () -> [] string {
         for x : 0..width - 1 {
             cell := get_cell_ptr(*sandbox, x, y);
             if cell {
-                pixel := cell_to_pixel_value(cell.type);
+                pixel := cell_to_pixel_value(*sandbox.color_scheme, cell.type);
                 print_pixel_value(*builder, pixel);
             } else {
                 print_pixel_value(*builder, Pixel_Value.rgb(0, 0, 0));
             }
-            append(*builder, "  ");
+
+            if sandbox.braille && cell && cell.type != .AIR {
+                braille_pair := make_binary_representation(xx cell.tick);
+                append(*builder, "\e[30m");
+                print_braille(*builder, braille_pair.left);
+                print_braille(*builder, braille_pair.right);
+            } else {
+                append(*builder, "  ");
+            }
         }
 
         append(*builder, "\e[0m");
@@ -581,12 +671,39 @@ build_line_buffer_for_\ SANDBOX_GAME :: () -> [] string {
 // @console commands
 //
 
+console_commands_SANDBOX_GAME :: (console_commands: *[..] Command) {
+    array_add(console_commands, make_command("tick_rate", console_set_sandbox_tick_rate));
+    array_add(console_commands, make_command("can_mutate_after_ticks", console_set_can_mutate_after_ticks));
+    array_add(console_commands, make_command("mutate_rate_one_in", console_set_mutate_rate_one_in));
+    array_add(console_commands, make_command("mutate_sand", console_toggle_mutate_sand));
+    array_add(console_commands, make_command("debug_tick_rate", console_toggle_debug_one_tick_per_update));
+    array_add(console_commands, make_command("swap", console_swap_cell_types));
+    array_add(console_commands, make_command("clear", console_sandbox_clear));
+    array_add(console_commands, make_command("save", console_sandbox_save));
+    array_add(console_commands, make_command("braille", console_toggle_braille));
+    array_add(console_commands, make_command("set_color", console_sandbox_set_color));
+}
+
 console_set_sandbox_tick_rate :: (seconds: float) -> (ok := true, error_message := "") {
     using context.state;
 
     sandbox.tick_rate_seconds = seconds;
 
-    if main_window_source != .SANDBOX_GAME return false, "this command is for SANDBOX_GAME";
+    return;
+}
+
+console_set_can_mutate_after_ticks :: (ticks: int) -> (ok := true, error_message := "") {
+    using context.state;
+
+    sandbox.can_mutate_after_ticks = ticks;
+
+    return;
+}
+
+console_set_mutate_rate_one_in :: (rate: u64) -> (ok := true, error_message := "") {
+    using context.state;
+
+    sandbox.mutate_rate_one_in = rate;
 
     return;
 }
@@ -596,7 +713,69 @@ console_toggle_debug_one_tick_per_update :: () -> (ok := true, error_message := 
 
     sandbox.debug_one_tick_per_render = !sandbox.debug_one_tick_per_render;
 
-    if main_window_source != .SANDBOX_GAME return false, "this command is for SANDBOX_GAME";
+    return;
+}
+
+console_toggle_braille :: () -> (ok := true, error_message := "") {
+    using context.state;
+
+    sandbox.braille = !sandbox.braille;
+    sandbox.sleeping = false;
+
+    return;
+}
+
+console_toggle_mutate_sand :: () -> (ok := true, error_message := "") {
+    using context.state;
+
+    sandbox.mutate_sand = !sandbox.mutate_sand;
+    sandbox.sleeping = false;
+
+    return;
+}
+
+console_sandbox_set_color :: (arguments_string: string) -> (ok := true, error_message := "") {
+    using context.state;
+
+    arguments := my_split(arguments_string);
+
+    if arguments.count < 2 return false, tprint("expected at least 2 arguments, got %", arguments);
+
+    ok, type := parse_cell_type(arguments[0]);
+    if !ok return false, tprint("argument #1: expected one of %, got '%'",
+                                enum_names(SANDBOX_GAME_Cell_Type),
+                                arguments[0]);
+
+    color: Pixel_Value;
+
+    if arguments.count == 2 {
+        color_string := arguments[1];
+        id, ok := string_to_int(color_string, T=u8);
+        if ok {
+            color = Pixel_Value.id(xx id);
+        } else {
+            ok=, color_8bit := string_to_enum(color_string, Color_8bit);
+            color = Pixel_Value.id(color_8bit);
+        }
+        if !ok return false, tprint("argument #2: expected a u8 or a Pixel_Value, got %", color);
+    } else if arguments.count == 4 {
+        r_text := arguments[1];
+        g_text := arguments[2];
+        b_text := arguments[3];
+
+        r:, ok = string_to_int(r_text, T=u8);
+        if !ok return false, tprint("argument #2: expected a u8, got %", r_text);
+        g:, ok = string_to_int(g_text, T=u8);
+        if !ok return false, tprint("argument #3: expected a u8, got %", g_text);
+        b:, ok = string_to_int(b_text, T=u8);
+        if !ok return false, tprint("argument #4: expected a u8, got %", b_text);
+
+        color = Pixel_Value.rgb(r, g, b);
+    } else {
+        return false, tprint("color arguments must be 1 or 3 values, got %", array_view(arguments, 1));
+    }
+
+    set_color(*sandbox.color_scheme, type, color);
 
     return;
 }
@@ -634,17 +813,7 @@ console_swap_cell_types :: (a: string) -> (ok := true, error_message := "") {
     return;
 }
 
-parse_cell_type :: (a: string) -> bool, SANDBOX_GAME_Cell_Type {
-    t := copy_string(a,, temp);
-    for *t it.* = to_upper(it.*);
-
-    info := type_info(SANDBOX_GAME_Cell_Type);
-    for info.names {
-        if it == t return true, xx info.values[it_index];
-    }
-
-    return false, 0;
-}
+parse_cell_type :: #bake_arguments string_to_enum(E=SANDBOX_GAME_Cell_Type);
 
 console_sandbox_clear :: () -> (ok := true, error_message := "") {
     using context.state;
@@ -696,7 +865,7 @@ status_line_1_SANDBOX_GAME :: (builder: *String_Builder, side: Status_Line_Side)
         for type: types {
             char := chars[it_index];
 
-            color := cell_to_pixel_value(type);
+            color := cell_to_pixel_value(*sandbox.color_scheme, type);
             print_pixel_value(builder, color, fg=true);
             if sandbox.brush == type then append(builder, "\e[7m"); // invert color mode
             print(builder, "[%] % ", char, type);
