@@ -9,7 +9,11 @@ SANDBOX_GAME_State :: struct {
     tick: int = 0;
     sleeping := false;
 
-    brush: type_of(SANDBOX_GAME_Cell.type) = .SAND;
+    swap_types: [2] SANDBOX_GAME_Cell_Type;
+    swap_timer: float64 = FLOAT64_INFINITY;
+    next_swap_time: float64 = FLOAT64_INFINITY;
+
+    brush: SANDBOX_GAME_Cell_Type = .SAND;
     screen_mouse_x: int;
     screen_mouse_y: int;
     enqueued_clicks: [..] struct { x: int; y: int; type: SANDBOX_GAME_Cell_Type; };
@@ -163,6 +167,11 @@ update_SANDBOX_GAME :: () {
 
     now := seconds_since_init();
 
+    if sandbox.next_swap_time <= now {
+        do_swap_SANDBOX_GAME();
+        sandbox.next_swap_time = now + sandbox.swap_timer;
+    }
+
     while sandbox.next_tick_time <= now {
         tick_SANDBOX_GAME();
         sandbox.next_tick_time += sandbox.tick_rate_seconds;
@@ -219,7 +228,7 @@ pick_move :: (moves: Move_Directions) -> Move_Directions {
 
     for 1..k move &= move - 1; // clear k lowest set bits
 
-    move &= xx,no_check -(move).(s16);
+    move &= xx,no_check -(move.(s16));
     return xx move;
 }
 
@@ -257,6 +266,26 @@ test_move_stuff :: () {
 }
 #run test_move_stuff();
 
+do_swap_SANDBOX_GAME :: () {
+    using context.state;
+
+    Already_Changed :: (cell: SANDBOX_GAME_Cell) -> bool #expand {
+        return cell.tick == (sandbox.tick % U8_MAX);
+    }
+
+    sandbox.tick += 1;
+    sandbox.sleeping = false;
+
+    type_a := sandbox.swap_types[0];
+    type_b := sandbox.swap_types[1];
+
+    for *sandbox.world_cells {
+        if Already_Changed(it.*) continue;
+        if it.type == type_a then it.* = make_cell(type_b, sandbox.tick);
+        else if it.type == type_b then it.* = make_cell(type_a, sandbox.tick);
+    }
+}
+
 tick_SANDBOX_GAME :: () {
     using context.state;
 
@@ -291,10 +320,23 @@ tick_SANDBOX_GAME :: () {
         Set(x2, y2, cell1);
     }
 
-    Check_Move :: (x: int, y: int, move: Move_Directions, candidates: [] SANDBOX_GAME_Cell_Type) -> bool #expand {
+    Check_Move :: (x: int, y: int, move: Move_Directions, candidate_types: [] SANDBOX_GAME_Cell_Type) -> bool #expand {
         cell := Get(x, y, move);
         if (cell.type != .AIR) && Already_Moved(cell) return false;
-        return is_any_of(cell.type, ..candidates);
+        return is_any_of(cell.type, ..candidate_types);
+    }
+
+    Check_Moves :: (x: int, y: int, to_check: [] Move_Directions, candidate_types: [] SANDBOX_GAME_Cell_Type) -> Move_Directions #expand {
+        for moves_to_check: to_check {
+            moves: Move_Directions;
+            for :for_each_bit move: moves_to_check {
+                if Check_Move(x, y, move, candidate_types) {
+                    moves |= move;
+                }
+            }
+            if moves return moves;
+        }
+        return 0;
     }
 
     Move :: (x: int, y: int, move: Move_Directions) #expand {
@@ -321,64 +363,49 @@ tick_SANDBOX_GAME :: () {
     }
     sandbox.enqueued_clicks.count = 0;
 
-    for sandbox.world_cells {
-        if it.type == {
+    indexes := NewArray(sandbox.world_cells.count, u16,, temp);
+    for *indexes it.* = xx it_index;
+    shuffle(*indexes);
+
+    for index: indexes {
+        cell := sandbox.world_cells[index];
+        if cell.type == {
         case .BOUNDARY; #through;
         case .AIR;
             continue;
         }
 
-        if Already_Moved(it) continue;
+        if Already_Moved(cell) continue;
 
-        x := it_index % width;
-        y := it_index / width;
-        assert(x + y * width == it_index, "% % %", it_index, x, y);
+        x := index % width;
+        y := index / width;
+        assert(x + y * width == index, "% % %", index, x, y);
 
         moves: Move_Directions;
 
-        if #complete it.type == {
+        if #complete cell.type == {
         case .BOUNDARY; #through;
         case .AIR;
             Unreachable("already handled");
 
         case .HAZE;
-            can_move_to :: SANDBOX_GAME_Cell_Type.[.AIR];
-            for move: Move_Directions.[.UP, .UP_LEFT, .UP_RIGHT] {
-                if Check_Move(x, y, move, can_move_to)
-                    then moves |= move;
-            }
-
-            if !moves for move: Move_Directions.[.LEFT, .RIGHT] {
-                if Check_Move(x, y, move, can_move_to)
-                    then moves |= move;
-            }
+            moves = Check_Moves(x, y,
+                .[(.UP | .UP_LEFT | .UP_RIGHT),
+                  (.LEFT | .RIGHT)],
+                .[.AIR]);
 
         case .SAND;
-            can_move_to :: SANDBOX_GAME_Cell_Type.[.AIR, .WATER, .HAZE];
-            move := Move_Directions.DOWN;
-            if Check_Move(x, y, move, can_move_to)
-                then moves |= move;
-
-            if !moves for move: Move_Directions.[.DOWN_LEFT, .DOWN_RIGHT] {
-                if Check_Move(x, y, move, can_move_to)
-                    then moves |= move;
-            }
+            moves = Check_Moves(x, y,
+                .[(.DOWN),
+                  (.DOWN_LEFT | .DOWN_RIGHT)],
+                .[.AIR, .WATER, .HAZE]);
 
         case .WATER;
-            can_move_to :: SANDBOX_GAME_Cell_Type.[.AIR, .HAZE];
-            move := Move_Directions.DOWN;
-            if Check_Move(x, y, move, can_move_to)
-                then moves |= move;
-
-            if !moves for move: Move_Directions.[.DOWN_LEFT, .DOWN_RIGHT] {
-                if Check_Move(x, y, move, can_move_to)
-                    then moves |= move;
-            }
-
-            if !moves for move: Move_Directions.[.LEFT, .RIGHT] {
-                if Check_Move(x, y, move, can_move_to)
-                    then moves |= move;
-            }
+            moves = Check_Moves(x, y,
+                .[(.DOWN),
+                  (.DOWN_LEFT | .DOWN_RIGHT),
+                  (.LEFT | .RIGHT)],
+                .[.AIR, .HAZE]);
         }
 
         if !moves continue;
@@ -427,7 +454,7 @@ build_line_buffer_for_\ SANDBOX_GAME :: () -> [] string {
     return line_buffer;
 }
 
-set_sandbox_tick_rate :: (seconds: float) -> (ok := true, error_message := "") {
+console_set_sandbox_tick_rate :: (seconds: float) -> (ok := true, error_message := "") {
     using context.state;
 
     sandbox.tick_rate_seconds = seconds;
@@ -437,12 +464,65 @@ set_sandbox_tick_rate :: (seconds: float) -> (ok := true, error_message := "") {
     return;
 }
 
-toggle_debug_one_tick_per_update :: () -> (ok := true, error_message := "") {
+console_toggle_debug_one_tick_per_update :: () -> (ok := true, error_message := "") {
     using context.state;
 
     sandbox.debug_one_tick_per_render = !sandbox.debug_one_tick_per_render;
 
     if main_window_source != .SANDBOX_GAME return false, "this command is for SANDBOX_GAME";
+
+    return;
+}
+
+console_swap_cell_types :: (a: string) -> (ok := true, error_message := "") {
+    using context.state;
+
+    ok: bool;
+
+    ok=, left, right := split_from_left(a, " ");
+    if !ok return false, tprint("expected at least 2 arguments, got '%'", a);
+
+    ok=, right=, swap_time := split_from_left(right, " ");
+    if ok {
+        time:, ok = string_to_float64(swap_time);
+        if !ok return false, tprint("argument #3: expected number, got '%'", swap_time);
+
+        sandbox.swap_timer = ifx time < 0 then FLOAT64_INFINITY else time;
+    }
+
+    ok=, type_a := parse_cell_type(left);
+    if !ok return false, tprint("argument #1: expected one of %, got '%'",
+                                enum_names(SANDBOX_GAME_Cell_Type),
+                                left);
+
+    ok=, type_b := parse_cell_type(right);
+    if !ok return false, tprint("argument #2: expected one of %, got '%'",
+                                enum_names(SANDBOX_GAME_Cell_Type),
+                                right);
+
+    sandbox.swap_types[0] = type_a;
+    sandbox.swap_types[1] = type_b;
+    sandbox.next_swap_time = seconds_since_init();
+
+    return;
+}
+
+parse_cell_type :: (a: string) -> bool, SANDBOX_GAME_Cell_Type {
+    t := copy_string(a,, temp);
+    for *t it.* = to_upper(it.*);
+
+    info := type_info(SANDBOX_GAME_Cell_Type);
+    for info.names {
+        if it == t return true, xx info.values[it_index];
+    }
+
+    return false, 0;
+}
+
+console_sandbox_clear :: () -> (ok := true, error_message := "") {
+    using context.state;
+
+    for *sandbox.world_cells it.* = make_cell(.AIR, sandbox.tick);
 
     return;
 }

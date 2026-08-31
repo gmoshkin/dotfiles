@@ -4,8 +4,195 @@ f32 :: float32;
 f64 :: float64;
 
 //
+// bitwise operation utilities
+//
+
+lowest_set_bit :: inline (x: $T) -> T #no_aoc {
+    S :: #run to_signed(T);
+    return x & xx,no_check -(x.(S, no_check));
+}
+
+clear_lowest_set_bit :: inline (x: $T) -> T #no_aoc {
+    return x & (x - 1);
+}
+
+for_each_bit :: (number: *$T, body: Code, flags: For_Flags) #expand {
+    #assert !(flags & .POINTER);
+    #assert !(flags & .REVERSE);
+    I :: #run -> Type {
+        if is_integer(T) return T;
+        ok, type := enum_flags_type(type_info(T));
+        assert(ok, "must be either integer or a enum_flags, got %", T);
+        return type;
+    };
+
+    U :: #run to_unsigned(I);
+
+    x := number.*.(U, no_check);
+
+    index := 0;
+    while x {
+        defer index += 1;
+
+        `it := lowest_set_bit(x).(T);
+        `it_index := index;
+
+        #insert body;
+
+        x = clear_lowest_set_bit(x);
+    }
+}
+
+binary :: (x: $T, min_bits := 1) -> string {
+    bits: [size_of(T) * 8] u8;
+    cursor := bits.count;
+
+    U :: #run to_unsigned(T);
+    n := x.(U, no_check);
+    while n {
+        cursor -= 1;
+        bits[cursor] = xx ifx n & 1 then #char "1" else #char "0";
+        n >>= 1;
+    }
+
+    leading_zeros := min_bits - (bits.count - cursor);
+    if leading_zeros > 0 for 1..leading_zeros {
+        cursor -= 1;
+        bits[cursor] = xx #char "0";
+    }
+
+    return copy_string(xx array_view(bits, cursor));
+}
+
+#if TEST
+test_for_each_bit :: () {
+
+    pretty_assert(lowest_set_bit(Bin(10101)) == 1);
+    pretty_assert(clear_lowest_set_bit(Bin(10101)) == Bin(10100));
+
+    {
+        array: [..] u64;
+        for :for_each_bit Bin(10101) array_add(*array, it);
+        pretty_assert(array_equals(array, u64.[Bin(00001), Bin(00100), Bin(10000)]));
+    }
+
+    pretty_assert(array_equals(
+        map(Bin(11011011), for_each_bit, u64),
+        u64.[
+            Bin(00000001),
+            Bin(00000010),
+            Bin(00001000),
+            Bin(00010000),
+            Bin(01000000),
+            Bin(10000000),
+        ]));
+
+    E :: enum_flags { A; B; C; D; E; F; G; H; };
+
+    Check_E :: (e: E) -> [] E {
+        array: [..] E;
+        for :for_each_bit e array_add(*array, it);
+        return array;
+    }
+
+    pretty_assert(array_equals(Check_E(0), E.[]));
+    pretty_assert(array_equals(Check_E(.F), E.[.F]));
+    pretty_assert(array_equals(Check_E(.H | .E), E.[.E, .H]));
+    pretty_assert(array_equals(Check_E(.A | .C | .D | .G), E.[.A, .C, .D, .G]));
+}
+
+//
+// type utilities
+//
+
+is_integer :: (T: Type) -> bool {
+    return T == s8 || T == s16 || T == s32 || T == s64
+        || T == u8 || T == u16 || T == u32 || T == u64;
+}
+
+to_unsigned :: inline ($T: Type) -> Type
+#modify { return is_integer(T); }
+{
+    #if T == s8  || T == u8  return u8;
+    #if T == s16 || T == u16 return u16;
+    #if T == s32 || T == u32 return u32;
+    #if T == s64 || T == u64 return u64;
+    return void;
+}
+
+to_signed :: inline ($T: Type) -> Type
+#modify { return is_integer(T); }
+{
+    #if T == s8  || T == u8  return s8;
+    #if T == s16 || T == u16 return s16;
+    #if T == s32 || T == u32 return s32;
+    #if T == s64 || T == u64 return s64;
+    return void;
+}
+
+enum_flags_type :: (base_info: *Type_Info) -> bool, Type {
+    if base_info.type != .ENUM return false, void;
+    info := base_info.(*Type_Info_Enum);
+    if !(info.enum_type_flags & .FLAGS) return false, void;
+    return true, to_type(info.internal_type);
+}
+
+to_type :: (info: *Type_Info_Integer) -> Type {
+    if info.runtime_size == {
+    case 1; return ifx info.signed then s8  else u8;
+    case 2; return ifx info.signed then s16 else u16;
+    case 4; return ifx info.signed then s32 else u32;
+    case 8; return ifx info.signed then s64 else u64;
+    }
+    assert(false, "%", info.*);
+    return void;
+}
+
+//
+// random number generator utilities
+//
+
+shuffle :: (array: *[] $T) {
+    N := array.count.(u64);
+    if N <= 1 return;
+
+    for 0..N - 1 {
+        j := random_get() % N;
+        swap(*array.*[it], *array.*[j]);
+    }
+}
+
+#if TEST
+test_shuffle :: () {
+    original_array: [..] int; for 1..10 array_add(*original_array, it);
+
+    shuffled_array := copy_array(original_array);
+    shuffle(*shuffled_array);
+    pretty_assert(!array_equals(shuffled_array, original_array));
+    print("shuffled: %\n", shuffled_array);
+    quick_sort(shuffled_array, (x) => x);
+    pretty_assert(array_equals(shuffled_array, original_array));
+}
+
+//
 // array utilities
 //
+
+copy_array :: (array: [] $T) -> [] T {
+    result := NewArray(array.count, T);
+    for array result[it_index] = it;
+    return result;
+}
+
+deep_copy_array :: (array: [] $T) -> [] T {
+    result := NewArray(array.count, T);
+    for array result[it_index] = deep_copy(it);
+    return result;
+}
+
+deep_copy :: inline (v: string) -> string {
+    return copy_string(v);
+}
 
 array_find :: inline (array: *[] $T, $predicate: (*T) -> bool) -> s64 {
     for *array if predicate(it) return it_index;
@@ -248,37 +435,56 @@ test_parse_positive_number :: () {
     }
 }
 
-Oct :: ($n: Code) -> u64 #expand {
-    return #run -> u64 {
-        node := compiler_get_nodes(n);
-        assert(node.kind == .LITERAL, "%", node.kind);
-        literal := cast(*Code_Literal) node;
-        assert(literal.value_type == .NUMBER, "%", literal.value_type);
-        assert(!(literal.value_flags & .MINUS_SIGN), "%", literal.value_flags);
-
-        octal, ok := decimal_to_octal(literal._u64);
-        assert(ok, "Failed to parse '%' as octal number", literal._u64);
-
-        return octal;
-    };
+Bin :: ($n: Code) -> u64 #expand {
+    return #run literal_to_integer(n, base=2);
 }
 
-decimal_to_octal :: (decimal: u64) -> (octal: u64, ok: bool) {
+Oct :: ($n: Code) -> u64 #expand {
+    return #run literal_to_integer(n, base=8);
+}
+
+literal_to_integer :: (code: Code, base: u8) -> u64 {
+    node := compiler_get_nodes(code);
+    assert(node.kind == .LITERAL, "%", node.kind);
+    literal := cast(*Code_Literal) node;
+    assert(literal.value_type == .NUMBER, "%", literal.value_type);
+    assert(!(literal.value_flags & .MINUS_SIGN), "%", literal.value_flags);
+
+    octal, ok := decimal_to_other_base(literal._u64, base=base);
+    assert(ok, "Failed to parse '%' as base % number", literal._u64, base);
+
+    return octal;
+}
+
+decimal_to_other_base :: (decimal: u64, base: u8) -> (other_base: u64, ok: bool) {
     Max_Power_10: u64 : 10000000000000000000;
+
+    if base > 10 return 0, false;
 
     out: u64 = 0;
     t := decimal;
     power := Max_Power_10;
     while power {
         d := (t / power) % 10;
-        if d >= 8 return 0, false;
+        if d >= base return 0, false;
 
         power /= 10;
 
-        out = out * 8 + d;
+        out = out * base + d;
     }
 
     return out, true;
+}
+
+#if TEST
+test_Bin :: () {
+    pretty_assert(Bin(000) == 0);
+    pretty_assert(Bin(001) == 1);
+    pretty_assert(Bin(010) == 2);
+    pretty_assert(Bin(101) == 5);
+    pretty_assert(Bin(111) == 7);
+    pretty_assert(Bin(110100101) == 421);
+    pretty_assert(Bin(11010111010011000011) == 881859);
 }
 
 #if TEST
@@ -388,6 +594,15 @@ map :: (text: string, $cb: #type (*string, Code, For_Flags), $T: Type) -> [] T {
     return items;
 }
 
+map :: (text: u64, $cb: #type (*u64, Code, For_Flags), $T: Type) -> [] T {
+    items: [..] T;
+
+    for :cb text {
+        array_add(*items, it);
+    }
+
+    return items;
+}
 
 #if TEST
 test_line_iterator :: () {
@@ -1234,5 +1449,7 @@ rgb_to_hsv :: (r: float, g: float, b: float) -> (h: float, s: float, v: float) {
 #import "Compiler";
 #import "Flat_Pool";
 #import "My_File";
+#import "Random";
+#import "Sort";
 System :: #import "System";
 #if OS == .LINUX || OS == .MACOS #import "POSIX";

@@ -6,6 +6,8 @@ main :: () {
         log("\n# \e[35m%\e[0m\n\n", test);
     }
 
+    Log_Header("test_Bin");                                test_Bin();
+    Log_Header("test_Oct");                                test_Oct();
     Log_Header("test_line_iterator");                      test_line_iterator();
     Log_Header("test_append_padding");                     test_append_padding();
     Log_Header("test_utf8_iterator");                      test_utf8_iterator();
@@ -19,6 +21,9 @@ main :: () {
     Log_Header("test_coro_stack_alloc");                   test_coro_stack_alloc();
     Log_Header("test_coroutine");                          test_coroutine();
     Log_Header("test_bit_scan_forward");                   test_bit_scan_forward();
+    Log_Header("test_binary_stuff");                       test_binary_stuff();
+    Log_Header("test_for_each_bit");                       test_for_each_bit();
+    Log_Header("test_shuffle");                            test_shuffle();
 
     elapsed := seconds_since_init() - t0;
     log("\e[32mall tests passed!\e[0m elapsed: %", fmt(elapsed, 6));
@@ -32,6 +37,22 @@ test_bit_scan_forward :: () {
         index := bit_scan_forward(number);
         pretty_assert(index == indexes[it_index]);
     }
+}
+
+test_binary_stuff :: () {
+    bin :: #bake_arguments binary(min_bits = 8);
+    Inspect :: (x: $T) #expand {
+        print("x & (x - 1) = % & % = %\n", bin(x), bin(x - 1), bin(x & (x - 1)));
+    }
+
+    for 1..16 Inspect(it.(u8));
+
+    Inspect2 :: (x: $T) #expand {
+        S :: #run to_signed(T);
+        print("x & -x = % & % = %\n", bin(x), bin(-(x.(S, no_check))), bin(x & xx,no_check -(x.(S, no_check))));
+    }
+
+    for 1..16 Inspect2(it.(u8));
 }
 
 fmt :: inline (v: float64, digits_after_comma := -1, keep_zero := false) -> FormatFloat #expand {

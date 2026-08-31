@@ -5907,8 +5907,10 @@ init_commands :: () {
         array_add(*console_commands, make_command("bg_rgb", set_current_pixel_bg_rgb));
         array_add(*console_commands, make_command("bg_256", set_current_pixel_bg_256));
 
-        array_add(*console_commands, make_command("sandbox_tick_rate", set_sandbox_tick_rate));
-        array_add(*console_commands, make_command("sandbox_debug_tick_rate", toggle_debug_one_tick_per_update));
+        array_add(*console_commands, make_command("tick_rate", console_set_sandbox_tick_rate));
+        array_add(*console_commands, make_command("debug_tick_rate", console_toggle_debug_one_tick_per_update));
+        array_add(*console_commands, make_command("swap", console_swap_cell_types));
+        array_add(*console_commands, make_command("clear", console_sandbox_clear));
     }
 }
 
