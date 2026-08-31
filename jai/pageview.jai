@@ -648,6 +648,10 @@ main :: () {
             case "-S"; #through;
             case "--sandbox";
                 state.main_window_source = .SANDBOX_GAME;
+                if cursor + 1 < args.count && !starts_with(args[cursor + 1], "-") {
+                    state.sandbox.filepath = args[cursor + 1];
+                    cursor += 1;
+                }
 
             case "--sandbox-width";
                 cursor += 1;
@@ -983,6 +987,13 @@ main :: () {
 
     assert(state.terminal_size.rows > 1, "ioctl() returned zero window size\n\n\e[31mYou're probably in lldb, try running with `process launch -tty` instead\e[0m");
 
+    if state.main_window_source == {
+    case .GAME_OF_LIFE;
+        init_game_of_life();
+    case .SANDBOX_GAME;
+        init_SANDBOX_GAME();
+    }
+
     // Completion menu depends on termnal_size
     init_completion_menu();
 
@@ -997,13 +1008,6 @@ main :: () {
         flags |= O_NONBLOCK;
         rc := fcntl(STDIN_FILENO, F_SETFL, flags);
         assert(rc != -1);
-    }
-
-    if state.main_window_source == {
-    case .GAME_OF_LIFE;
-        init_game_of_life();
-    case .SANDBOX_GAME;
-        init_SANDBOX_GAME();
     }
 
     // Initialize @status_line
@@ -5911,6 +5915,7 @@ init_commands :: () {
         array_add(*console_commands, make_command("debug_tick_rate", console_toggle_debug_one_tick_per_update));
         array_add(*console_commands, make_command("swap", console_swap_cell_types));
         array_add(*console_commands, make_command("clear", console_sandbox_clear));
+        array_add(*console_commands, make_command("save", console_sandbox_save));
     }
 }
 

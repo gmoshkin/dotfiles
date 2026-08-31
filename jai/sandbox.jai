@@ -8,6 +8,7 @@ SANDBOX_GAME_State :: struct {
     debug_one_tick_per_render := false;
     tick: int = 0;
     sleeping := false;
+    paused := false;
 
     swap_types: [2] SANDBOX_GAME_Cell_Type;
     swap_timer: float64 = FLOAT64_INFINITY;
@@ -23,7 +24,8 @@ SANDBOX_GAME_State :: struct {
     world_size_x: int = 50;
     world_size_y: int = 50;
     world_cells: [] SANDBOX_GAME_Cell;
-    world_cells_2nd_buffer: [] SANDBOX_GAME_Cell;
+
+    filepath: string;
 }
 
 SANDBOX_GAME_Cell :: struct {
@@ -85,14 +87,50 @@ cell_to_pixel_value :: (type: SANDBOX_GAME_Cell_Type) -> Pixel_Value {
     }
 }
 
-init_SANDBOX_GAME :: () {
-    using context.state.sandbox;
+serialize_cell :: (builder: *String_Builder, type: SANDBOX_GAME_Cell_Type) {
+    if #complete type == {
+    case .BOUNDARY; append(builder, "B ");
+    case .AIR;      append(builder, "  ");
+    case .SAND;     append(builder, "S ");
+    case .WATER;    append(builder, "W ");
+    case .HAZE;     append(builder, "H ");
+    }
+}
 
-    world_cells = NewArray(world_size_x * world_size_y, SANDBOX_GAME_Cell);
-    for *world_cells it.* = make_cell(.AIR, 0);
-    world_cells_2nd_buffer = NewArray(world_size_x * world_size_y, SANDBOX_GAME_Cell);
-    for *world_cells_2nd_buffer it.* = make_cell(.AIR, 0);
-    next_tick_time = seconds_since_init();
+deserialize_cell :: (input: *string) -> bool, SANDBOX_GAME_Cell_Type {
+    if input.count < 2 return false, .AIR;
+
+    ok := false;
+    result: SANDBOX_GAME_Cell_Type;
+
+    serialized_cell := slice(input.*, 0, 2);
+    if serialized_cell == {
+    case "B "; ok = true; result = .BOUNDARY;
+    case "  "; ok = true; result = .AIR;
+    case "S "; ok = true; result = .SAND;
+    case "W "; ok = true; result = .WATER;
+    case "H "; ok = true; result = .HAZE;
+    }
+
+    if ok then advance(input, 2);
+    return ok, result;
+}
+
+init_SANDBOX_GAME :: () {
+    using context.state;
+
+    if sandbox.filepath {
+        input, ok := my_read_entire_file(sandbox.filepath);
+        assert(ok, "failed to open file '%'", sandbox.filepath);
+
+        ok=, error := deserialize_SANDBOX_GAME(input, *sandbox);
+        assert(ok, "%:%", sandbox.filepath, error);
+    } else {
+        sandbox.world_cells = NewArray(sandbox.world_size_x * sandbox.world_size_y, SANDBOX_GAME_Cell);
+        for *sandbox.world_cells it.* = make_cell(.AIR, 0);
+    }
+
+    sandbox.next_tick_time = seconds_since_init();
 }
 
 on_window_resize_SANDBOX_GAME :: () {
@@ -117,6 +155,11 @@ handle_input_event_SANDBOX_GAME :: (event: Input_Event) {
             if event.char == {
             case #char ";";
                 switch_to_command_line_mode();
+                return;
+
+            case #char " ";
+                sandbox.paused = !sandbox.paused;
+                if !sandbox.paused sandbox.sleeping = false;
                 return;
 
             case #char "s"; sandbox.brush = .SAND;      return;
@@ -355,6 +398,10 @@ tick_SANDBOX_GAME :: () {
     sandbox.tick += 1;
     sandbox.sleeping = true;
 
+    //
+    // spawn cells from enqueued clicks
+    //
+
     for sandbox.enqueued_clicks {
         cell := get_cell_ptr(*sandbox, it.x, it.y);
         if cell && (cell.type != it.type) {
@@ -362,6 +409,13 @@ tick_SANDBOX_GAME :: () {
         }
     }
     sandbox.enqueued_clicks.count = 0;
+
+    // early exit if paused
+    if sandbox.paused return;
+
+    //
+    // tick the simulation
+    //
 
     indexes := NewArray(sandbox.world_cells.count, u16,, temp);
     for *indexes it.* = xx it_index;
@@ -415,6 +469,75 @@ tick_SANDBOX_GAME :: () {
     }
 }
 
+save_to_file_SANDBOX_GAME :: (filepath: string, sandbox: *SANDBOX_GAME_State) -> bool {
+    builder: String_Builder;
+    builder.allocator = temp;
+
+    serialize_SANDBOX_GAME(*builder, sandbox);
+
+    ok := write_entire_file(filepath, builder_to_string(*builder,, temp));
+    return ok;
+}
+
+serialize_SANDBOX_GAME :: (builder: *String_Builder, sandbox: *SANDBOX_GAME_State) {
+    width := sandbox.world_size_x;
+    for sandbox.world_cells {
+        x := it_index % width;
+
+        serialize_cell(builder, it.type);
+        if x == width - 1
+            append(builder, "\n");
+    }
+}
+
+deserialize_SANDBOX_GAME :: (input: string, sandbox: *SANDBOX_GAME_State) -> bool, string {
+    if !input return false, "empty input";
+
+    line_length := find_index_from_left(input, #char "\n");
+    if line_length < 0 {
+        return false, "each line must end with a newline, didn't find a single one";
+    }
+    if line_length % 2 != 0 {
+        return false,
+               tprint("each line must have an even number of characters, first line has %", line_length);
+    }
+
+    width := line_length / 2;
+    height := count_matches(input, #char "\n");
+
+    if input[input.count - 1] != #char "\n" {
+        return false, "last line must end with a newline";
+    }
+
+    world_cells := NewArray(width * height, SANDBOX_GAME_Cell);
+
+    tail := input;
+    for :lines line, y: input {
+        row := y + 1;
+        if width * 2 != line.count {
+            return false, tprint("%: expected line length %, got line: % '%'",
+                                 row, width * 2, line.count, line);
+        }
+
+        t := line;
+        for x: 0..width - 1 {
+            col := x * 2;
+            ok, cell := deserialize_cell(*t);
+            if !ok
+                return false, tprint("%:%: failed to deserialize cell '%'",
+                                     row, col, slice(t, 0, 2));
+
+            world_cells[x + y * width] = make_cell(cell, 0);
+        }
+    }
+
+    sandbox.world_cells = world_cells;
+    sandbox.world_size_x = width;
+    sandbox.world_size_y = height;
+
+    return true, "";
+}
+
 is_any_of :: (v: $T, xs: .. T) -> bool {
     for xs if v == it return true;
     return false;
@@ -453,6 +576,10 @@ build_line_buffer_for_\ SANDBOX_GAME :: () -> [] string {
 
     return line_buffer;
 }
+
+//
+// @console commands
+//
 
 console_set_sandbox_tick_rate :: (seconds: float) -> (ok := true, error_message := "") {
     using context.state;
@@ -527,6 +654,35 @@ console_sandbox_clear :: () -> (ok := true, error_message := "") {
     return;
 }
 
+console_sandbox_save :: (filename_argument: string) -> (ok := true, error_message := "") {
+    using context.state;
+
+    filepath: string;
+
+    if filename_argument {
+        filepath = filename_argument;
+    } else if sandbox.filepath {
+        filepath = sandbox.filepath;
+    } else {
+        return false, "don't know where to save";
+    }
+
+    ok := save_to_file_SANDBOX_GAME(filepath, *sandbox);
+
+    if !ok {
+        log_error("saving to '%' failed", filepath);
+        return false, tprint("saving to '%' failed", filepath);
+    }
+
+    log("saved sandbox game to \e[33m%\e[0m", filepath);
+
+    return;
+}
+
+//
+// status lines
+//
+
 status_line_1_SANDBOX_GAME :: (builder: *String_Builder, side: Status_Line_Side) {
     using context.state;
 
@@ -547,7 +703,14 @@ status_line_1_SANDBOX_GAME :: (builder: *String_Builder, side: Status_Line_Side)
             append(builder, "\e[0m");
         }
 
-    case .RIGHT;
+        if sandbox.paused {
+            append(builder, " ");
+            append(builder, "\e[31m");
+            append(builder, "PAUSED");
+            append(builder, "\e[0m");
+        }
+
+    case .RIGHT; assert(false);
     }
 }
 
