@@ -278,6 +278,8 @@ Move_Directions :: enum_flags u16 {
     DOWN;
     DOWN_LEFT;
     DOWN_RIGHT;
+
+    ALL :: LEFT | RIGHT | UP | UP_LEFT | UP_RIGHT | DOWN | DOWN_LEFT | DOWN_RIGHT;
 }
 
 Offset :: struct { x: int; y: int; }
@@ -523,6 +525,18 @@ tick_SANDBOX_GAME :: () {
             //     mutations = .[.HAZE, .GASS];
             // else if sandbox.mutate_sand
             //     mutations = .[.HAZE];
+
+            if !moves && sandbox.mutate_sand && Get(x, y, .DOWN).type == .BOUNDARY {
+                sand_neighbours := 0;
+                all := Move_Directions.ALL & ~.DOWN;
+                for :for_each_bit move: all {
+                    if Get(x, y, move).type == .SAND then sand_neighbours += 1;
+                }
+
+                if sand_neighbours >= 4 {
+                    mutations = .[.HAZE];
+                }
+            }
 
         case .WATER;
             moves = Check_Moves(x, y,
