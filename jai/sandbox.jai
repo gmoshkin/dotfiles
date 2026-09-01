@@ -8,7 +8,8 @@ SANDBOX_GAME_State :: struct {
     world_cells: [] SANDBOX_GAME_Cell;
 
     color_scheme: SANDBOX_GAME_Color_Scheme;
-    join_to_half := true;
+    join_to_half := false;
+    half_scale := true;
 
     tick_rate_seconds: float64 = .1;
     next_tick_time: float64 = -1.0;
@@ -19,7 +20,7 @@ SANDBOX_GAME_State :: struct {
 
     can_mutate_after_ticks: int = 10;
     mutate_rate_one_in: u64 = 50;
-    mutate_sand := false;
+    mutate_sand := true;
     mutate_gass := false;
 
     swap_types: [2] SANDBOX_GAME_Cell_Type;
@@ -76,8 +77,9 @@ get_cell_ptr :: (sandbox: *SANDBOX_GAME_State, screen_x: int, screen_y: int) -> 
 
     state := context.state;
 
-    size_offset_x := world_size_x - state.pixel_window_size.x.(int);
-    size_offset_y := world_size_y - state.pixel_window_size.y.(int);
+    mult := ifx sandbox.half_scale then 2 else 1;
+    size_offset_x := world_size_x - mult * state.pixel_window_size.x.(int);
+    size_offset_y := world_size_y - mult * state.pixel_window_size.y.(int);
 
     // Divide size_offset_x by 2 because offset_x origin is in the middle (this
     // makes no sense to me as I write this)
@@ -215,9 +217,10 @@ handle_input_event_SANDBOX_GAME :: (event: Input_Event) {
     }
 
     assert(pixel_size == .TWO_CHARACTERS);
-    sandbox.screen_mouse_x = (mouse_position.column - 1) / 2;
+    mult := ifx sandbox.half_scale then 2 else 1;
+    sandbox.screen_mouse_x = mult * (mouse_position.column - 1) / 2;
     assert(status_line_1_row == 1 && status_line_2_row == -1);
-    sandbox.screen_mouse_y = (mouse_position.row - 1) - 1; // `-1` for @status_line
+    sandbox.screen_mouse_y = mult * (mouse_position.row - 1) - 1; // `-1` for @status_line
 
     if event.kind == {
         case .MOUSE_LEFT_DOWN; #through;
@@ -659,7 +662,9 @@ build_line_buffer_for_\ SANDBOX_GAME :: () -> [] string {
         builder: String_Builder;
         builder.allocator = temp;
 
-        if sandbox.join_to_half {
+        if sandbox.half_scale {
+            build_line_buffer_for_SANDBOX_GAME_half_scale(*builder, y);
+        } else if sandbox.join_to_half {
             build_line_buffer_for_SANDBOX_GAME_join_to_half(*builder, y);
         } else {
             build_line_buffer_for_SANDBOX_GAME(*builder, y);
@@ -672,6 +677,29 @@ build_line_buffer_for_\ SANDBOX_GAME :: () -> [] string {
     }
 
     return line_buffer;
+}
+
+build_line_buffer_for_SANDBOX_GAME_half_scale :: (builder: *String_Builder, _y: int) {
+    using context.state;
+
+    width: int = 2 * xx pixel_window_size.x;
+    y := 2 * _y;
+
+    for x: 0..width - 1 {
+        cell_top    := get_cell_ptr(*sandbox, x, y);
+        cell_bottom := get_cell_ptr(*sandbox, x, y + 1);
+
+        cell_type_top    := ifx cell_top    then cell_top.type    else .BOUNDARY;
+        cell_type_bottom := ifx cell_bottom then cell_bottom.type else .BOUNDARY;
+
+        pixel_top    := cell_to_pixel_value(*sandbox.color_scheme, cell_type_top);
+        pixel_bottom := cell_to_pixel_value(*sandbox.color_scheme, cell_type_bottom);
+
+        inline print_pixel_value(builder, pixel_top,    fg=true);
+        inline print_pixel_value(builder, pixel_bottom, fg=false);
+
+        append(builder, "▀");
+    }
 }
 
 build_line_buffer_for_SANDBOX_GAME :: (builder: *String_Builder, y: int) {
@@ -777,6 +805,7 @@ console_commands_SANDBOX_GAME :: (console_commands: *[..] Command) {
     array_add(console_commands, make_command("mutate_sand", console_toggle_mutate_sand));
     array_add(console_commands, make_command("mutate_gass", console_toggle_mutate_gass));
     array_add(console_commands, make_command("join_to_half", console_toggle_join_to_half));
+    array_add(console_commands, make_command("half_scale", console_toggle_half_scale));
     array_add(console_commands, make_command("debug_tick_rate", console_toggle_debug_one_tick_per_update));
     array_add(console_commands, make_command("swap", console_swap_cell_types));
     array_add(console_commands, make_command("clear", console_sandbox_clear));
@@ -848,6 +877,15 @@ console_toggle_join_to_half :: () -> (ok := true, error_message := "") {
     using context.state;
 
     sandbox.join_to_half = !sandbox.join_to_half;
+    sandbox.sleeping = false;
+
+    return;
+}
+
+console_toggle_half_scale :: () -> (ok := true, error_message := "") {
+    using context.state;
+
+    sandbox.half_scale = !sandbox.half_scale;
     sandbox.sleeping = false;
 
     return;
