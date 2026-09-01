@@ -380,6 +380,35 @@ test_string_slices :: () {
     }
 }
 
+print_utf32 :: (builder: *String_Builder, u: u32) {
+    data := ensure_contiguous_space(builder, 4);
+    buffer: string;
+    buffer.data = data;
+    buffer.count = 4;
+    character_utf32_to_utf8(u, *buffer);
+    advance_through_ensured_space(builder, buffer.count);
+}
+
+utf32_to_string :: (u: u32) -> string {
+    buffer: [4] u8;
+    s := buffer.(string);
+    character_utf32_to_utf8(u, *s);
+    return copy_string(s);
+}
+
+#if TEST
+test_print_utf32 :: () {
+    data :: (struct { u: u32; s: string; }).[
+        .{0x042f, "Я"}, .{0x2580, "▀"}, .{0x2584, "▄"}, .{0x2821, "⠡"}
+    ];
+    for data {
+        builder: String_Builder;
+        print_utf32(*builder, it.u);
+        pretty_assert(builder_to_string(*builder) == it.s);
+        pretty_assert(utf32_to_string(it.u) == it.s);
+    }
+}
+
 to_upper :: (s: string) -> string {
     t := copy_string(s);
     for *t it.* = to_upper(it.*);
@@ -1558,5 +1587,6 @@ rgb_to_hsv :: (r: float, g: float, b: float) -> (h: float, s: float, v: float) {
 #import "My_File";
 #import "Random";
 #import "Sort";
+#import "Unicode";
 System :: #import "System";
 #if OS == .LINUX || OS == .MACOS #import "POSIX";

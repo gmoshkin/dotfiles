@@ -8,6 +8,7 @@ SANDBOX_GAME_State :: struct {
     world_cells: [] SANDBOX_GAME_Cell;
 
     color_scheme: SANDBOX_GAME_Color_Scheme;
+    join_to_half := true;
 
     tick_rate_seconds: float64 = .1;
     next_tick_time: float64 = -1.0;
@@ -18,7 +19,8 @@ SANDBOX_GAME_State :: struct {
 
     can_mutate_after_ticks: int = 10;
     mutate_rate_one_in: u64 = 50;
-    mutate_sand := true;
+    mutate_sand := false;
+    mutate_gass := false;
 
     swap_types: [2] SANDBOX_GAME_Cell_Type;
     swap_timer: float64 = FLOAT64_INFINITY;
@@ -506,9 +508,9 @@ tick_SANDBOX_GAME :: () {
                   (.LEFT | .RIGHT)],
                 .[.AIR, .HAZE]);
 
-            if sandbox.mutate_sand
+            if sandbox.mutate_sand && sandbox.mutate_gass
                 mutations = .[.WATER, .WATER, .SAND];
-            else
+            else if sandbox.mutate_gass
                 mutations = .[.WATER];
 
         case .SAND;
@@ -517,8 +519,10 @@ tick_SANDBOX_GAME :: () {
                   (.DOWN_LEFT | .DOWN_RIGHT)],
                 .[.AIR, .WATER, .HAZE, .GASS]);
 
-            if sandbox.mutate_sand
-                mutations = .[.HAZE, .GASS];
+            // if sandbox.mutate_sand && sandbox.mutate_gass
+            //     mutations = .[.HAZE, .GASS];
+            // else if sandbox.mutate_sand
+            //     mutations = .[.HAZE];
 
         case .WATER;
             moves = Check_Moves(x, y,
@@ -527,7 +531,10 @@ tick_SANDBOX_GAME :: () {
                   (.LEFT | .RIGHT)],
                 .[.AIR, .HAZE, .GASS]);
 
-            mutations = .[.HAZE, .GASS];
+            if sandbox.mutate_gass
+                mutations = .[.HAZE, .GASS];
+            else
+                mutations = .[.HAZE];
         }
 
         if !moves {
@@ -632,30 +639,16 @@ build_line_buffer_for_\ SANDBOX_GAME :: () -> [] string {
     line_buffer.allocator = temp;
     array_reserve(*line_buffer, main_window_height);
 
-    width: int = xx pixel_window_size.x;
     height: int = xx pixel_window_size.y;
     assert(pixel_size == .TWO_CHARACTERS);
     for y : 0..height - 1 {
         builder: String_Builder;
         builder.allocator = temp;
 
-        for x : 0..width - 1 {
-            cell := get_cell_ptr(*sandbox, x, y);
-            if cell {
-                pixel := cell_to_pixel_value(*sandbox.color_scheme, cell.type);
-                print_pixel_value(*builder, pixel);
-            } else {
-                print_pixel_value(*builder, Pixel_Value.rgb(0, 0, 0));
-            }
-
-            if sandbox.braille && cell && cell.type != .AIR {
-                braille_pair := make_binary_representation(xx cell.tick);
-                append(*builder, "\e[30m");
-                print_braille(*builder, braille_pair.left);
-                print_braille(*builder, braille_pair.right);
-            } else {
-                append(*builder, "  ");
-            }
+        if sandbox.join_to_half {
+            build_line_buffer_for_SANDBOX_GAME_join_to_half(*builder, y);
+        } else {
+            build_line_buffer_for_SANDBOX_GAME(*builder, y);
         }
 
         append(*builder, "\e[0m");
@@ -667,6 +660,98 @@ build_line_buffer_for_\ SANDBOX_GAME :: () -> [] string {
     return line_buffer;
 }
 
+build_line_buffer_for_SANDBOX_GAME :: (builder: *String_Builder, y: int) {
+    using context.state;
+
+    width: int = xx pixel_window_size.x;
+
+    for x: 0..width - 1 {
+        cell := get_cell_ptr(*sandbox, x, y);
+        cell_type := ifx cell then cell.type else .BOUNDARY;
+        pixel := cell_to_pixel_value(*sandbox.color_scheme, cell_type);
+        print_pixel_value(builder, pixel);
+
+        if sandbox.braille && cell_type != .AIR {
+            braille_pair := make_binary_representation(xx cell.tick);
+            append(builder, "\e[30m");
+            print_braille(builder, braille_pair.left);
+            print_braille(builder, braille_pair.right);
+        } else {
+            append(builder, "  ");
+        }
+    }
+}
+
+build_line_buffer_for_SANDBOX_GAME_join_to_half :: (builder: *String_Builder, y: int) {
+    using context.state;
+
+    width: int = xx pixel_window_size.x;
+
+    x := 0;
+    cell := get_cell_ptr(*sandbox, x, y);
+    while x < width {
+        x += 1;
+
+        cell_type := ifx cell then cell.type else .BOUNDARY;
+
+        next_cell := ifx x < width then get_cell_ptr(*sandbox, x, y);
+
+        join := false;
+        if cell && next_cell
+            && ((cell.type == .AIR && is_any_of(next_cell.type, .HAZE, .WATER)) ||
+                (is_any_of(cell.type, .HAZE, .WATER) && next_cell.type == .AIR))
+        {
+            type := ifx cell.type != .AIR then cell.type else next_cell.type;
+
+            if type == .WATER {
+                below_cell      := get_cell_ptr(*sandbox, x - 1, y + 1);
+                below_next_cell := get_cell_ptr(*sandbox, x, y + 1);
+
+                if (!below_cell || (below_cell.type != .AIR)) &&
+                    (!below_next_cell || (below_next_cell.type != .AIR))
+                {
+                    cell_type = type;
+                    join = true;
+                }
+            } else {
+                above_cell      := get_cell_ptr(*sandbox, x - 1, y - 1);
+                above_next_cell := get_cell_ptr(*sandbox, x, y - 1);
+
+                if (!above_cell || (above_cell.type != .AIR)) &&
+                    (!above_next_cell || (above_next_cell.type != .AIR))
+                {
+                    cell_type = type;
+                    join = true;
+                }
+            }
+        }
+
+        pixel := cell_to_pixel_value(*sandbox.color_scheme, cell_type);
+
+        if !join {
+            print_pixel_value(builder, pixel, fg=false);
+            append(builder, "  ");
+        } else if cell_type == .WATER {
+            append(builder, "\e[40m");
+            print_pixel_value(builder, pixel, fg=true);
+            append(builder, "▄▄▄▄");
+        } else {
+            append(builder, "\e[40m");
+            print_pixel_value(builder, pixel, fg=true);
+            append(builder, "▀▀▀▀");
+        }
+
+        if !join {
+            // Handled this cell, going to handle next_cell next
+            cell = next_cell;
+        } else {
+            // Already handled both cell and next_cell
+            x += 1;
+            cell = get_cell_ptr(*sandbox, x, y);
+        }
+    }
+}
+
 //
 // @console commands
 //
@@ -676,6 +761,8 @@ console_commands_SANDBOX_GAME :: (console_commands: *[..] Command) {
     array_add(console_commands, make_command("can_mutate_after_ticks", console_set_can_mutate_after_ticks));
     array_add(console_commands, make_command("mutate_rate_one_in", console_set_mutate_rate_one_in));
     array_add(console_commands, make_command("mutate_sand", console_toggle_mutate_sand));
+    array_add(console_commands, make_command("mutate_gass", console_toggle_mutate_gass));
+    array_add(console_commands, make_command("join_to_half", console_toggle_join_to_half));
     array_add(console_commands, make_command("debug_tick_rate", console_toggle_debug_one_tick_per_update));
     array_add(console_commands, make_command("swap", console_swap_cell_types));
     array_add(console_commands, make_command("clear", console_sandbox_clear));
@@ -729,6 +816,24 @@ console_toggle_mutate_sand :: () -> (ok := true, error_message := "") {
     using context.state;
 
     sandbox.mutate_sand = !sandbox.mutate_sand;
+    sandbox.sleeping = false;
+
+    return;
+}
+
+console_toggle_mutate_gass :: () -> (ok := true, error_message := "") {
+    using context.state;
+
+    sandbox.mutate_gass = !sandbox.mutate_gass;
+    sandbox.sleeping = false;
+
+    return;
+}
+
+console_toggle_join_to_half :: () -> (ok := true, error_message := "") {
+    using context.state;
+
+    sandbox.join_to_half = !sandbox.join_to_half;
     sandbox.sleeping = false;
 
     return;

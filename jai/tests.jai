@@ -27,6 +27,7 @@ main :: () {
     Log_Header("test_my_split");                           test_my_split();
     Log_Header("test_to_upper_to_lower");                  test_to_upper_to_lower();
     Log_Header("test_string_to_enum");                     test_string_to_enum();
+    Log_Header("test_print_utf32");                        test_print_utf32();
 
     elapsed := seconds_since_init() - t0;
     log("\e[32mall tests passed!\e[0m elapsed: %", fmt(elapsed, 6));
@@ -64,6 +65,7 @@ fmt :: inline (v: float64, digits_after_comma := -1, keep_zero := false) -> Form
 
 #import "Basic";
 #import "Bit_Operations";
+#import "Compiler";
 #import "My_Util"(TEST=true);
 #import "Msgpack"(TEST=true);
 #import "Coroutine"(TEST=true);
