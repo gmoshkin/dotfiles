@@ -50,3 +50,5 @@
     fetchJobs = 8
 [fetch]
 	parallel = 16
+[advice]
+	detachedHead = false
