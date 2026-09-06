@@ -2976,13 +2976,14 @@ find_writer_in_process_tree :: (root: Pid, exclude: Pid, pipe_id: u64, log_error
         if found return true, writer;
     }
 
-    children_ok, children := get_child_pids(root, log_errors,, temp);
-    if children_ok {
-        for children {
-            found, writer := find_writer_in_process_tree(it, exclude, pipe_id, log_errors, depth + 1,, temp);
-            if found return true, writer;
-        }
+    ok, children := get_child_pids(root, log_errors,, temp);
+    if !ok return false, 0;
+
+    for children {
+        found, writer := find_writer_in_process_tree(it, exclude, pipe_id, log_errors, depth + 1,, temp);
+        if found return true, writer;
     }
+
     return false, 0;
 }
 

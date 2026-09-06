@@ -1,29 +1,5 @@
 get_all_pids :: (log_errors := false) -> [] Pid, ok: bool {
-    bytes := proc_listpids(PROC_ALL_PIDS, 0, null, 0);
-    if bytes < 0 {
-        if log_errors {
-            code, message := get_error_value_and_string();
-            log_error("proc_listpids failed: % %", code, message);
-        }
-        return .[], false;
-    }
-    assert(bytes % size_of(pid_t) == 0, "%", bytes);
-
-    count := bytes / size_of(pid_t);
-    sys_pids := NewArray(count, pid_t,, temp);
-
-    rc := proc_listpids(PROC_ALL_PIDS, 0, sys_pids.data, bytes);
-    if rc < 0 {
-        if log_errors {
-            code, message := get_error_value_and_string();
-            log_error("proc_listpids failed: % %", code, message);
-        }
-        return .[], false;
-    }
-
-    pids := NewArray(count, Pid);
-    for sys_pids pids[it_index] = xx it;
-
+    ok, pids := get_pids(.ALL, log_errors=log_errors);
     return pids, true;
 }
 
@@ -98,31 +74,52 @@ get_process_cwd :: (pid: Pid, log_errors := false) -> cwd: string, ok: bool {
 // Direct children of `parent`, via `proc_listchildpids` — no full-system scan
 // required.
 get_child_pids :: (parent: Pid, log_errors := false) -> ok: bool, children: [] Pid {
-    bytes := proc_listchildpids(xx parent, null, 0);
+    ok, children := get_pids(.CHILDREN, parent, log_errors);
+    return ok, children;
+}
+
+Get_Pids_Mode :: enum { ALL; CHILDREN; }
+get_pids :: (mode: Get_Pids_Mode, parent: Pid = 0, log_errors := false) -> bool, [] Pid {
+    type: u32;
+    if #complete mode == {
+    case .ALL;      type = PROC_ALL_PIDS;
+    case .CHILDREN; type = PROC_PPID_ONLY;
+    }
+
+    bytes := proc_listpids(type, xx parent, null, 0);
+    if bytes == 0 return true, .[];
     if bytes < 0 {
         if log_errors {
             code, message := get_error_value_and_string();
-            log_error("proc_listchildpids failed: % %", code, message);
+            log_error("proc_listpids failed: % %", code, message);
         }
         return false, .[];
     }
-    if bytes == 0 return true, .[];
 
-    assert(bytes % size_of(pid_t) == 0, "%", bytes);
-    count := bytes / size_of(pid_t);
-    sys_pids := NewArray(count, pid_t,, temp);
+    if (bytes % size_of(pid_t) != 0) && log_errors {
+        log_error("proc_listpids returned % bytes, which doesn't divide by %", bytes, size_of(pid_t));
+    }
 
-    rc := proc_listchildpids(xx parent, sys_pids.data, bytes);
-    if rc < 0 {
+    sys_pids := NewArray(bytes / size_of(pid_t), pid_t,, temp);
+
+    bytes = proc_listpids(type, xx parent, sys_pids.data, xx (sys_pids.count * size_of(pid_t)));
+    if bytes < 0 {
         if log_errors {
             code, message := get_error_value_and_string();
-            log_error("proc_listchildpids failed: % %", code, message);
+            log_error("proc_listpids failed: % %", code, message);
         }
         return false, .[];
     }
 
+    count := bytes / size_of(pid_t);
+    sys_pids.count = count;
     pids := NewArray(count, Pid);
-    for sys_pids pids[it_index] = xx it;
+    last := -1;
+
+    for sys_pids {
+        assert(it_index == 0 || pids[it_index - 1] != it, "%", sys_pids);
+        pids[it_index] = xx it;
+    }
 
     return true, pids;
 }
