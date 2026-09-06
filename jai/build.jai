@@ -106,6 +106,8 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
                 if program == .PAGEVIEW && !compile_parameters.debug_build then should_run_tests = true;
                 if program == .TESTS then should_run_tests = true;
 
+                built_debug := false;
+
                 #if !JAILS {
                     debug_parameters := compile_parameters;
                     debug_parameters.debug_build = true;
@@ -116,6 +118,8 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
                         print("Compiling a debug version...\n");
                         if !build_program(info, debug_parameters) return false;
 
+                        built_debug = true;
+
                         if should_run_tests {
                             if !run_test_process(exe_path, exe_name, run_tests_in_gdb) {
                                 if program == .TESTS return false;
@@ -124,7 +128,10 @@ JAILS :: #exists(JAILS_DIAGNOSTICS_BUILD);
                         }
                     }
                 }
-                if !build_program(info, compile_parameters) return false;
+
+                if !compile_parameters.debug_build || !built_debug {
+                    if !build_program(info, compile_parameters) return false;
+                }
             case .TEST;
                 info := get_program_info(program, debug=true);
                 if info.os != OS {
