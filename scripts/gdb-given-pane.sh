@@ -12,4 +12,8 @@ pid=$(
 
 [ -n "$pid" ] || { exit 1; }
 
-exec gdb -p ${pid}
+&>/dev/null type lldb && {
+    exec lldb  -p ${pid}
+} || {
+    exec gdb -p ${pid}
+}
