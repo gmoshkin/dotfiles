@@ -1259,6 +1259,8 @@ main :: () {
                 case .NONE;
             }
 
+            Profile();
+
             if changed {
                 changed = !array_equals(line_buffer, last_shown_line_buffer);
             }
@@ -3258,7 +3260,8 @@ render_status_line_1_left_side :: (builder: *String_Builder) {
             if duration > 0
             {
                 append(builder, " \e[2;37m"); // color gray
-                print(builder, "%s", fmt(duration, digits_after_comma=3, keep_zero=true)); // color magenta
+                digits_after_comma := ifx piped_input_fd != -1 then 0 else 3;
+                print(builder, "%s", fmt(duration, digits_after_comma=digits_after_comma, keep_zero=true)); // color magenta
                 append(builder, "\e[0m");
             }
 
@@ -3672,12 +3675,6 @@ render_status_line_2 :: () {
     } else {
         if input_mode ==  {
             case .NAVIGATE;
-                line_count := 0;
-                if main_window_buffer_history {
-                    main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
-                    line_count = main_window_buffer.line_offsets.count;
-                }
-
                 // render counter
                 {
                     render_counter := main_window_renderred_times;
@@ -3701,12 +3698,10 @@ render_status_line_2 :: () {
                 }
 
                 {
-                    print(*no_color_builder, "[%", row_offset);
-                    if line_wrapping then print(*no_color_builder, "(+%)", wrapped_line_offset);
-                    print(*no_color_builder, "/%", line_count);
-                    if !line_wrapping && col_offset then print(*no_color_builder, " %", col_offset);
-                    append(*no_color_builder, "]  ");
-                    if stick_to_the_bottom then append(*no_color_builder, "sinking   ");
+                    if main_window_source == .SANDBOX_GAME
+                        status_line_2_coordinates_SANDBOX_GAME(*no_color_builder);
+                    else
+                        status_line_2_coordinates(*no_color_builder);
 
                     // Print current input buffer
                     append(*no_color_builder, "input: ");
@@ -3753,6 +3748,25 @@ render_status_line_2 :: () {
         last_status_line_2.count = 0;
         array_add(*last_status_line_2, ..status_line_2.([] u8));
     }
+}
+
+status_line_2_coordinates :: (builder: *String_Builder) {
+    using context.state;
+
+    line_count := 0;
+    if main_window_buffer_history {
+        main_window_buffer := *main_window_buffer_history[current_shown_buffer_index];
+        line_count = main_window_buffer.line_offsets.count;
+    }
+
+    print(builder, "[%", row_offset);
+    if line_wrapping
+        print(builder, "(+%)", wrapped_line_offset);
+    print(builder, "/%", line_count);
+    if !line_wrapping && col_offset
+        print(builder, " %", col_offset);
+    append(builder, "]  ");
+    if stick_to_the_bottom then append(builder, "sinking   ");
 }
 
 render_status_line_2_command_line :: (builder: *String_Builder, input_mode: type_of(State.input_mode)) {

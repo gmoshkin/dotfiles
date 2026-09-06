@@ -83,7 +83,7 @@ get_cell_ptr :: (sandbox: *SANDBOX_GAME_State, screen_x: int, screen_y: int) -> 
 
     // Divide size_offset_x by 2 because offset_x origin is in the middle (this
     // makes no sense to me as I write this)
-    world_x := screen_x + size_offset_x / 2 - offset_x;
+    world_x := screen_x + size_offset_x / 2 + offset_x;
     if world_x < 0 || world_x > world_size_x - 1 return null;
 
     world_y := screen_y + size_offset_y - offset_y;
@@ -195,7 +195,8 @@ handle_input_event_SANDBOX_GAME :: (event: Input_Event) {
             return;
         }
 
-        if event.kind == .CHARACTER {
+        if event.kind == {
+        case .CHARACTER;
             if event.char == {
             case #char ";";
                 switch_to_command_line_mode();
@@ -212,7 +213,14 @@ handle_input_event_SANDBOX_GAME :: (event: Input_Event) {
             case #char "b"; sandbox.brush = .BOUNDARY;  return;
             case #char "g"; sandbox.brush = .GASS;      return;
 
+            case #char "0"; sandbox.offset_x = 0;
+                            sandbox.offset_y = 0;
+                            return;
             }
+        case .KEY_UP;    sandbox.offset_y += ifx event.modifiers & .SHIFT then 10 else 1; return;
+        case .KEY_DOWN;  sandbox.offset_y -= ifx event.modifiers & .SHIFT then 10 else 1; return;
+        case .KEY_LEFT;  sandbox.offset_x -= ifx event.modifiers & .SHIFT then 10 else 1; return;
+        case .KEY_RIGHT; sandbox.offset_x += ifx event.modifiers & .SHIFT then 10 else 1; return;
         }
     }
 
@@ -1056,6 +1064,12 @@ status_line_2_render_counter_SANDBOX_GAME :: () -> int {
     using context.state;
 
     return sandbox.tick;
+}
+
+status_line_2_coordinates_SANDBOX_GAME :: (builder: *String_Builder) {
+    using context.state;
+
+    print(builder, "[% %]  ", sandbox.offset_x, sandbox.offset_y);
 }
 
 Unreachable :: (message := "") #expand {
