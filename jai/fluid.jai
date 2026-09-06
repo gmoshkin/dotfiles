@@ -12,15 +12,15 @@ FLUID_State :: struct {
     speed_y: [] float;
     boundary: [] bool;
 
-    speed_x_delta: [] float;
-    speed_y_delta: [] float;
+    speed_x_next: [] float;
+    speed_y_next: [] float;
 
-    input_speed: [..] struct { position: Vector2; velocity: Vector2; };
-    fixed_speed: [..] struct { position: Vector2; velocity: Vector2; };
+    input_speed: [..] Position_Velocity;
+    fixed_speed: [..] Position_Velocity;
 
     delta_time: float = 0.01;
     overrelaxation := 0.99;
-    divergence_solver_max_steps := 10;
+    divergence_solver_max_steps := 100;
 
     window_size_x: int = -1;
     window_size_y: int = -1;
@@ -58,11 +58,11 @@ init_FLUID :: () {
         assert(ok, "%:%", fluid.filepath, error);
     } else {
         world_square := fluid.world_size_x * fluid.world_size_y;
-        fluid.world_cells     = NewArray(world_square, FLUID_Cell);
-        fluid.speed_x         = NewArray(world_square, float);
-        fluid.speed_y         = NewArray(world_square, float);
-        fluid.speed_x_delta   = NewArray(world_square, float);
-        fluid.speed_y_delta   = NewArray(world_square, float);
+        fluid.world_cells    = NewArray(world_square, FLUID_Cell);
+        fluid.speed_x        = NewArray(world_square, float);
+        fluid.speed_y        = NewArray(world_square, float);
+        fluid.speed_x_next   = NewArray(world_square, float);
+        fluid.speed_y_next   = NewArray(world_square, float);
         // for *fluid.world_cells it.* = make_cell(.AIR, 0);
 
         fluid.boundary    = NewArray(world_square, bool);
@@ -84,7 +84,7 @@ init_FLUID :: () {
         array_add(*fluid.input_speed, .{.{xx(fluid.world_size_x - 1), xx(fluid.world_size_y - 1)}, .{-1.0,  0.0}});
     }
 
-    set_fixed_speeds(*fluid);
+    apply_speeds(*fluid, fluid.fixed_speed);
 
     // fluid.color_scheme. ... = Pixel_Value.id(...);
 
@@ -179,40 +179,43 @@ update_FLUID :: () {
     now := seconds_since_init();
 
     while (fluid.next_tick_time <= now) || fluid.step_once {
-        tick_input_FLUID(*fluid);
+        do_tick := !fluid.paused || fluid.step_once;
 
-        if !fluid.paused || fluid.step_once {
-            tick_FLUID(*fluid);
+        if do_tick apply_speeds(*fluid, fluid.fixed_speed);
+
+        if fluid.input_speed {
+            apply_speeds(*fluid, fluid.input_speed);
+            fluid.input_speed.count = 0;
         }
+
+        if do_tick tick_FLUID(*fluid);
+
         fluid.next_tick_time += fluid.tick_rate_seconds;
         fluid.step_once = false;
     }
 }
 
-tick_input_FLUID :: (fluid: *FLUID_State) {
-    if fluid.input_speed {
-        for fluid.input_speed {
-            x := it.position.x.(int);
-            y := it.position.y.(int);
-            index := x + fluid.world_size_x * y;
-            fluid.speed_x[index] = it.velocity.x;
-            fluid.speed_y[index] = it.velocity.y;
-        }
-        fluid.input_speed.count = 0;
+Position_Velocity :: struct { position: Vector2; velocity: Vector2; };
+
+apply_speeds :: (fluid: *FLUID_State, inputs: [] Position_Velocity) {
+    for inputs {
+        x := it.position.x.(int);
+        y := it.position.y.(int);
+        index := x + fluid.world_size_x * y;
+        fluid.speed_x[index] = it.velocity.x;
+        fluid.speed_y[index] = it.velocity.y;
     }
 }
 
 tick_FLUID :: (fluid: *FLUID_State) {
-    //
-    // Set fixed speeds
-    //
+    for fluid.speed_x { fluid.speed_x_next[it_index] = it; }
+    for fluid.speed_y { fluid.speed_y_next[it_index] = it; }
 
-    set_fixed_speeds(fluid);
+    minimize_divergence(fluid);
+    propagate_velocities(fluid);
+}
 
-    //
-    // Divergence solver
-    //
-
+minimize_divergence :: (fluid: *FLUID_State) {
     width  := fluid.world_size_x;
     height := fluid.world_size_y;
     world_square := width * height;
@@ -220,9 +223,6 @@ tick_FLUID :: (fluid: *FLUID_State) {
     overrelaxation := fluid.overrelaxation;
     for 1..fluid.divergence_solver_max_steps {
         converged := true;
-
-        for *fluid.speed_x_delta it.* = 0;
-        for *fluid.speed_y_delta it.* = 0;
 
         for y: 0..height - 1
         for x: 0..width - 1 {
@@ -257,26 +257,23 @@ tick_FLUID :: (fluid: *FLUID_State) {
 
             dd := d / s;
 
-                              fluid.speed_x_delta[index]       += -dd;
-            if has_south then fluid.speed_x_delta[index_east]  +=  dd;
-                              fluid.speed_y_delta[index]       += -dd;
-            if has_south then fluid.speed_y_delta[index_south] +=  dd;
+                              fluid.speed_x_next[index]       += -dd;
+            if has_south then fluid.speed_x_next[index_east]  +=  dd;
+                              fluid.speed_y_next[index]       += -dd;
+            if has_south then fluid.speed_y_next[index_south] +=  dd;
         }
 
-        for *fluid.speed_x_delta { fluid.speed_x[it_index] += it.*; it.* = 0; }
-        for *fluid.speed_y_delta { fluid.speed_y[it_index] += it.*; it.* = 0; }
+        for fluid.speed_x_next { fluid.speed_x[it_index] = it; }
+        for fluid.speed_y_next { fluid.speed_y[it_index] = it; }
 
         if converged break;
     }
 }
 
-set_fixed_speeds :: (fluid: *FLUID_State) {
-    for fluid.fixed_speed {
-        x := it.position.x.(int);
-        y := it.position.y.(int);
-        index := x + fluid.world_size_x * y;
-        fluid.speed_x[index] = it.velocity.x;
-        fluid.speed_y[index] = it.velocity.y;
+propagate_velocities :: (fluid: *FLUID_State) {
+    for y: 0..fluid.world_size_y - 1
+    for x: 0..fluid.world_size_x - 1 {
+
     }
 }
 
@@ -314,10 +311,14 @@ build_line_for_FLUID :: (builder: *String_Builder, y: int) {
 
     width := fluid.window_size_x;
 
+    last_color: Pixel_Value;
     for x: 0..width - 1 {
         pixel := get_cell_color(*fluid, x, y);
 
-        print_pixel_value(builder, pixel);
+        if x == 0 || pixel != last_color {
+            print_pixel_value(builder, pixel);
+            last_color = pixel;
+        }
         append(builder, "  ");
     }
 }
@@ -394,7 +395,7 @@ get_cell_ptr :: (fluid: *FLUID_State, screen_x: int, screen_y: int) -> *FLUID_Ce
 
 get_cell_color :: (fluid: *FLUID_State, screen_x: int, screen_y: int) -> Pixel_Value {
     index, world_x, world_y := screen_to_world(fluid, screen_x, screen_y);
-    if index < 0 return Pixel_Value.id(.GRAY_4);
+    if index < 0 return Pixel_Value.id(.GRAY_1);
 
     velocity := Vector2.{fluid.speed_x[index],
                          fluid.speed_y[index]};

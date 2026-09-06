@@ -436,6 +436,18 @@ Pixel_Value :: union type: Pixel_Value_Type {
 
 #assert size_of(Pixel_Value) == 4;
 
+operator == :: (a: Pixel_Value, b: Pixel_Value) -> bool {
+    if a.type != b.type return false;
+    if #complete a.type == {
+    case .RGB;        return a._rgb.r == b._rgb.r &&
+                             a._rgb.g == b._rgb.g &&
+                             a._rgb.b == b._rgb.b;
+    case .COLOR_8BIT; return a._8bit == b._8bit;
+    }
+
+    return false;
+}
+
 print_pixel_value :: (builder: *String_Builder, using v: Pixel_Value, $fg := false) {
     #if fg {
         if type == {
@@ -625,7 +637,7 @@ main :: () {
 
     cursor := 1;
 
-    Get_Arg :: (out: *$T, info: string) #expand {
+    Get_Arg :: (out: *$T, info: string = "Expected a number") #expand {
         cursor += 1;
         if cursor >= args.count {
             print("% after '%'\n", info, `flag);
@@ -694,7 +706,9 @@ main :: () {
                     cursor += 1;
                 }
 
-            case "--overrelaxation"; Get_Arg(*state.fluid.overrelaxation, "Expected a number");
+            case "--fluid-steps"; Get_Arg(*state.fluid.divergence_solver_max_steps);
+
+            case "--overrelaxation"; Get_Arg(*state.fluid.overrelaxation);
             case "--pause"; state.fluid.paused = true;
                             state.sandbox.paused = true;
             case "--no-pause"; #through;
@@ -708,13 +722,13 @@ main :: () {
 
             case "--width";
                 width: int;
-                Get_Arg(*width, "Expected a number");
+                Get_Arg(*width);
                 state.sandbox.world_size_x = width;
                 state.fluid.world_size_x = width;
 
             case "--height";
                 height: int;
-                Get_Arg(*height, "Expected a number");
+                Get_Arg(*height);
                 state.sandbox.world_size_y = height;
                 state.fluid.world_size_y = height;
 
