@@ -7,6 +7,9 @@ SANDBOX_GAME_State :: struct {
     world_size_y: int = 50;
     world_cells: [] SANDBOX_GAME_Cell;
 
+    window_size_x: int = -1;
+    window_size_y: int = -1;
+
     color_scheme: SANDBOX_GAME_Color_Scheme;
     join_to_half := false;
     half_scale := true;
@@ -78,8 +81,8 @@ get_cell_ptr :: (sandbox: *SANDBOX_GAME_State, screen_x: int, screen_y: int) -> 
     state := context.state;
 
     mult := ifx sandbox.half_scale then 2 else 1;
-    size_offset_x := world_size_x - mult * state.pixel_window_size.x.(int);
-    size_offset_y := world_size_y - mult * state.pixel_window_size.y.(int);
+    size_offset_x := world_size_x - mult * state.sandbox.window_size_x;
+    size_offset_y := world_size_y - mult * state.sandbox.window_size_y;
 
     // Divide size_offset_x by 2 because offset_x origin is in the middle (this
     // makes no sense to me as I write this)
@@ -133,28 +136,32 @@ serialize_cell :: (builder: *String_Builder, type: SANDBOX_GAME_Cell_Type) {
     }
 }
 
-deserialize_cell :: (input: *string) -> bool, SANDBOX_GAME_Cell_Type {
-    if input.count < 2 return false, .AIR;
+deserialize_cell :: (input: *string, type: *SANDBOX_GAME_Cell_Type) -> bool {
+    if input.count < 2 {
+        type.* = .AIR;
+        return false;
+    }
 
     ok := false;
-    result: SANDBOX_GAME_Cell_Type;
 
     serialized_cell := slice(input.*, 0, 2);
     if serialized_cell[0] == {
-    case "B"; ok = true; result = .BOUNDARY;
-    case " "; ok = true; result = .AIR;
-    case "S"; ok = true; result = .SAND;
-    case "W"; ok = true; result = .WATER;
-    case "H"; ok = true; result = .HAZE;
-    case "G"; ok = true; result = .GASS;
+    case "B"; ok = true; type.* = .BOUNDARY;
+    case " "; ok = true; type.* = .AIR;
+    case "S"; ok = true; type.* = .SAND;
+    case "W"; ok = true; type.* = .WATER;
+    case "H"; ok = true; type.* = .HAZE;
+    case "G"; ok = true; type.* = .GASS;
     }
 
     if ok then advance(input, 2);
-    return ok, result;
+    return ok;
 }
 
 init_SANDBOX_GAME :: () {
     using context.state;
+
+    on_window_resize_SANDBOX_GAME();
 
     if sandbox.filepath {
         input, ok := my_read_entire_file(sandbox.filepath);
@@ -178,7 +185,11 @@ init_SANDBOX_GAME :: () {
 }
 
 on_window_resize_SANDBOX_GAME :: () {
-    resize_pixel_buffer();
+    using context.state;
+
+    // Assuming the pixel is '██'
+    sandbox.window_size_x = (terminal_size.cols / 2);
+    sandbox.window_size_y = (terminal_size.rows - 2); // 2 x @status_line
 }
 
 handle_input_event_SANDBOX_GAME :: (event: Input_Event) {
@@ -636,12 +647,13 @@ deserialize_SANDBOX_GAME :: (input: string, sandbox: *SANDBOX_GAME_State) -> boo
         t := line;
         for x: 0..width - 1 {
             col := x * 2;
-            ok, cell := deserialize_cell(*t);
+            cell_type: SANDBOX_GAME_Cell_Type;
+            ok := deserialize_cell(*t, *cell_type);
             if !ok
                 return false, tprint("%:%: failed to deserialize cell '%'",
                                      row, col, slice(t, 0, 2));
 
-            world_cells[x + y * width] = make_cell(cell, 0);
+            world_cells[x + y * width] = make_cell(cell_type, 0);
         }
     }
 
@@ -657,25 +669,25 @@ is_any_of :: (v: $T, xs: .. T) -> bool {
     return false;
 }
 
-build_line_buffer_for_\ SANDBOX_GAME :: () -> [] string {
+build_line_buffer_for_SANDBOX_GAME :: () -> [] string {
     using context.state;
 
     line_buffer: [..] string;
     line_buffer.allocator = temp;
     array_reserve(*line_buffer, main_window_height);
 
-    height: int = xx pixel_window_size.y;
+    height := sandbox.window_size_y;
     assert(pixel_size == .TWO_CHARACTERS);
     for y : 0..height - 1 {
         builder: String_Builder;
         builder.allocator = temp;
 
         if sandbox.half_scale {
-            build_line_buffer_for_SANDBOX_GAME_half_scale(*builder, y);
+            build_line_for_SANDBOX_GAME_half_scale(*builder, y);
         } else if sandbox.join_to_half {
-            build_line_buffer_for_SANDBOX_GAME_join_to_half(*builder, y);
+            build_line_for_SANDBOX_GAME_join_to_half(*builder, y);
         } else {
-            build_line_buffer_for_SANDBOX_GAME(*builder, y);
+            build_line_for_SANDBOX_GAME(*builder, y);
         }
 
         append(*builder, "\e[0m");
@@ -687,10 +699,10 @@ build_line_buffer_for_\ SANDBOX_GAME :: () -> [] string {
     return line_buffer;
 }
 
-build_line_buffer_for_SANDBOX_GAME_half_scale :: (builder: *String_Builder, _y: int) {
+build_line_for_SANDBOX_GAME_half_scale :: (builder: *String_Builder, _y: int) {
     using context.state;
 
-    width: int = 2 * xx pixel_window_size.x;
+    width := 2 * sandbox.window_size_x;
     y := 2 * _y;
 
     for x: 0..width - 1 {
@@ -710,10 +722,10 @@ build_line_buffer_for_SANDBOX_GAME_half_scale :: (builder: *String_Builder, _y: 
     }
 }
 
-build_line_buffer_for_SANDBOX_GAME :: (builder: *String_Builder, y: int) {
+build_line_for_SANDBOX_GAME :: (builder: *String_Builder, y: int) {
     using context.state;
 
-    width: int = xx pixel_window_size.x;
+    width := sandbox.window_size_x;
 
     for x: 0..width - 1 {
         cell := get_cell_ptr(*sandbox, x, y);
@@ -732,10 +744,10 @@ build_line_buffer_for_SANDBOX_GAME :: (builder: *String_Builder, y: int) {
     }
 }
 
-build_line_buffer_for_SANDBOX_GAME_join_to_half :: (builder: *String_Builder, y: int) {
+build_line_for_SANDBOX_GAME_join_to_half :: (builder: *String_Builder, y: int) {
     using context.state;
 
-    width: int = xx pixel_window_size.x;
+    width := sandbox.window_size_x;
 
     x := 0;
     cell := get_cell_ptr(*sandbox, x, y);
@@ -813,7 +825,6 @@ console_commands_SANDBOX_GAME :: (console_commands: *[..] Command) {
     array_add(console_commands, make_command("mutate_sand", console_toggle_mutate_sand));
     array_add(console_commands, make_command("mutate_gass", console_toggle_mutate_gass));
     array_add(console_commands, make_command("join_to_half", console_toggle_join_to_half));
-    array_add(console_commands, make_command("half_scale", console_toggle_half_scale));
     array_add(console_commands, make_command("debug_tick_rate", console_toggle_debug_one_tick_per_update));
     array_add(console_commands, make_command("swap", console_swap_cell_types));
     array_add(console_commands, make_command("clear", console_sandbox_clear));
@@ -890,7 +901,7 @@ console_toggle_join_to_half :: () -> (ok := true, error_message := "") {
     return;
 }
 
-console_toggle_half_scale :: () -> (ok := true, error_message := "") {
+console_toggle_half_scale_SANDBOX :: () -> (ok := true, error_message := "") {
     using context.state;
 
     sandbox.half_scale = !sandbox.half_scale;

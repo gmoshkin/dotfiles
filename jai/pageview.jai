@@ -610,6 +610,25 @@ main :: () {
     }
 
     cursor := 1;
+
+    Get_Arg :: (out: *$T, info: string) #expand {
+        cursor += 1;
+        if cursor >= args.count {
+            print("% after '%'\n", info, `flag);
+            exit(1);
+        }
+
+        #if #run is_integer(T)  value, ok := string_to_int(args[cursor]);
+        #if T == float          value, ok := string_to_float  (args[cursor]);
+        #if T == float64        value, ok := string_to_float64(args[cursor]);
+
+        if !ok {
+            print("% after '%', got '%'\n", info, `flag, args[cursor]);
+            exit(1);
+        }
+        out.* = value;
+    }
+
     while cursor < args.count {
         flag := args[cursor];
         after_equals := "";
@@ -653,30 +672,8 @@ main :: () {
                     cursor += 1;
                 }
 
-            case "--sandbox-width";
-                cursor += 1;
-                if cursor >= args.count {
-                    print("Expected a number '%'\n", flag);
-                    exit(1);
-                }
-                width, ok := string_to_int(args[cursor]);
-                if !ok {
-                    print("Expected a number after '%', got '%'\n", flag, args[cursor]);
-                    exit(1);
-                }
-                state.sandbox.world_size_x = width;
-            case "--sandbox-height";
-                cursor += 1;
-                if cursor >= args.count {
-                    print("Expected a number '%'\n", flag);
-                    exit(1);
-                }
-                height, ok := string_to_int(args[cursor]);
-                if !ok {
-                    print("Expected a number after '%', got '%'\n", flag, args[cursor]);
-                    exit(1);
-                }
-                state.sandbox.world_size_y = height;
+            case "--sandbox-width"; Get_Arg(*state.sandbox.world_size_x, "Expected a number");
+            case "--sandbox-height"; Get_Arg(*state.sandbox.world_size_y, "Expected a number");
 
             case "-g"; #through;
             case "--game-of-life";
@@ -685,31 +682,11 @@ main :: () {
             case "-t"; #through;
             case "--time"; #through;
             case "--time-before-repeat";
-                cursor += 1;
-                if cursor >= args.count {
-                    print("Expected a number of seconds after '%'\n", flag);
-                    exit(1);
-                }
-                seconds, ok := string_to_float(args[cursor]);
-                if !ok {
-                    print("Expected a number of seconds after '%', got '%'\n", flag, args[cursor]);
-                    exit(1);
-                }
-                state.external_command_run_period_seconds = seconds;
+                Get_Arg(*state.external_command_run_period_seconds, "Expected a number of seconds");
 
             case "--max-time"; #through;
             case "--max-time-before-repeat";
-                cursor += 1;
-                if cursor >= args.count {
-                    print("Expected a number of seconds after '%'\n", flag);
-                    exit(1);
-                }
-                seconds, ok := string_to_float(args[cursor]);
-                if !ok {
-                    print("Expected a number of seconds after '%', got '%'\n", flag, args[cursor]);
-                    exit(1);
-                }
-                state.external_command_run_period_max = seconds;
+                Get_Arg(*state.external_command_run_period_max, "Expected a number of seconds");
 
             case "--no-backoff"; #through;
             case "--no-exponential-backoff";
@@ -747,16 +724,8 @@ main :: () {
                 state.log_file_name = copy_string_with_nul(args[cursor]);
 
             case "--listen";
-                cursor += 1;
-                if cursor >= args.count {
-                    print("Expected a port number after '%'\n", flag);
-                    exit(1);
-                }
-                port, ok, remainder := string_to_int(args[cursor]);
-                if !ok || remainder != "" {
-                    print("Expected a port number after '%', got '%'\n", flag, args[cursor]);
-                    exit(1);
-                }
+                port: int;
+                Get_Arg(*port, "Expected a port number");
                 if port > U16_MAX {
                     print("Port number % is out of range, must not be greater than %\n", port, U16_MAX);
                     exit(1);
@@ -988,10 +957,8 @@ main :: () {
     assert(state.terminal_size.rows > 1, "ioctl() returned zero window size\n\n\e[31mYou're probably in lldb, try running with `process launch -tty` instead\e[0m");
 
     if state.main_window_source == {
-    case .GAME_OF_LIFE;
-        init_game_of_life();
-    case .SANDBOX_GAME;
-        init_SANDBOX_GAME();
+    case .GAME_OF_LIFE; init_game_of_life();
+    case .SANDBOX_GAME; init_SANDBOX_GAME();
     }
 
     // Completion menu depends on termnal_size
@@ -1032,12 +999,9 @@ main :: () {
 
         // Update main window buffer from the current source
         if state.main_window_source == {
-            case .EXTERNAL_COMMAND;
-                maybe_spawn_external_command();
-
-            case .SANDBOX_GAME; #through;
-            case .DRAWING_MODE;
-                if !pixel_buffer resize_pixel_buffer();
+            case .EXTERNAL_COMMAND; maybe_spawn_external_command();
+            case .SANDBOX_GAME;     on_window_resize_SANDBOX_GAME();
+            case .DRAWING_MODE;     if !pixel_buffer resize_pixel_buffer();
         }
 
         Profile();
@@ -1138,11 +1102,8 @@ main :: () {
             update_main_window_height();
 
             if main_window_source == {
-            case .SANDBOX_GAME;
-                on_window_resize_SANDBOX_GAME();
-
-            case .DRAWING_MODE;
-                resize_pixel_buffer();
+            case .SANDBOX_GAME; on_window_resize_SANDBOX_GAME();
+            case .DRAWING_MODE; resize_pixel_buffer();
             }
 
             row_offset = max(row_offset, -(main_window_height - 1));
@@ -1191,8 +1152,8 @@ main :: () {
 
         Profile();
 
-        if main_window_source == .SANDBOX_GAME {
-            update_SANDBOX_GAME();
+        if main_window_source == {
+        case .SANDBOX_GAME; update_SANDBOX_GAME();
         }
 
         Profile();
@@ -3399,9 +3360,7 @@ render_status_line_1_left_side :: (builder: *String_Builder) {
                 append(builder, "play");
             }
         }
-        case .SANDBOX_GAME; {
-            status_line_1_SANDBOX_GAME(builder, .LEFT);
-        }
+        case .SANDBOX_GAME; status_line_1_SANDBOX_GAME(builder, .LEFT);
     }
 }
 
@@ -4688,9 +4647,8 @@ handle_input_event :: (_event: Input_Event) {
         return;
     }
 
-    if main_window_source == .SANDBOX_GAME {
-        handle_input_event_SANDBOX_GAME(event);
-        return;
+    if main_window_source == {
+    case .SANDBOX_GAME; handle_input_event_SANDBOX_GAME(event); return;
     }
 
     if main_window_source == .GAME_OF_LIFE { // @input
@@ -5918,6 +5876,7 @@ init_commands :: () {
         array_add(*console_commands, make_command("arithmetic_overflow", do_arithmetic_overflow));
         array_add(*console_commands, make_command("panic_now", do_panic_now));
         array_add(*console_commands, make_command("segfault", do_segfault));
+        array_add(*console_commands, make_command("half_scale", console_toggle_half_scale));
 
         array_add(*console_commands, make_command("party_time_update_period", set_party_time_update_period));
         array_add(*console_commands, make_command("scrollbar", make_toggle("draw_scrollbar")));
@@ -6311,6 +6270,14 @@ set_current_pixel_bg_256 :: (number: u8) -> (ok := true, error_message := "") {
     current_pixel_bg._8bit = xx number;
 
     if main_window_source != .DRAWING_MODE return false, "this command is for DRAWING_MODE";
+
+    return;
+}
+
+console_toggle_half_scale :: () -> (ok := true, error_message := "") {
+    using context.state;
+
+    console_toggle_half_scale_SANDBOX();
 
     return;
 }
