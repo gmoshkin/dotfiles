@@ -4,8 +4,23 @@ FLUID_State :: struct {
     offset_y: int = 0;
 
     world_size_x: int = 50;
-    world_size_y: int = 50;
+    world_size_y: int = 40;
     world_cells: [] FLUID_Cell;
+    // `speed_x[i]` comes in to cell `i` and comes out of cell `i-1`
+    speed_x: [] float;
+    // `speed_y[i]` comes in to cell `i` and comes out of cell `i-1`
+    speed_y: [] float;
+    boundary: [] bool;
+
+    speed_x_delta: [] float;
+    speed_y_delta: [] float;
+
+    input_speed: [..] struct { position: Vector2; velocity: Vector2; };
+    fixed_speed: [..] struct { position: Vector2; velocity: Vector2; };
+
+    delta_time: float = 0.01;
+    overrelaxation := 0.99;
+    divergence_solver_max_steps := 10;
 
     window_size_x: int = -1;
     window_size_y: int = -1;
@@ -16,7 +31,8 @@ FLUID_State :: struct {
     next_tick_time: float64 = -1.0;
     tick: int = 0;
     sleeping := false;
-    paused := false;
+    paused := true;
+    step_once := false;
 
     mouse_down := false;
     screen_mouse_x: int;
@@ -41,9 +57,34 @@ init_FLUID :: () {
         ok=, error := deserialize_FLUID(input, *fluid);
         assert(ok, "%:%", fluid.filepath, error);
     } else {
-        fluid.world_cells = NewArray(fluid.world_size_x * fluid.world_size_y, FLUID_Cell);
+        world_square := fluid.world_size_x * fluid.world_size_y;
+        fluid.world_cells     = NewArray(world_square, FLUID_Cell);
+        fluid.speed_x         = NewArray(world_square, float);
+        fluid.speed_y         = NewArray(world_square, float);
+        fluid.speed_x_delta   = NewArray(world_square, float);
+        fluid.speed_y_delta   = NewArray(world_square, float);
         // for *fluid.world_cells it.* = make_cell(.AIR, 0);
+
+        fluid.boundary    = NewArray(world_square, bool);
+        for *fluid.boundary it.* = true;
+
+        x0 := 1.0;
+        y0 := (fluid.world_size_y / 2).(float);
+        // array_add(*fluid.fixed_speed, .{.{x0 - 1, y0 - 1}, .{-1.0, -1.0}});
+        // array_add(*fluid.fixed_speed, .{.{x0    , y0 - 1}, .{ 0.0, -1.0}});
+        // array_add(*fluid.fixed_speed, .{.{x0 + 1, y0 - 1}, .{+1.0, -1.0}});
+        // array_add(*fluid.fixed_speed, .{.{x0 - 1, y0    }, .{-1.0,  0.0}});
+        // array_add(*fluid.fixed_speed, .{.{x0    , y0    }, .{ 0.0,  0.0}});
+        // array_add(*fluid.fixed_speed, .{.{x0 + 1, y0    }, .{+1.0,  0.0}});
+        // array_add(*fluid.fixed_speed, .{.{x0 - 1, y0 + 1}, .{-1.0, +1.0}});
+        // array_add(*fluid.fixed_speed, .{.{x0    , y0 + 1}, .{ 0.0, +1.0}});
+        // array_add(*fluid.fixed_speed, .{.{x0 + 1, y0 + 1}, .{+1.0, +1.0}});
+
+        array_add(*fluid.input_speed, .{.{1, 1}, .{+1.0,  0.0}});
+        array_add(*fluid.input_speed, .{.{xx(fluid.world_size_x - 1), xx(fluid.world_size_y - 1)}, .{-1.0,  0.0}});
     }
+
+    set_fixed_speeds(*fluid);
 
     // fluid.color_scheme. ... = Pixel_Value.id(...);
 
@@ -79,18 +120,22 @@ handle_input_event_FLUID :: (event: Input_Event) {
         if event.kind == {
         case .CHARACTER;
             if event.char == {
-            case #char ";";
+            case ";";
                 switch_to_command_line_mode();
                 return;
 
-            case #char " ";
+            case " ";
                 fluid.paused = !fluid.paused;
                 if !fluid.paused fluid.sleeping = false;
                 return;
 
-            case #char "0"; fluid.offset_x = 0;
-                            fluid.offset_y = 0;
-                            return;
+            case ".";
+                fluid.step_once = true;
+                return;
+
+            case "0"; fluid.offset_x = 0;
+                      fluid.offset_y = 0;
+                      return;
 
             }
         case .KEY_UP;    fluid.offset_y += ifx event.modifiers & .SHIFT then 10 else 1; return;
@@ -133,15 +178,106 @@ update_FLUID :: () {
 
     now := seconds_since_init();
 
-    while fluid.next_tick_time <= now {
-        tick_FLUID();
+    while (fluid.next_tick_time <= now) || fluid.step_once {
+        tick_input_FLUID(*fluid);
+
+        if !fluid.paused || fluid.step_once {
+            tick_FLUID(*fluid);
+        }
         fluid.next_tick_time += fluid.tick_rate_seconds;
+        fluid.step_once = false;
     }
 }
 
-tick_FLUID :: () {
-    using context.state;
+tick_input_FLUID :: (fluid: *FLUID_State) {
+    if fluid.input_speed {
+        for fluid.input_speed {
+            x := it.position.x.(int);
+            y := it.position.y.(int);
+            index := x + fluid.world_size_x * y;
+            fluid.speed_x[index] = it.velocity.x;
+            fluid.speed_y[index] = it.velocity.y;
+        }
+        fluid.input_speed.count = 0;
+    }
+}
 
+tick_FLUID :: (fluid: *FLUID_State) {
+    //
+    // Set fixed speeds
+    //
+
+    set_fixed_speeds(fluid);
+
+    //
+    // Divergence solver
+    //
+
+    width  := fluid.world_size_x;
+    height := fluid.world_size_y;
+    world_square := width * height;
+
+    overrelaxation := fluid.overrelaxation;
+    for 1..fluid.divergence_solver_max_steps {
+        converged := true;
+
+        for *fluid.speed_x_delta it.* = 0;
+        for *fluid.speed_y_delta it.* = 0;
+
+        for y: 0..height - 1
+        for x: 0..width - 1 {
+            index       := cell_index(fluid, x    , y    );
+            index_west  := cell_index(fluid, x - 1, y    );
+            index_east  := cell_index(fluid, x + 1, y    );
+            index_north := cell_index(fluid, x    , y - 1);
+            index_south := cell_index(fluid, x    , y + 1);
+
+            has_west  := (x > 0);
+            has_east  := (x < width  - 1);
+            has_north := (y > 0);
+            has_south := (y < height - 1);
+
+            from_west  := ifx has_west  then fluid.speed_x[index];
+            to_east    := ifx has_east  then fluid.speed_x[index_east];
+            from_north := ifx has_north then fluid.speed_y[index];
+            to_south   := ifx has_south then fluid.speed_y[index_south];
+
+            d := overrelaxation * (from_west - to_east + from_north - to_south);
+
+            if abs(d) < 0.00001 continue;
+            converged = false;
+
+            s_west  := ifx has_west  then fluid.boundary[index_west ];
+            s_east  := ifx has_east  then fluid.boundary[index_east ];
+            s_north := ifx has_north then fluid.boundary[index_north];
+            s_south := ifx has_south then fluid.boundary[index_south];
+
+            s := s_west.(float) + s_east.(float) + s_north.(float) + s_south.(float);
+            if s == 0 continue;
+
+            dd := d / s;
+
+                              fluid.speed_x_delta[index]       += -dd;
+            if has_south then fluid.speed_x_delta[index_east]  +=  dd;
+                              fluid.speed_y_delta[index]       += -dd;
+            if has_south then fluid.speed_y_delta[index_south] +=  dd;
+        }
+
+        for *fluid.speed_x_delta { fluid.speed_x[it_index] += it.*; it.* = 0; }
+        for *fluid.speed_y_delta { fluid.speed_y[it_index] += it.*; it.* = 0; }
+
+        if converged break;
+    }
+}
+
+set_fixed_speeds :: (fluid: *FLUID_State) {
+    for fluid.fixed_speed {
+        x := it.position.x.(int);
+        y := it.position.y.(int);
+        index := x + fluid.world_size_x * y;
+        fluid.speed_x[index] = it.velocity.x;
+        fluid.speed_y[index] = it.velocity.y;
+    }
 }
 
 //
@@ -179,14 +315,7 @@ build_line_for_FLUID :: (builder: *String_Builder, y: int) {
     width := fluid.window_size_x;
 
     for x: 0..width - 1 {
-        cell := get_cell_ptr(*fluid, x, y);
-
-        pixel := Pixel_Value.id(.GRAY_4);
-        if cell {
-            pixel = cell_to_pixel_value(cell);
-        }
-
-        pixel = get_cell_color(*fluid, x, y);
+        pixel := get_cell_color(*fluid, x, y);
 
         print_pixel_value(builder, pixel);
         append(builder, "  ");
@@ -231,7 +360,7 @@ deserialize_cell :: (builder: *string, cell: *FLUID_Cell) -> bool {
     return false;
 }
 
-screen_to_world :: (fluid: *FLUID_State, screen_x: int, screen_y: int) -> bool, int, int {
+screen_to_world :: (fluid: *FLUID_State, screen_x: int, screen_y: int) -> (index: int, x: int, y: int) {
     using fluid;
 
     state := context.state;
@@ -243,33 +372,57 @@ screen_to_world :: (fluid: *FLUID_State, screen_x: int, screen_y: int) -> bool, 
     // Divide size_offset_x by 2 because offset_x origin is in the middle (this
     // makes no sense to me as I write this)
     world_x := screen_x + size_offset_x / 2 + offset_x;
-    world_y := screen_y + size_offset_y     - offset_y;
+    world_y := screen_y + size_offset_y / 2 - offset_y;
 
     in_bounds := (world_x >= 0 && world_x < world_size_x)
               && (world_y >= 0 && world_y < world_size_y);
+    if !in_bounds return -1, world_x, world_y;
 
-    return in_bounds, world_x, world_y;
+    return cell_index(fluid, world_x, world_y), world_x, world_y;
+}
+
+cell_index :: inline (fluid: *FLUID_State, world_x: int, world_y: int) -> int {
+    return world_y * fluid.world_size_x + world_x;
 }
 
 get_cell_ptr :: (fluid: *FLUID_State, screen_x: int, screen_y: int) -> *FLUID_Cell {
-    in_bounds, world_x, world_y := screen_to_world(fluid, screen_x, screen_y);
+    index, world_x, world_y := screen_to_world(fluid, screen_x, screen_y);
+    if index < 0 return null;
 
-    if !in_bounds return null;
-
-    cell_index := world_y * fluid.world_size_x + world_x;
-    return *fluid.world_cells[cell_index];
+    return *fluid.world_cells[index];
 }
 
 get_cell_color :: (fluid: *FLUID_State, screen_x: int, screen_y: int) -> Pixel_Value {
-    in_bounds, world_x, world_y := screen_to_world(fluid, screen_x, screen_y);
+    index, world_x, world_y := screen_to_world(fluid, screen_x, screen_y);
+    if index < 0 return Pixel_Value.id(.GRAY_4);
 
-    if !in_bounds return Pixel_Value.id(.GRAY_4);
+    velocity := Vector2.{fluid.speed_x[index],
+                         fluid.speed_y[index]};
 
-    return Pixel_Value.rgb(
-        world_x.(float) / (fluid.world_size_x - 1),
-        world_y.(float) / (fluid.world_size_y - 1),
-        0,
-    );
+    value := length(velocity);
+    if value == 0 return Pixel_Value.id(.GRAY_4);
+
+    is_nan, is_inf := is_nan_is_inf(value);
+    if is_nan || is_inf return Pixel_Value.id(.BLACK);
+
+    direction := velocity / value;
+    // My y goes from top to bottom, so I have to reverse it here
+    phi := atan2(-direction.y, direction.x);
+
+    Hue_CYAN   :: #run rgb_to_hsv(Vector3.{0, 1, 1}).x;
+    Hue_RED    :: #run rgb_to_hsv(Vector3.{1, 0, 0}).x;
+
+    PI_2 :: PI / 2;
+
+    hue: float;
+    // -π   ..  0
+    if phi < 0 { t := (phi+PI) / PI; hue = lerp(Hue_CYAN, Hue_RED , t); }
+    //  0   ..  π
+    else       { t :=  phi     / PI; hue = lerp(Hue_RED , Hue_CYAN, t); }
+
+    hue = fmod_cycling(((phi) / TAU * 360), 360);
+    color := hsv_to_rgb(.{hue, 1, 1});
+    return Pixel_Value.rgb(color.x, color.y, color.z);
 }
 
 //
@@ -358,7 +511,6 @@ status_line_1_FLUID :: (builder: *String_Builder, side: Status_Line_Side) {
     if #complete side == {
     case .LEFT;
         if fluid.paused {
-            append(builder, " ");
             append(builder, "\e[31m");
             append(builder, "PAUSED");
             append(builder, "\e[0m");
@@ -380,3 +532,26 @@ console_toggle_half_scale_FLUID :: () -> (ok := true, error_message := "") {
 
     return;
 }
+
+//
+// miscellaneous
+//
+
+Int_Vector2 :: struct { x: int; y: int; }
+
+operator + :: inline (v: Int_Vector2, a: int) -> Int_Vector2 { return .{v.x + a, v.y + a}; }
+operator - :: inline (v: Int_Vector2, a: int) -> Int_Vector2 { return .{v.x - a, v.y - a}; }
+operator * :: inline (v: Int_Vector2, a: int) -> Int_Vector2 { return .{v.x * a, v.y * a}; }
+operator / :: inline (v: Int_Vector2, a: int) -> Int_Vector2 { return .{v.x / a, v.y / a}; }
+
+operator + :: inline (a: Int_Vector2, b: Int_Vector2) -> Int_Vector2 { return .{a.x + b.x, a.y + b.y}; }
+operator - :: inline (a: Int_Vector2, b: Int_Vector2) -> Int_Vector2 { return .{a.x - b.x, a.y - b.y}; }
+operator * :: inline (a: Int_Vector2, b: Int_Vector2) -> Int_Vector2 { return .{a.x * b.x, a.y * b.y}; }
+operator / :: inline (a: Int_Vector2, b: Int_Vector2) -> Int_Vector2 { return .{a.x / b.x, a.y / b.y}; }
+
+dot :: inline (a: Int_Vector2, b: Int_Vector2) -> int {
+    return a.x * b.x + a.y * b.y;
+}
+
+#import "Math";
+#import "Color_Interpolation";

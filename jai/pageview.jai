@@ -694,8 +694,29 @@ main :: () {
                     cursor += 1;
                 }
 
-            case "--sandbox-width"; Get_Arg(*state.sandbox.world_size_x, "Expected a number");
-            case "--sandbox-height"; Get_Arg(*state.sandbox.world_size_y, "Expected a number");
+            case "--overrelaxation"; Get_Arg(*state.fluid.overrelaxation, "Expected a number");
+            case "--pause"; state.fluid.paused = true;
+                            state.sandbox.paused = true;
+            case "--no-pause"; #through;
+            case "--unpause"; state.fluid.paused = false;
+                              state.sandbox.paused = false;
+
+            case "--half-scale"; state.fluid.half_scale = true;
+                                 state.sandbox.half_scale = true;
+            case "--no-half-scale"; state.fluid.half_scale = false;
+                                    state.sandbox.half_scale = false;
+
+            case "--width";
+                width: int;
+                Get_Arg(*width, "Expected a number");
+                state.sandbox.world_size_x = width;
+                state.fluid.world_size_x = width;
+
+            case "--height";
+                height: int;
+                Get_Arg(*height, "Expected a number");
+                state.sandbox.world_size_y = height;
+                state.fluid.world_size_y = height;
 
             case "-g"; #through;
             case "--game-of-life";
@@ -767,7 +788,13 @@ main :: () {
             case "--run-tests";
                 state.run_tests = true;
 
-            case; break;
+            case;
+                if starts_with(flag, "-") {
+                    print("\e[31mUnknown option '%'\e[0m\n", flag);
+                    exit(1);
+                }
+
+                break;
         }
         cursor += 1;
     }
