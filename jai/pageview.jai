@@ -182,6 +182,7 @@ State :: struct #type_info_no_size_complaint {
         DRAWING_MODE;
         SANDBOX_GAME;
         GAME_OF_LIFE;
+        FLUID;
         // TODO: FILE;
     }
 
@@ -282,6 +283,11 @@ State :: struct #type_info_no_size_complaint {
     // SANDBOX_GAME
     //
     sandbox: SANDBOX_GAME_State;
+
+    //
+    // FLUID
+    //
+    fluid: FLUID_State;
 
     //
     // rendering
@@ -409,6 +415,14 @@ Pixel_Value :: union type: Pixel_Value_Type {
         res._rgb.b = b;
 
         return res;
+    }
+
+    rgb :: (r: float, g: float, b: float) -> Self {
+        return inline Self.rgb(
+            (r * U8_MAX).(u8),
+            (g * U8_MAX).(u8),
+            (b * U8_MAX).(u8),
+        );
     }
 
     id :: (id: Color_8bit) -> Self {
@@ -669,6 +683,14 @@ main :: () {
                 state.main_window_source = .SANDBOX_GAME;
                 if cursor + 1 < args.count && !starts_with(args[cursor + 1], "-") {
                     state.sandbox.filepath = args[cursor + 1];
+                    cursor += 1;
+                }
+
+            case "-F"; #through;
+            case "--fluid";
+                state.main_window_source = .FLUID;
+                if cursor + 1 < args.count && !starts_with(args[cursor + 1], "-") {
+                    state.fluid.filepath = args[cursor + 1];
                     cursor += 1;
                 }
 
@@ -959,6 +981,7 @@ main :: () {
     if state.main_window_source == {
     case .GAME_OF_LIFE; init_game_of_life();
     case .SANDBOX_GAME; init_SANDBOX_GAME();
+    case .FLUID;        init_FLUID();
     }
 
     // Completion menu depends on termnal_size
@@ -1001,6 +1024,7 @@ main :: () {
         if state.main_window_source == {
             case .EXTERNAL_COMMAND; maybe_spawn_external_command();
             case .SANDBOX_GAME;     on_window_resize_SANDBOX_GAME();
+            case .FLUID;            on_window_resize_FLUID();
             case .DRAWING_MODE;     if !pixel_buffer resize_pixel_buffer();
         }
 
@@ -1103,6 +1127,7 @@ main :: () {
 
             if main_window_source == {
             case .SANDBOX_GAME; on_window_resize_SANDBOX_GAME();
+            case .FLUID;        on_window_resize_FLUID();
             case .DRAWING_MODE; resize_pixel_buffer();
             }
 
@@ -1154,6 +1179,7 @@ main :: () {
 
         if main_window_source == {
         case .SANDBOX_GAME; update_SANDBOX_GAME();
+        case .FLUID;        update_FLUID();
         }
 
         Profile();
@@ -1215,6 +1241,10 @@ main :: () {
 
                 case .SANDBOX_GAME;
                     line_buffer = build_line_buffer_for_SANDBOX_GAME();
+                    changed = true;
+
+                case .FLUID;
+                    line_buffer = build_line_buffer_for_FLUID();
                     changed = true;
 
                 case .NONE;
@@ -3361,6 +3391,7 @@ render_status_line_1_left_side :: (builder: *String_Builder) {
             }
         }
         case .SANDBOX_GAME; status_line_1_SANDBOX_GAME(builder, .LEFT);
+        case .FLUID;        status_line_1_FLUID(builder, .LEFT);
     }
 }
 
@@ -4649,6 +4680,7 @@ handle_input_event :: (_event: Input_Event) {
 
     if main_window_source == {
     case .SANDBOX_GAME; handle_input_event_SANDBOX_GAME(event); return;
+    case .FLUID;        handle_input_event_FLUID(event); return;
     }
 
     if main_window_source == .GAME_OF_LIFE { // @input
@@ -6278,6 +6310,7 @@ console_toggle_half_scale :: () -> (ok := true, error_message := "") {
     using context.state;
 
     console_toggle_half_scale_SANDBOX();
+    console_toggle_half_scale_FLUID();
 
     return;
 }
@@ -10043,6 +10076,7 @@ else             using POSIX;
 #import "Random";
 
 #load "sandbox.jai";
+#load "fluid.jai";
 
 #if CPU == .X64     Meow_Hash :: #import "meow_hash";
 #if CPU == .ARM64   XXHash :: #import "xxHash";
