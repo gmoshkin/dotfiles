@@ -68,9 +68,20 @@ FLUID_State :: struct {
 
     filepath: string;
 
-    DEBUG := true;
+    DEBUG := false;
     debug_pixels: [] Pixel_Value;
     debug_cursor: Vector2;
+    debug_need_redraw := true;
+    debug_redraw_count: int;
+
+    uW, uH: int;
+    debug_us: [] float;
+    vW, vH: int;
+    debug_vs: [] float;
+
+    debug_text := false;
+    debug_grid := false;
+    debug_color := true;
 }
 
 //
@@ -132,164 +143,245 @@ init_DEBUG :: (fluid: *FLUID_State) {
 }
 
 draw_DEBUG :: (fluid: *FLUID_State) {
-    for *fluid.debug_pixels it.* = Pixel_Value.id(.GRAY_2);
+    if !fluid.debug_need_redraw && !fluid.debug_color return;
 
     W := fluid.world_size_x;
     H := fluid.world_size_y;
     W2 := W / 2;
     H2 := H / 2;
 
-    s := 48;
+    s := 24;
     s2 := s/2;
 
-    ox := W2 - s2 - s * (W / s / 2);
-    oy := H2 - s2 - s * (H / s / 2);
+    cell_position :: (x: int, y: int) -> int, int #expand {
+        ox := W2 - s2 - s * (W / s / 2);
+        oy := H2 - s2 - s * (H / s / 2);
 
-    { x := ox;
-      while x < W { y := oy;
-                    while y < H { set_rect(fluid, x, y - 2, 5, 1, .GRAY_3); y += s2; } x += s2; } }
-    { y := oy;
-      while y < H { x := ox;
-                    while x < W { set_rect(fluid, x - 2, y, 1, 5, .GRAY_3); x += s2; } y += s2; } }
-    { x := ox;
-      while x < W { y := oy;
-                    while y < H { set_rect(fluid, x - 1, y - 1, 3, 3, .BLUE); y += s; } x += s; } }
-    { x := ox;
-      while x < W { y := oy - s2;
-                    while y < H { set_rect(fluid, x - 1, y - 1, 3, 3, .RED); y += s; } x += s; } }
-    { x := ox - s2;
-      while x < W { y := oy;
-                    while y < H { set_rect(fluid, x - 1, y - 1, 3, 3, .GREEN); y += s; } x += s; } }
-
-
-    // x0, y0 := W2 - s2, H2 - s2;
-    // x1, y1 := W2 + s2, H2 + s2;
-
-    cx := fluid.debug_cursor.x.(int);
-    cy := fluid.debug_cursor.y.(int);
-
-    x0 := ox + (cx - ox) / s * s;
-    y0 := oy + (cy - oy) / s * s;
-
-    x1 := x0 + s;
-    y1 := y0 + s;
-
-    ux0, ux1 := x0, x1;
-    uy0, uy1: int;
-    if (cy - y0) < (y1 - y0) / 2 { uy0 = y0 - s2; uy1 = y1 - s2; }
-    else                         { uy0 = y0 + s2; uy1 = y1 + s2; }
-
-    vx0, vx1: int;
-    vy0, vy1 := y0, y1;
-    if (cx - x0) < (x1 - x0) / 2 { vx0 = x0 - s2; vx1 = x1 - s2; }
-    else                         { vx0 = x0 + s2; vx1 = x1 + s2; }
-
-    set_line(fluid, ux0, uy0, ux0, uy1, Pixel_Value.rgb(.5, .1, .1), step=3);
-    set_line(fluid, ux0, uy1, ux1, uy1, Pixel_Value.rgb(.5, .1, .1), step=3);
-    set_line(fluid, ux1, uy1, ux1, uy0, Pixel_Value.rgb(.5, .1, .1), step=3);
-    set_line(fluid, ux1, uy0, ux0, uy0, Pixel_Value.rgb(.5, .1, .1), step=3);
-
-    set_line(fluid, vx0, vy0, vx0, vy1, Pixel_Value.rgb(.3, .5, .1), step=3);
-    set_line(fluid, vx0, vy1, vx1, vy1, Pixel_Value.rgb(.3, .5, .1), step=3);
-    set_line(fluid, vx1, vy1, vx1, vy0, Pixel_Value.rgb(.3, .5, .1), step=3);
-    set_line(fluid, vx1, vy0, vx0, vy0, Pixel_Value.rgb(.3, .5, .1), step=3);
-
-
-    us := float.[-5 , -6,
-                 +4 , -12,
-                 -7 , +8];
-
-    vs := float.[+5 , +10, -7,
-                 +10, +9 , -3];
-
-    for x: 0..1 for y: 0..2 {
-        u := us[x + y * 2];
-        ux := W2 - s2 + x * s;
-        uy := H2 - s  + y * s;
-        set_line(fluid, ux, uy, ux + xx u, uy, .RED);
+        x0 := ox + (x - ox) / s * s;
+        y0 := oy + (y - oy) / s * s;
+        return x0, y0;
     }
 
-    for x: 0..2 for y: 0..1 {
-        v := vs[x + y * 3];
-        vx := W2 - s  + x * s;
-        vy := H2 - s2 + y * s;
-        set_line(fluid, vx, vy, vx, vy + xx v, .GREEN);
-    }
-
-
-    set_rect(fluid, cx - 1, cy - 1, 3, 3, .WHITE);
-
-    cu: float;
+    // if !fluid.debug_us
     {
+        t := fluid.tick * (TAU / 72);
+
+        fluid.uW = 4;
+        fluid.uH = 5;
+        free(fluid.debug_us.data);
+        fluid.debug_us = copy_array(float.[
+            -5 , -6 , -7, -3,
+            +4 , -12, -8, +4,
+            -7 , +8,  +4, +5,
+            -4 , +4,  +7, +6,
+            -9 , -5,  -4, -7,
+        ]);
+
+        fluid.vW = 5;
+        fluid.vH = 4;
+        free(fluid.debug_vs.data);
+        fluid.debug_vs = copy_array(float.[
+            +5 , +10, -7, -6, -3,
+            +10, +9 , -3, -5, -6,
+            +12, +8 , -5, -4, -8,
+            +7 , +7 , -7, -3, -9,
+        ]);
+
+        for *fluid.debug_us {
+            it.* = xx (cos(t * (1 + (it_index * 137) % 3)) * it.*);
+        }
+        for *fluid.debug_vs {
+            it.* = xx (sin(t * (1 + (it_index * 137) % 3)) * it.*);
+        }
+    }
+
+
+    interpolate_horizontal_speed :: (x: int, y: int) -> float #expand {
+        // x,y is any point anywhere
+        x0, y0 := cell_position(x, y);
+        x1, y1 := x0 + s, y0 + s;
+        // x0,y0 - is the closest grid intersection point top-left of x,y
+        // x1,y1 - is the closest grid intersection point bottom-right of x,y
+
+        ux0, ux1 := x0, x1;
+        uy0, uy1: int;
+        if (y - y0) < (y1 - y0) / 2 { uy0 = y0 - s2; uy1 = y1 - s2; }
+        else                        { uy0 = y0 + s2; uy1 = y1 + s2; }
+
         ui0, uj0 := ux0 / s, uy0 / s;
         ui1, uj1 := ux1 / s, uy1 / s;
+
         in_bounds :: (i: int, j: int) -> bool #expand {
-            return (i >= 0) && (i <= 1) && (j >= 0) && (j <= 2);
+            return (i >= 0) && (i < fluid.uW) && (j >= 0) && (j < fluid.uH);
         }
-        u00 := ifx in_bounds(ui0, uj0) us[ui0 + uj0 * 2];
-        u01 := ifx in_bounds(ui0, uj1) us[ui0 + uj1 * 2];
-        u10 := ifx in_bounds(ui1, uj0) us[ui1 + uj0 * 2];
-        u11 := ifx in_bounds(ui1, uj1) us[ui1 + uj1 * 2];
-        tx := (cx - ux0).(float) / (ux1 - ux0);
-        ty := (cy - uy0).(float) / (uy1 - uy0);
-        cu = lerp(
+        u00 := ifx in_bounds(ui0, uj0) fluid.debug_us[ui0 + uj0 * fluid.uW];
+        u01 := ifx in_bounds(ui0, uj1) fluid.debug_us[ui0 + uj1 * fluid.uW];
+        u10 := ifx in_bounds(ui1, uj0) fluid.debug_us[ui1 + uj0 * fluid.uW];
+        u11 := ifx in_bounds(ui1, uj1) fluid.debug_us[ui1 + uj1 * fluid.uW];
+        tx := (x - ux0).(float) / (ux1 - ux0);
+        ty := (y - uy0).(float) / (uy1 - uy0);
+        u := lerp(
             lerp(u00, u10, tx),
             lerp(u01, u11, tx),
             ty,
         );
-        if cu < 0 then cu -= .5; else cu += .5;
+        if u < 0 then u -= .5; else u += .5;
+        return u;
     }
 
-    set_line(fluid, cx, cy, cx + xx cu, cy, .RED);
-    set_cell(fluid, cx + xx cu, cy, Vector3.{.9, .5, .5});
+    interpolate_vertical_speed :: (x: int, y: int) -> float #expand {
+        // x,y is any point anywhere
+        x0, y0 := cell_position(x, y);
+        x1, y1 := x0 + s, y0 + s;
+        // x0,y0 - is the closest grid intersection point top-left of x,y
+        // x1,y1 - is the closest grid intersection point bottom-right of x,y
 
-    cv: float;
-    {
+        vx0, vx1: int;
+        vy0, vy1 := y0, y1;
+        if (x - x0) < (x1 - x0) / 2 { vx0 = x0 - s2; vx1 = x1 - s2; }
+        else                        { vx0 = x0 + s2; vx1 = x1 + s2; }
+
         vi0, vj0 := vx0 / s, vy0 / s;
         vi1, vj1 := vx1 / s, vy1 / s;
         in_bounds :: (i: int, j: int) -> bool #expand {
-            return (i >= 0) && (i <= 2) && (j >= 0) && (j <= 1);
+            return (i >= 0) && (i < fluid.vW) && (j >= 0) && (j < fluid.vH);
         }
-        v00 := ifx in_bounds(vi0, vj0) vs[vi0 + vj0 * 3];
-        v01 := ifx in_bounds(vi0, vj1) vs[vi0 + vj1 * 3];
-        v10 := ifx in_bounds(vi1, vj0) vs[vi1 + vj0 * 3];
-        v11 := ifx in_bounds(vi1, vj1) vs[vi1 + vj1 * 3];
-        tx := (cx - vx0).(float) / (vx1 - vx0);
-        ty := (cy - vy0).(float) / (vy1 - vy0);
-        cv = lerp(
+        v00 := ifx in_bounds(vi0, vj0) fluid.debug_vs[vi0 + vj0 * fluid.vW];
+        v01 := ifx in_bounds(vi0, vj1) fluid.debug_vs[vi0 + vj1 * fluid.vW];
+        v10 := ifx in_bounds(vi1, vj0) fluid.debug_vs[vi1 + vj0 * fluid.vW];
+        v11 := ifx in_bounds(vi1, vj1) fluid.debug_vs[vi1 + vj1 * fluid.vW];
+        tx := (x - vx0).(float) / (vx1 - vx0);
+        ty := (y - vy0).(float) / (vy1 - vy0);
+        v := lerp(
             lerp(v00, v10, tx),
             lerp(v01, v11, tx),
             ty,
         );
-        if cv < 0 then cv -= .5; else cv += .5;
+        if v < 0 then v -= .5; else v += .5;
+        return v;
     }
 
-    set_line(fluid, cx, cy, cx, cy + xx cv, .GREEN);
-    set_cell(fluid, cx, cy + xx cv, Vector3.{.5, .9, .2});
+    if fluid.debug_color {
+        for y: 0..H-1for x: 0..W-1 {
+            u := interpolate_horizontal_speed(x, y);
+            v := interpolate_vertical_speed(x, y);
 
-    set_line(fluid, cx, cy, cx + xx cu, cy + xx cv, .WHITE);
-    set_cell(fluid, cx + xx cu, cy + xx cv, .GRAY_23);
+            phi := atan2(-v, u);
+            hue := fmod_cycling(((phi) / TAU * 360), 360);
+            color := hsv_to_rgb(.{hue, 1, 1});
+            fluid.debug_pixels[x + y * W] = Pixel_Value.rgb(color.x, color.y, color.z);
+        }
+    } else {
+        for *fluid.debug_pixels it.* = Pixel_Value.id(.GRAY_2);
+    }
 
-    // set_rect(fluid, x0 - 1, y0 - 1, 3     , 3     , .BLUE);
-    // set_line(fluid, x0    , y0    , x0 + 3, y0 + 4, .WHITE);
+    if fluid.debug_grid {
+        ox := W2 - s2 - s * (W / s / 2);
+        oy := H2 - s2 - s * (H / s / 2);
 
-    // set_rect(fluid, x0 - 1, y1 - 1, 3     , 3     , .BLUE);
-    // set_line(fluid, x0    , y1    , x0 + 4, y1 - 3, .WHITE);
+        { x := ox;
+        while x < W { y := oy;
+        while y < H { set_rect(fluid, x, y - 2, 5, 1, .GRAY_3); y += s2; } x += s2; } }
+        { y := oy;
+        while y < H { x := ox;
+        while x < W { set_rect(fluid, x - 2, y, 1, 5, .GRAY_3); x += s2; } y += s2; } }
+        { x := ox;
+        while x < W { y := oy;
+        while y < H { set_rect(fluid, x - 1, y - 1, 3, 3, .BLUE); y += s; } x += s; } }
+        { x := ox;
+        while x < W { y := oy - s2;
+        while y < H { set_rect(fluid, x - 1, y - 1, 3, 3, .RED); y += s; } x += s; } }
+        { x := ox - s2;
+        while x < W { y := oy;
+        while y < H { set_rect(fluid, x - 1, y - 1, 3, 3, .GREEN); y += s; } x += s; } }
 
-    // set_rect(fluid, x1 - 1, y0 - 1, 3     , 3     , .BLUE);
-    // set_line(fluid, x1    , y0    , x1 - 3, y0 + 4, .WHITE);
 
-    // set_rect(fluid, x1 - 1, y1 - 1, 3     , 3     , .BLUE);
-    // set_line(fluid, x1    , y1    , x1 - 4, y1 - 3, .WHITE);
+        // x0, y0 := W2 - s2, H2 - s2;
+        // x1, y1 := W2 + s2, H2 + s2;
+
+        cx := fluid.debug_cursor.x.(int);
+        cy := fluid.debug_cursor.y.(int);
+
+        x0 := ox + (cx - ox) / s * s;
+        y0 := oy + (cy - oy) / s * s;
+
+        x1 := x0 + s;
+        y1 := y0 + s;
+
+        ux0, ux1 := x0, x1;
+        uy0, uy1: int;
+        if (cy - y0) < (y1 - y0) / 2 { uy0 = y0 - s2; uy1 = y1 - s2; }
+        else                         { uy0 = y0 + s2; uy1 = y1 + s2; }
+
+        vx0, vx1: int;
+        vy0, vy1 := y0, y1;
+        if (cx - x0) < (x1 - x0) / 2 { vx0 = x0 - s2; vx1 = x1 - s2; }
+        else                         { vx0 = x0 + s2; vx1 = x1 + s2; }
+
+        set_line(fluid, ux0, uy0, ux0, uy1, Pixel_Value.rgb(.5, .1, .1), step=3);
+        set_line(fluid, ux0, uy1, ux1, uy1, Pixel_Value.rgb(.5, .1, .1), step=3);
+        set_line(fluid, ux1, uy1, ux1, uy0, Pixel_Value.rgb(.5, .1, .1), step=3);
+        set_line(fluid, ux1, uy0, ux0, uy0, Pixel_Value.rgb(.5, .1, .1), step=3);
+
+        set_line(fluid, vx0, vy0, vx0, vy1, Pixel_Value.rgb(.3, .5, .1), step=3);
+        set_line(fluid, vx0, vy1, vx1, vy1, Pixel_Value.rgb(.3, .5, .1), step=3);
+        set_line(fluid, vx1, vy1, vx1, vy0, Pixel_Value.rgb(.3, .5, .1), step=3);
+        set_line(fluid, vx1, vy0, vx0, vy0, Pixel_Value.rgb(.3, .5, .1), step=3);
 
 
-    // p0 := Vector2.{xx W2, xx H2};
-    // phi := fluid.tick * (TAU / 36);
-    // ofs := Vector2.{cos(phi), sin(phi)};
-    // p1 := p0 + ofs * 20;
-    // set_rect(fluid, xx (p0.x - 1), xx (p0.y - 1), 3, 3, .YELLOW);
-    // set_rect(fluid, xx (p1.x - 1), xx (p1.y - 1), 3, 3, .YELLOW);
-    // set_line(fluid, xx p0.x, xx p0.y, xx p1.x, xx p1.y, .RED);
+        for x: 0..fluid.uW-1 for y: 0..fluid.uH-1 {
+            u := fluid.debug_us[x + y * fluid.uW];
+            ux := ox + s  + x * s;
+            uy := oy + s2 + y * s;
+            set_line(fluid, ux, uy, ux + xx u, uy, .RED);
+        }
+
+        for x: 0..fluid.vW-1 for y: 0..fluid.vH-1 {
+            v := fluid.debug_vs[x + y * fluid.vW];
+            vx := ox + s2 + x * s;
+            vy := oy + s  + y * s;
+            set_line(fluid, vx, vy, vx, vy + xx v, .GREEN);
+        }
+
+
+        set_rect(fluid, cx - 1, cy - 1, 3, 3, .WHITE);
+
+        cu := interpolate_horizontal_speed(cx, cy);
+        cv := interpolate_vertical_speed(cx, cy);
+
+        set_line(fluid, cx, cy, cx + xx cu, cy, .RED);
+        set_cell(fluid, cx + xx cu, cy, Vector3.{.9, .5, .5});
+
+        set_line(fluid, cx, cy, cx, cy + xx cv, .GREEN);
+        set_cell(fluid, cx, cy + xx cv, Vector3.{.5, .9, .2});
+
+        set_line(fluid, cx, cy, cx + xx cu, cy + xx cv, .WHITE);
+        set_cell(fluid, cx + xx cu, cy + xx cv, .GRAY_23);
+
+        // set_rect(fluid, x0 - 1, y0 - 1, 3     , 3     , .BLUE);
+        // set_line(fluid, x0    , y0    , x0 + 3, y0 + 4, .WHITE);
+
+        // set_rect(fluid, x0 - 1, y1 - 1, 3     , 3     , .BLUE);
+        // set_line(fluid, x0    , y1    , x0 + 4, y1 - 3, .WHITE);
+
+        // set_rect(fluid, x1 - 1, y0 - 1, 3     , 3     , .BLUE);
+        // set_line(fluid, x1    , y0    , x1 - 3, y0 + 4, .WHITE);
+
+        // set_rect(fluid, x1 - 1, y1 - 1, 3     , 3     , .BLUE);
+        // set_line(fluid, x1    , y1    , x1 - 4, y1 - 3, .WHITE);
+
+
+        // p0 := Vector2.{xx W2, xx H2};
+        // phi := fluid.tick * (TAU / 36);
+        // ofs := Vector2.{cos(phi), sin(phi)};
+        // p1 := p0 + ofs * 20;
+        // set_rect(fluid, xx (p0.x - 1), xx (p0.y - 1), 3, 3, .YELLOW);
+        // set_rect(fluid, xx (p1.x - 1), xx (p1.y - 1), 3, 3, .YELLOW);
+        // set_line(fluid, xx p0.x, xx p0.y, xx p1.x, xx p1.y, .RED);
+    }
+
+    fluid.debug_need_redraw = false;
+    fluid.debug_redraw_count += 1;
 }
 
 to_pixel_value :: (id: Color_8bit) -> Pixel_Value #expand { return Pixel_Value.id(id); }
@@ -365,6 +457,8 @@ on_window_resize_FLUID :: () {
 
 handle_input_event_FLUID :: (event: Input_Event) {
     using context.state;
+
+    fluid.debug_need_redraw = true;
 
     if input_mode == {
     case .INPUT_COMMAND;
@@ -447,8 +541,10 @@ update_FLUID :: () {
 
     now := seconds_since_init();
 
-    while (fluid.next_tick_time <= now) || fluid.step_once {
-        do_tick := !fluid.paused || fluid.step_once;
+    need_step :: () -> bool #expand { return fluid.step_once || fluid.debug_need_redraw; }
+
+    while (fluid.next_tick_time <= now) || need_step() {
+        do_tick := !fluid.paused || need_step();
 
         if do_tick apply_speeds(*fluid, fluid.fixed_speed);
 
@@ -461,6 +557,7 @@ update_FLUID :: () {
 
         fluid.next_tick_time += fluid.tick_rate_seconds;
         fluid.step_once = false;
+        fluid.debug_need_redraw = false;
     }
 }
 
@@ -742,10 +839,17 @@ build_line_for_FLUID_half_scale :: (builder: *String_Builder, _y: int) {
         pixel_top    := get_cell_color(*fluid, x, y);
         pixel_bottom := get_cell_color(*fluid, x, y + 1);
 
-        inline print_pixel_value(builder, pixel_top,    fg=true);
-        inline print_pixel_value(builder, pixel_bottom, fg=false);
+        if pixel_top == pixel_bottom {
+            inline print_pixel_value(builder, pixel_top, fg=false);
+            append(builder, " ");
+        } else {
+            inline print_pixel_value(builder, pixel_top,    fg=true);
+            inline print_pixel_value(builder, pixel_bottom, fg=false);
 
-        append(builder, "▀");
+            text :: "all work and no play makes jack a dull boy";
+            if fluid.debug_text append(builder, text[x % text.count]);
+            else                append(builder, "▀");
+        }
     }
 }
 
@@ -820,13 +924,7 @@ get_cell_color :: (fluid: *FLUID_State, screen_x: int, screen_y: int) -> Pixel_V
 
     PI_2 :: PI / 2;
 
-    hue: float;
-    // -π   ..  0
-    if phi < 0 { t := (phi+PI) / PI; hue = lerp(Hue_CYAN, Hue_RED , t); }
-    //  0   ..  π
-    else       { t :=  phi     / PI; hue = lerp(Hue_RED , Hue_CYAN, t); }
-
-    hue = fmod_cycling(((phi) / TAU * 360), 360);
+    hue := fmod_cycling(((phi) / TAU * 360), 360);
     color := hsv_to_rgb(.{hue, 1, 1});
     return Pixel_Value.rgb(color.x, color.y, color.z);
 }
@@ -873,9 +971,49 @@ status_line_1_FLUID :: (builder: *String_Builder, side: Status_Line_Side) {
     }
 }
 
+status_line_2_render_counter_FLUID :: () -> int {
+    using context.state;
+
+    return fluid.debug_redraw_count;
+}
+
+
 //
 // @console
 //
+
+console_commands_FLUID :: (console_commands: *[..] Command) {
+    array_add(console_commands, make_command("debug_color", console_toggle_debug_color));
+    array_add(console_commands, make_command("debug_text", console_toggle_debug_text));
+    array_add(console_commands, make_command("debug_grid", console_toggle_debug_grid));
+}
+
+console_toggle_debug_grid :: () -> bool, string {
+    using context.state;
+
+    fluid.debug_grid = !fluid.debug_grid;
+    fluid.debug_need_redraw = true;
+
+    return true, "";
+}
+
+console_toggle_debug_text :: () -> bool, string {
+    using context.state;
+
+    fluid.debug_text = !fluid.debug_text;
+    fluid.debug_need_redraw = true;
+
+    return true, "";
+}
+
+console_toggle_debug_color :: () -> bool, string {
+    using context.state;
+
+    fluid.debug_color = !fluid.debug_color;
+    fluid.debug_need_redraw = true;
+
+    return true, "";
+}
 
 console_toggle_half_scale_FLUID :: () -> (ok := true, error_message := "") {
     using context.state;

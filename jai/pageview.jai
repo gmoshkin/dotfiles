@@ -813,6 +813,8 @@ main :: () {
         cursor += 1;
     }
 
+    if state.debug state.fluid.DEBUG = true;
+
     if state.run_tests {
         run_tests();
         return;
@@ -956,7 +958,7 @@ main :: () {
         assert(rc >= 0);
     }
 
-    if state.debug then getchar();
+    if state.debug && state.main_window_source != .FLUID then getchar();
 
     // Setup epoll/kqueue
     {
@@ -3709,8 +3711,9 @@ render_status_line_2 :: () {
                 // render counter
                 {
                     render_counter := main_window_renderred_times;
-                    if main_window_source == .SANDBOX_GAME {
-                        render_counter = status_line_2_render_counter_SANDBOX_GAME();
+                    if main_window_source == {
+                    case .SANDBOX_GAME; render_counter = status_line_2_render_counter_SANDBOX_GAME();
+                    case .FLUID;        render_counter = status_line_2_render_counter_FLUID();
                     }
 
                     // values :: string.[
@@ -5959,6 +5962,7 @@ init_commands :: () {
         array_add(*console_commands, make_command("bg_256", set_current_pixel_bg_256));
 
         console_commands_SANDBOX_GAME(*console_commands);
+        console_commands_FLUID(*console_commands);
     }
 }
 
