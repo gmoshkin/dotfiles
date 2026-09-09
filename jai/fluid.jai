@@ -30,7 +30,7 @@ FLUID_State :: struct {
       |      v9   |       v10 |       v11 |
     --+-----*-----+-----*-----+-----*-----+--
       |           |           |           |
- */
+*/
 
     // `speed_x[i]` = `uᵢ` comes in to cell `i` and comes out of cell `i-1`
     speed_x: [/*  (W + 1) x H */] float;
@@ -42,6 +42,8 @@ FLUID_State :: struct {
 
     speed_x_next: [] float;
     speed_y_next: [] float;
+
+    smoke_next: [] float;
 
     input_speed: [..] Position_Velocity;
     fixed_speed: [..] Position_Velocity;
@@ -71,8 +73,15 @@ FLUID_State :: struct {
     DEBUG := false;
     debug_pixels: [] Pixel_Value;
     debug_cursor: Vector2;
-    debug_need_redraw := true;
+    debug_need_redraw := false;
     debug_redraw_count: int;
+
+    debug_divergence := false;
+    velocity_propagation := true;
+    show_smoke := true;
+    max_smoke := 10.0;
+
+    debug_interpolation := true;
 
     uW, uH: int;
     debug_us: [] float;
@@ -110,10 +119,11 @@ init_FLUID :: () {
         fluid.boundary = NewArray(W * H, bool);
         for *fluid.boundary it.* = true;
 
-        fluid.smoke = NewArray(W * H, float);
+        fluid.smoke      = NewArray(W * H, float);
+        fluid.smoke_next = NewArray(W * H, float);
 
-        x0 := 1.0;
-        y0 := (fluid.world_size_y / 2).(float);
+        // x0 := 1.0;
+        // y0 := (fluid.world_size_y / 2).(float);
         // array_add(*fluid.fixed_speed, .{.{x0 - 1, y0 - 1}, .{-1.0, -1.0}});
         // array_add(*fluid.fixed_speed, .{.{x0    , y0 - 1}, .{ 0.0, -1.0}});
         // array_add(*fluid.fixed_speed, .{.{x0 + 1, y0 - 1}, .{+1.0, -1.0}});
@@ -124,8 +134,22 @@ init_FLUID :: () {
         // array_add(*fluid.fixed_speed, .{.{x0    , y0 + 1}, .{ 0.0, +1.0}});
         // array_add(*fluid.fixed_speed, .{.{x0 + 1, y0 + 1}, .{+1.0, +1.0}});
 
-        array_add(*fluid.input_speed, .{.{(W / 2).(float), (H / 2).(float)}, .{+1.0,  0.0}});
-        // array_add(*fluid.input_speed, .{.{xx(fluid.world_size_x), xx(fluid.world_size_y - 1)}, .{-1.0,  0.0}});
+        // array_add(*fluid.input_speed, .{.{(W / 2).(float), (H / 2).(float)}, .{+1.0,  0.0}});
+        // array_add(*fluid.input_speed, .{.{0    , 0    }, .{+1.0,  0.0}});
+        // array_add(*fluid.input_speed, .{.{W-1.0, 0    }, .{ 0.0, +1.0}});
+        // array_add(*fluid.input_speed, .{.{W-1.0, H-1.0}, .{-1.0,  0.0}});
+        // array_add(*fluid.input_speed, .{.{0    , H-1.0}, .{ 0.0, -1.0}});
+
+
+        array_add(*fluid.input_speed, .{.{10, xx(H / 2)}, .{1.0,  0.0}});
+
+        // for Vector2.[.{0, 0}, .{W-1.0, 0}, .{W-1.0, H-1.0}, .{0, H-1.0}] {
+        //     fluid.smoke[xx (it.x + it.y * W)] = 10.0;
+        // }
+
+        for x: 1..4 for y: (H/2)-1..(H/2)+2 {
+            fluid.smoke[x + y * W] = 10.0;
+        }
     }
 
     apply_speeds(*fluid, fluid.fixed_speed);
@@ -458,7 +482,7 @@ on_window_resize_FLUID :: () {
 handle_input_event_FLUID :: (event: Input_Event) {
     using context.state;
 
-    fluid.debug_need_redraw = true;
+    // fluid.debug_need_redraw = true;
 
     if input_mode == {
     case .INPUT_COMMAND;
@@ -555,7 +579,7 @@ update_FLUID :: () {
 
         if do_tick tick_FLUID(*fluid);
 
-        fluid.next_tick_time += fluid.tick_rate_seconds;
+        fluid.next_tick_time = min(fluid.next_tick_time, now) + fluid.tick_rate_seconds;
         fluid.step_once = false;
         fluid.debug_need_redraw = false;
     }
@@ -580,34 +604,14 @@ tick_FLUID :: (fluid: *FLUID_State) {
     for fluid.speed_y  fluid.speed_y_next[it_index] = it;
 
     minimize_divergence(fluid);
-    propagate_velocities(fluid);
+    if fluid.velocity_propagation {
+        propagate_velocities(fluid);
+        propagate_smoke(fluid);
+    }
 
     fluid.tick += 1;
 }
 
-/*
-      |      v0   |       v1  |       v2  |
-    --+-----*-----+-----*-----+-----*-----+--
-      |           |           |           |
-      |           |           |           |
-      *     0     *     1     *     2     *
-      |u0         |u1         |u2         |u3
-      |      v3   |       v4  |       v5  |
-    --+-----*-----+-----*-----+-----*-----+--
-      |           |           |           |
-      |           |           |           |
-      *     3     *     4     *     5     *
-      |u4         |u5         |u6         |u7
-      |      v6   |       v7  |       v8  |
-    --+-----*-----+-----*-----+-----*-----+--
-      |           |           |           |
-      |           |           |           |
-      *     6     *     7     *     8     *
-      |u8         |u9         |u10        |u11
-      |      v9   |       v10 |       v11 |
-    --+-----*-----+-----*-----+-----*-----+--
-      |           |           |           |
- */
 minimize_divergence :: (fluid: *FLUID_State) {
     W := fluid.world_size_x;
     H := fluid.world_size_y;
@@ -656,58 +660,22 @@ minimize_divergence :: (fluid: *FLUID_State) {
     }
 }
 
-/*
-      |      v0   |       v1  |       v2  |
-    --+-----*-----+-----*-----+-----*-----+--
-      |           |           |           |
-      |           |           |           |
-      *     0     *     1     *     2     *
-      |u0         |u1         |u2         |u3
-      |      v3   |       v4  |       v5  |
-    --+-----*-----+-----*-----+-----*-----+--
-      |           |           |           |
-      |           |           |           |
-      *     3     *     4     *     5     *
-      |u4         |u5         |u6         |u7
-      |      v6   |       v7  |       v8  |
-    --+-----*-----+-----*-----+-----*-----+--
-      |           |           |           |
-      |           |           |           |
-      *     6     *     7     *     8     *
-      |u8         |u9         |u10        |u11
-      |      v9   |       v10 |       v11 |
-    --+-----*-----+-----*-----+-----*-----+--
-      |           |           |           |
- */
-propagate_velocities :: (fluid: *FLUID_State) {
-    return;
-
+divergence :: (fluid: *FLUID_State, x: int, y: int) -> float {
     W := fluid.world_size_x;
     H := fluid.world_size_y;
-    us := fluid.speed_x;
-    vs := fluid.speed_y;
-    dt := fluid.delta_time;
-    us_out := fluid.speed_x_next;
-    vs_out := fluid.speed_y_next;
 
-    // speed_x
-    for y: 0..H - 1
-    for x: 1..W - 1 {
-        position := Vector2.{xx x, y + .5};
+    i_u0 := (x    ) + (y    ) * (W + 1);
+    i_u1 := (x + 1) + (y    ) * (W + 1);
+    i_v0 := (x    ) + (y    ) * (W    );
+    i_v1 := (x    ) + (y + 1) * (W    );
 
-        v00 := ifx (x > 0) vs[(x - 1) + (y    ) * W];
-        v10 :=             vs[(x    ) + (y    ) * W];
-        v01 := ifx (x > 0) vs[(x - 1) + (y + 1) * W];
-        v11 :=             vs[(x    ) + (y + 1) * W];
+    u0 := fluid.speed_x[i_u0];
+    u1 := fluid.speed_x[i_u1];
+    v0 := fluid.speed_y[i_v0];
+    v1 := fluid.speed_y[i_v1];
 
-        velocity: Vector2 = ---;
-        velocity.x = us[x + y * (W + 1)];
-        velocity.y = (v00 + v10 + v01 + v11) / 4;
-
-        old_position := position - velocity * dt;
-
-        us_out[x + y * (W + 1)] = get_velocity(fluid, old_position).x;
-    }
+    d := (u0 - u1 + v0 - v1);
+    return d;
 }
 
 /*
@@ -733,6 +701,256 @@ propagate_velocities :: (fluid: *FLUID_State) {
     --+-----*-----+-----*-----+-----*-----+--
       |           |           |           |
  */
+propagate_velocities :: (fluid: *FLUID_State) {
+    uW := fluid.world_size_x + 1;
+    uH := fluid.world_size_y;
+    vW := fluid.world_size_x;
+    vH := fluid.world_size_y + 1;
+
+    us := fluid.speed_x;
+    vs := fluid.speed_y;
+    dt := fluid.delta_time;
+    us_out := fluid.speed_x_next;
+    vs_out := fluid.speed_y_next;
+
+    // speed_x
+    for y: 0 .. uH - 1
+    for x: 1 .. uW - 2 {
+        position := Vector2.{xx x, y + .5};
+
+        v00 := vs[(x - 1) + (y    ) * vW];
+        v10 := vs[(x    ) + (y    ) * vW];
+        v01 := vs[(x - 1) + (y + 1) * vW];
+        v11 := vs[(x    ) + (y + 1) * vW];
+
+        velocity := Vector2.{ us[x + y * uW],
+                              (v00 + v10 + v01 + v11) / 4 };
+
+        old_position := position - velocity * dt;
+        old_position.y -= .5;
+
+        us_out[x + y * uW] = inline interpolate_speed_x(fluid, old_position);
+    }
+    for y: 0 .. uH - 1
+    // Boundary doesn't change
+    for x: int.[0, uW - 1] {
+        us_out[x + y * uW] = us[x + y * uW];
+    }
+
+    // speed_y
+    for y: 1 .. vH - 2
+    for x: 0 .. vW - 1 {
+        position := Vector2.{x + .5, xx y};
+
+        u00 := us[(x    ) + (y - 1) * uW];
+        u10 := us[(x + 1) + (y - 1) * uW];
+        u01 := us[(x    ) + (y    ) * uW];
+        u11 := us[(x + 1) + (y    ) * uW];
+
+        velocity := Vector2.{ (u00 + u10 + u01 + u11) / 4,
+                              vs[x + y * vW] };
+
+        old_position := position - velocity * dt;
+        old_position.x -= .5;
+
+        vs_out[x + y * vW] = inline interpolate_speed_y(fluid, old_position);
+    }
+    for y: int.[0, vH - 1]
+    // Boundary doesn't change
+    for x: 0 .. vW - 1 {
+        vs_out[x + y * vW] = vs[x + y * vW];
+    }
+
+    for us_out us[it_index] = it;
+    for vs_out vs[it_index] = it;
+}
+
+propagate_smoke :: (fluid: *FLUID_State) {
+    W := fluid.world_size_x;
+    H := fluid.world_size_y;
+    dt := fluid.delta_time;
+
+    smoke      := fluid.smoke;
+    smoke_next := fluid.smoke_next;
+
+    // speed_x
+    for y: 0 .. H - 1
+    for x: 0 .. W - 1 {
+        p := Vector2.{x + .5, y + .5};
+
+        velocity := interpolate_speed_mid(fluid, p);
+        // velocity := Vector2.{ interpolate_speed_x(fluid, p),
+        //                       interpolate_speed_y(fluid, p) };
+
+        old_p := p - velocity * dt;
+        // `p` was offset by `+.5`, so `old_p` needs to be offset back by `-.5`
+        // Without it the smoke is moving with 0 speeds everywhere
+        old_p -= .{.5, .5};
+
+        old_i0, old_j0 := old_p.x.(int), old_p.y.(int);
+        old_i1, old_j1 := old_i0 + 1   , old_j0 + 1;
+
+        old_i0_ok := (old_i0 >= 0) && (old_i0 < W);
+        old_i1_ok := (old_i1 >= 0) && (old_i1 < W);
+        old_j0_ok := (old_j0 >= 0) && (old_j0 < H);
+        old_j1_ok := (old_j1 >= 0) && (old_j1 < H);
+
+        s00 := ifx (old_i0_ok && old_j0_ok) smoke[(old_i0) + (old_j0) * W];
+        s01 := ifx (old_i0_ok && old_j1_ok) smoke[(old_i0) + (old_j1) * W];
+        s10 := ifx (old_i1_ok && old_j0_ok) smoke[(old_i1) + (old_j0) * W];
+        s11 := ifx (old_i1_ok && old_j1_ok) smoke[(old_i1) + (old_j1) * W];
+
+        tx := old_p.x - old_i0;
+        ty := old_p.y - old_j0;
+
+        smoke_next[x + y * W] = lerp( lerp(s00, s10, tx),
+                                      lerp(s01, s11, tx), ty );
+    }
+
+    for smoke_next smoke[it_index] = it;
+}
+
+/*
+      |      v0   |       v1  |       v2  |
+    --+-----*-----+-----*-----+-----*-----+--
+      |           |           |           |
+      |           |           |           |
+      *     0     *     1     *     2     *
+      |u0         |u1         |u2         |u3
+      |      v3   |       v4  |       v5  |
+    --+-----*-----+-----*-----+-----*-----+--
+      |           |           |           |
+      |           |           |           |
+      *     3     *     4     *     5     *
+      |u4         |u5         |u6         |u7
+      |      v6   |       v7  |       v8  |
+    --+-----*-----+-----*-----+-----*-----+--
+      |           |           |           |
+      |           |           |           |
+      *     6     *     7     *     8     *
+      |u8         |u9         |u10        |u11
+      |      v9   |       v10 |       v11 |
+    --+-----*-----+-----*-----+-----*-----+--
+      |           |           |           |
+*/
+interpolate_speed_x :: (fluid: *FLUID_State, using position: Vector2) -> float {
+    uW := fluid.world_size_x + 1;
+    uH := fluid.world_size_y;
+    us := fluid.speed_x;
+
+    // Coordinates in the grid
+    column_0, row_0 := x.(int), y.(int);
+
+    // Coordinates in the `speed_x` array.
+    // *row* is temporary because the grid is staggered!
+    ui0 := column_0;      uj0 := row_0 - 1;
+    ui1 := column_0 + 1;  uj1 := row_0;
+
+    // The speed grid is staggered, looking for the closest *row*
+    if (y - row_0) > .5 { uj0 = row_0;
+                          uj1 = row_0 + 1; }
+
+    // TODO: If I store extra rows and columns on the edges,
+    // I won't have to do these checks everywhere
+    ui0_ok := (ui0 >= 0) && (ui0 < uW);
+    ui1_ok := (ui1 >= 0) && (ui1 < uW);
+    uj0_ok := (uj0 >= 0) && (uj0 < uH);
+    uj1_ok := (uj1 >= 0) && (uj1 < uH);
+
+    u00 := ifx (ui0_ok && uj0_ok) us[ui0 + uj0 * uW];
+    u01 := ifx (ui0_ok && uj1_ok) us[ui0 + uj1 * uW];
+    u10 := ifx (ui1_ok && uj0_ok) us[ui1 + uj0 * uW];
+    u11 := ifx (ui1_ok && uj1_ok) us[ui1 + uj1 * uW];
+
+    tx := x - column_0;
+    // Look at this fucking `.5` just sitting there. You know why it's there!
+    // It's the fucking staggered grid!
+    ty := y - (row_0 + .5);
+
+    u := lerp( lerp(u00, u10, tx),
+               lerp(u01, u11, tx), ty );
+
+    return u;
+}
+
+interpolate_speed_y :: (fluid: *FLUID_State, using position: Vector2) -> float {
+    vW := fluid.world_size_x;
+    vH := fluid.world_size_y + 1;
+    vs := fluid.speed_y;
+
+    // Coordinates in the grid
+    column_0, row_0 := x.(int), y.(int);
+
+    // Coordinates in the `speed_y` array.
+    // *column* is temporary because the grid is staggered!
+    vi0 := column_0 - 1;  vj0 := row_0;
+    vi1 := column_0;      vj1 := row_0 + 1;
+
+    // The speed grid is staggered, looking for the closest *column*
+    if (y - column_0) > .5 { vi0 = column_0;
+                             vi1 = column_0 + 1; }
+
+    // TODO: If I store extra rows and columns on the edges,
+    // I won't have to do these checks everywhere
+    vi0_ok := (vi0 >= 0) && (vi0 < vW);
+    vi1_ok := (vi1 >= 0) && (vi1 < vW);
+    vj0_ok := (vj0 >= 0) && (vj0 < vH);
+    vj1_ok := (vj1 >= 0) && (vj1 < vH);
+
+    v00 := ifx (vi0_ok && vj0_ok) vs[vi0 + vj0 * vW];
+    v01 := ifx (vi0_ok && vj1_ok) vs[vi0 + vj1 * vW];
+    v10 := ifx (vi1_ok && vj0_ok) vs[vi1 + vj0 * vW];
+    v11 := ifx (vi1_ok && vj1_ok) vs[vi1 + vj1 * vW];
+
+    // Look at this fucking `.5` just sitting there. You know why it's there!
+    // It's the fucking staggered grid!
+    tx := x - (column_0 + .5);
+    ty := y - row_0;
+
+    v := lerp( lerp(v00, v10, tx),
+               lerp(v01, v11, tx), ty );
+
+    // if v < 0 then v -= .5; else v += .5;
+    return v;
+}
+
+interpolate_speed_mid :: (fluid: *FLUID_State, position: Vector2) -> Vector2 {
+    x, y := position.x.(int), position.y.(int);
+
+    u0 := fluid.speed_x[(x    ) + (y    ) * (fluid.world_size_x + 1)];
+    u1 := fluid.speed_x[(x + 1) + (y    ) * (fluid.world_size_x + 1)];
+    u := (u0 + u1) / 2;
+
+    v0 := fluid.speed_y[(x    ) + (y    ) * (fluid.world_size_x    )];
+    v1 := fluid.speed_y[(x    ) + (y + 1) * (fluid.world_size_x    )];
+    v := (v0 + v1) / 2;
+
+    return .{u, v};
+}
+
+/*
+      |      v0   |       v1  |       v2  |
+    --+-----*-----+-----*-----+-----*-----+--
+      |           |           |           |
+      |           |           |           |
+      *     0     *     1     *     2     *
+      |u0         |u1         |u2         |u3
+      |      v3   |       v4  |       v5  |
+    --+-----*-----+-----*-----+-----*-----+--
+      |           |           |           |
+      |           |           |           |
+      *     3     *     4     *     5     *
+      |u4         |u5         |u6         |u7
+      |      v6   |       v7  |       v8  |
+    --+-----*-----+-----*-----+-----*-----+--
+      |           |           |           |
+      |           |           |           |
+      *     6     *     7     *     8     *
+      |u8         |u9         |u10        |u11
+      |      v9   |       v10 |       v11 |
+    --+-----*-----+-----*-----+-----*-----+--
+      |           |           |           |
+*/
 get_velocity :: inline (fluid: *FLUID_State, position: Vector2) -> velocity: Vector2 {
     W := fluid.world_size_x;
     H := fluid.world_size_y;
@@ -835,20 +1053,29 @@ build_line_for_FLUID_half_scale :: (builder: *String_Builder, _y: int) {
     width := 2 * fluid.window_size_x;
     y := 2 * _y;
 
+    text :: "all work and no play makes jack a dull boy";
+
+    last_top, last_bottom: Pixel_Value;
     for x: 0..width - 1 {
         pixel_top    := get_cell_color(*fluid, x, y);
         pixel_bottom := get_cell_color(*fluid, x, y + 1);
 
-        if pixel_top == pixel_bottom {
-            inline print_pixel_value(builder, pixel_top, fg=false);
-            append(builder, " ");
-        } else {
-            inline print_pixel_value(builder, pixel_top,    fg=true);
+        changed := x == 0 || (pixel_top != last_top) || (pixel_bottom != last_bottom);
+        if changed {
+            if pixel_top != pixel_bottom {
+                inline print_pixel_value(builder, pixel_top, fg=true);
+            }
             inline print_pixel_value(builder, pixel_bottom, fg=false);
 
-            text :: "all work and no play makes jack a dull boy";
-            if fluid.debug_text append(builder, text[x % text.count]);
-            else                append(builder, "▀");
+            last_top, last_bottom = pixel_top, pixel_bottom;
+        }
+
+        if pixel_top == pixel_bottom {
+            append(builder, " ");
+        } else if fluid.debug_text {
+            append(builder, text[x % text.count]);
+        } else {
+            append(builder, "▀");
         }
     }
 }
@@ -904,10 +1131,33 @@ get_cell_color :: (fluid: *FLUID_State, screen_x: int, screen_y: int) -> Pixel_V
 
     if fluid.DEBUG return fluid.debug_pixels[index];
 
-    velocity := Vector2.{fluid.speed_x[(world_x    ) + (world_y    ) * (W + 1)] +
-                         fluid.speed_x[(world_x + 1) + (world_y    ) * (W + 1)],
-                         fluid.speed_y[(world_x    ) + (world_y    ) * (W    )] +
-                         fluid.speed_y[(world_x    ) + (world_y + 1) * (W    )]};
+    if fluid.debug_divergence {
+        d := divergence(fluid, world_x, world_y);
+        v := 1 / (1 + exp(-d));
+        color := hsv_to_rgb(.{0, 0, v});
+        return Pixel_Value.rgb(color.x, color.y, color.z);
+    }
+
+    if fluid.show_smoke {
+        return color_from_smoke(fluid, world_x, world_y);
+    } else {
+        return color_from_velocity(fluid, world_x, world_y);
+    }
+}
+
+color_from_velocity :: (fluid: *FLUID_State, world_x: int, world_y: int) -> Pixel_Value {
+    velocity: Vector2 = ---;
+    if !fluid.debug_interpolation {
+        velocity = interpolate_speed_mid(fluid, .{xx world_x + .5, xx world_y + .5});
+    } else {
+        velocity.x = interpolate_speed_x(fluid, .{xx world_x + .5, xx world_y + .5});
+        velocity.y = interpolate_speed_y(fluid, .{xx world_x + .5, xx world_y + .5});
+    }
+
+    // velocity := Vector2.{fluid.speed_x[(world_x    ) + (world_y    ) * (W + 1)] +
+    //                      fluid.speed_x[(world_x + 1) + (world_y    ) * (W + 1)],
+    //                      fluid.speed_y[(world_x    ) + (world_y    ) * (W    )] +
+    //                      fluid.speed_y[(world_x    ) + (world_y + 1) * (W    )]};
 
     value := length(velocity);
     if value == 0 return Pixel_Value.id(.GRAY_4);
@@ -918,14 +1168,16 @@ get_cell_color :: (fluid: *FLUID_State, screen_x: int, screen_y: int) -> Pixel_V
     direction := velocity / value;
     // My y goes from top to bottom, so I have to reverse it here
     phi := atan2(-direction.y, direction.x);
-
-    Hue_CYAN   :: #run rgb_to_hsv(Vector3.{0, 1, 1}).x;
-    Hue_RED    :: #run rgb_to_hsv(Vector3.{1, 0, 0}).x;
-
-    PI_2 :: PI / 2;
-
     hue := fmod_cycling(((phi) / TAU * 360), 360);
     color := hsv_to_rgb(.{hue, 1, 1});
+    return Pixel_Value.rgb(color.x, color.y, color.z);
+}
+
+color_from_smoke :: (fluid: *FLUID_State, world_x: int, world_y: int) -> Pixel_Value {
+    W := fluid.world_size_x;
+    s := fluid.smoke[world_x + world_y * W];
+
+    color := hsv_to_rgb(.{0, 0, s / fluid.max_smoke});
     return Pixel_Value.rgb(color.x, color.y, color.z);
 }
 
@@ -983,45 +1235,50 @@ status_line_2_render_counter_FLUID :: () -> int {
 //
 
 console_commands_FLUID :: (console_commands: *[..] Command) {
-    array_add(console_commands, make_command("debug_color", console_toggle_debug_color));
-    array_add(console_commands, make_command("debug_text", console_toggle_debug_text));
-    array_add(console_commands, make_command("debug_grid", console_toggle_debug_grid));
+    array_add(console_commands, make_command("debug_color",          #bake_arguments console_toggle_fluid(field="debug_color")));
+    array_add(console_commands, make_command("debug_text",           #bake_arguments console_toggle_fluid(field="debug_text")));
+    array_add(console_commands, make_command("debug_grid",           #bake_arguments console_toggle_fluid(field="debug_grid")));
+    array_add(console_commands, make_command("debug_interpolation",  #bake_arguments console_toggle_fluid(field="debug_interpolation")));
+    array_add(console_commands, make_command("show_smoke",           #bake_arguments console_toggle_fluid(field="show_smoke")));
+    array_add(console_commands, make_command("max_smoke",            #bake_arguments console_set_fluid(field="max_smoke", T=float)));
 }
 
-console_toggle_debug_grid :: () -> bool, string {
-    using context.state;
+console_toggle_fluid :: (field: string) -> bool, string {
+    field_pointer := get_field_pointer(*context.state.fluid, field, bool);
+    assert(field_pointer != null, "%", field);
 
-    fluid.debug_grid = !fluid.debug_grid;
-    fluid.debug_need_redraw = true;
+    field_pointer.* = !field_pointer.*;
+
+    // context.state.fluid.debug_need_redraw = true;
+    // context.state.fluid.sleeping = false;
 
     return true, "";
 }
 
-console_toggle_debug_text :: () -> bool, string {
-    using context.state;
+console_set_fluid :: (field: string, $T: Type, value: T) -> bool, string {
+    field_pointer := get_field_pointer(*context.state.fluid, field, T);
+    assert(field_pointer != null, "%", field);
 
-    fluid.debug_text = !fluid.debug_text;
-    fluid.debug_need_redraw = true;
+    field_pointer.* = value;
 
-    return true, "";
-}
-
-console_toggle_debug_color :: () -> bool, string {
-    using context.state;
-
-    fluid.debug_color = !fluid.debug_color;
-    fluid.debug_need_redraw = true;
+    // context.state.fluid.debug_need_redraw = true;
+    // context.state.fluid.sleeping = false;
 
     return true, "";
 }
 
-console_toggle_half_scale_FLUID :: () -> (ok := true, error_message := "") {
-    using context.state;
+get_field_pointer :: (s: *$S, field: string, $F: Type) -> *F
+#modify { return S.(*Type_Info).type == .STRUCT; }
+{
+    info := type_info(S);
 
-    fluid.half_scale = !fluid.half_scale;
-    fluid.sleeping = false;
+    for info.members if it.name == field {
+        assert(it.type == type_info(F), "% %", field, it.type);
+        p := s.(*u8) + it.offset_in_bytes;
+        return xx p;
+    }
 
-    return;
+    return null;
 }
 
 //

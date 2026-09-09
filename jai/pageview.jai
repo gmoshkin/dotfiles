@@ -637,21 +637,21 @@ main :: () {
 
     cursor := 1;
 
+    Die :: (format: string, arguments: .. Any) #expand {
+        print(format, .. arguments);
+        exit(1);
+    }
+
     Get_Arg :: (out: *$T, info: string = "Expected a number") #expand {
         cursor += 1;
-        if cursor >= args.count {
-            print("% after '%'\n", info, `flag);
-            exit(1);
-        }
+        if cursor >= args.count Die("% after '%'\n", info, `flag);
 
         #if #run is_integer(T)  value, ok := string_to_int(args[cursor]);
         #if T == float          value, ok := string_to_float  (args[cursor]);
         #if T == float64        value, ok := string_to_float64(args[cursor]);
+        #if T == string         value, ok := args[cursor], true;
 
-        if !ok {
-            print("% after '%', got '%'\n", info, `flag, args[cursor]);
-            exit(1);
-        }
+        if !ok Die("% after '%', got '%'\n", info, `flag, args[cursor]);
         out.* = value;
     }
 
@@ -706,7 +706,14 @@ main :: () {
                     cursor += 1;
                 }
 
-            case "--fluid-steps"; Get_Arg(*state.fluid.divergence_solver_max_steps);
+            case "--divergence-steps"; Get_Arg(*state.fluid.divergence_solver_max_steps);
+            case "--velprop";    state.fluid.velocity_propagation = true;
+            case "--no-velprop"; state.fluid.velocity_propagation = false;
+            case "--new-interp";    state.fluid.debug_interpolation = true;
+            case "--no-new-interp"; state.fluid.debug_interpolation = false;
+            case "--show-smoke";    state.fluid.show_smoke = true;
+            case "--no-show-smoke"; state.fluid.show_smoke = false;
+            case "--max-smoke"; Get_Arg(*state.fluid.max_smoke);
 
             case "--overrelaxation"; Get_Arg(*state.fluid.overrelaxation);
             case "--pause"; state.fluid.paused = true;
@@ -719,6 +726,26 @@ main :: () {
                                  state.sandbox.half_scale = true;
             case "--no-half-scale"; state.fluid.half_scale = false;
                                     state.sandbox.half_scale = false;
+
+            case "--size"; {
+                size: string;
+                error := tprint("Expected a number or a pair of numbers after `%`", flag);
+                Get_Arg(*size, error);
+                found, left, right := split_from_left(size, ",");
+                width, ok := string_to_int(left);
+                if !ok Die("%, got '%'", error, size);
+
+                height := width;
+                if found {
+                    height, ok = string_to_int(right);
+                    if !ok Die("Expected a number after `% %,`, got '%'", flag, left, right);
+                }
+
+                state.fluid.  world_size_x = width;
+                state.fluid.  world_size_y = height;
+                state.sandbox.world_size_x = width;
+                state.sandbox.world_size_y = height;
+            }
 
             case "--width";
                 width: int;
@@ -6355,7 +6382,7 @@ console_toggle_half_scale :: () -> (ok := true, error_message := "") {
     using context.state;
 
     console_toggle_half_scale_SANDBOX();
-    console_toggle_half_scale_FLUID();
+    console_toggle_fluid("half_scale");
 
     return;
 }
