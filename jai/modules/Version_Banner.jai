@@ -22,6 +22,13 @@ show_version_banner :: (builder: *String_Builder) {
     print(builder, "compiler version: %\n", COMPILER_VERSION);
 }
 
+log_version_banner :: () {
+    builder: String_Builder;
+    builder.allocator = temp;
+    show_version_banner(*builder);
+    log("%", builder_to_string(*builder,, temp));
+}
+
 // This is quick and dirty way to check for the parameter value, may not work in all cases.
 command_line_arguments_contain_version_flag :: (arguments: [] string, values := string.["-v", "--version"]) -> bool {
     for arg: arguments {

@@ -165,6 +165,7 @@ State :: struct #type_info_no_size_complaint {
     // logging
     //
 
+    pid: s32;
     log_file_name: string;
     log_file_fd: s32 = -1;
     log_to_stderr := false;
@@ -874,10 +875,7 @@ main :: () {
     context.logger = my_logger;
     context.logger_data = context.state;
 
-    builder: String_Builder;
-    builder.allocator = temp;
-    show_version_banner(*builder);
-    log("%", builder_to_string(*builder,, temp));
+    log_version_banner();
 
     if !isatty(STDOUT_FILENO) {
         using state;
@@ -944,17 +942,18 @@ main :: () {
     signal(SIGTERM, shutdown_signal_handler);
     signal(SIGWINCH, window_size_changed_signal_handler);
 
+    state.pid = getpid();
+
     // Reconfigure stdin to work properly
     if gotta_reattach_stdin {
         using context.state;
 
         log("Reading input from standard input...\n");
 
-        my_pid := getpid();
         info: Process_Info;
-        ok := get_process_info(my_pid, *info, log_errors=false,, temp);
+        ok := get_process_info(pid, *info, log_errors=false,, temp);
         if ok {
-            _, is_pipe, pipe_id := get_pipe_id_for_fd(my_pid, STDIN_FILENO, log_errors=false,, temp);
+            _, is_pipe, pipe_id := get_pipe_id_for_fd(pid, STDIN_FILENO, log_errors=false,, temp);
             if is_pipe {
                 ok, parent_command_line := get_process_command_line(info.parent_pid,, temp);
 
@@ -962,7 +961,7 @@ main :: () {
                 // pipeline situation so we need to check who is actually
                 // writing into the pipe
                 if ok && parent_command_line && command_line_is_a_shell(parent_command_line[0]) {
-                    ok, writer_pid := find_writer_in_process_tree(info.parent_pid, my_pid, pipe_id, log_errors=false, check_root=false,, temp);
+                    ok, writer_pid := find_writer_in_process_tree(info.parent_pid, pid, pipe_id, log_errors=false, check_root=false,, temp);
                     if ok {
                         ok, writer_command_line := get_process_command_line(writer_pid,, temp);
                         if ok
@@ -2641,7 +2640,7 @@ maybe_spawn_external_command :: () {
     process := *external_command_process;
     success := create_process(process, ..temp_external_command, capture_and_return_output=true);
 
-    Profile();
+    Profile("create_process(%)", process);
 
     if !success {
         last_command_result.type = .FAILED_TO_LAUNCH;
@@ -6140,6 +6139,7 @@ set_log_file :: (new_log_file: string) -> (ok: bool, error_message: string) {
     open_log_file();
 
     log("start logging");
+    log_version_banner();
     return true, "";
 }
 
@@ -6609,7 +6609,7 @@ my_logger :: (message: string, data: *void, info: Log_Info) {
     builder: String_Builder;
     print_date_time_for_log(*builder, to_calendar(current_time_consensus(), .LOCAL));
     filename := path_filename(info.location.fully_pathed_filename);
-    print(*builder, ": [%:%] %\n", filename, info.location.line_number, message);
+    print(*builder, ": % [%:%] %\n", state.pid, filename, info.location.line_number, message);
 
     if state.log_to_stderr {
         write_builder(*builder, to_standard_error=true);
