@@ -726,6 +726,11 @@ main :: () {
                                  state.sandbox.half_scale = true;
             case "--no-half-scale"; state.fluid.half_scale = false;
                                     state.sandbox.half_scale = false;
+            case "--tick-rate";
+                tick_rate: float64;
+                Get_Arg(*tick_rate);
+                state.fluid.tick_rate_seconds = tick_rate;
+                state.sandbox.tick_rate_seconds = tick_rate;
 
             case "--size"; {
                 size: string;
@@ -5988,6 +5993,8 @@ init_commands :: () {
         array_add(*console_commands, make_command("bg_rgb", set_current_pixel_bg_rgb));
         array_add(*console_commands, make_command("bg_256", set_current_pixel_bg_256));
 
+        array_add(*console_commands, make_command("tick_rate", console_set_sandbox_tick_rate));
+
         console_commands_SANDBOX_GAME(*console_commands);
         console_commands_FLUID(*console_commands);
     }
@@ -6374,6 +6381,15 @@ set_current_pixel_bg_256 :: (number: u8) -> (ok := true, error_message := "") {
     current_pixel_bg._8bit = xx number;
 
     if main_window_source != .DRAWING_MODE return false, "this command is for DRAWING_MODE";
+
+    return;
+}
+
+console_set_sandbox_tick_rate :: (seconds: float64) -> (ok := true, error_message := "") {
+    using context.state;
+
+    console_set_sandbox_tick_rate_SANDBOX_GAME(seconds);
+    console_set_fluid("tick_rate_seconds", float64, seconds);
 
     return;
 }

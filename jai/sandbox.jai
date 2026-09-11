@@ -819,7 +819,6 @@ build_line_for_SANDBOX_GAME_join_to_half :: (builder: *String_Builder, y: int) {
 //
 
 console_commands_SANDBOX_GAME :: (console_commands: *[..] Command) {
-    array_add(console_commands, make_command("tick_rate", console_set_sandbox_tick_rate));
     array_add(console_commands, make_command("can_mutate_after_ticks", console_set_can_mutate_after_ticks));
     array_add(console_commands, make_command("mutate_rate_one_in", console_set_mutate_rate_one_in));
     array_add(console_commands, make_command("mutate_sand", console_toggle_mutate_sand));
@@ -833,12 +832,10 @@ console_commands_SANDBOX_GAME :: (console_commands: *[..] Command) {
     array_add(console_commands, make_command("set_color", console_sandbox_set_color));
 }
 
-console_set_sandbox_tick_rate :: (seconds: float) -> (ok := true, error_message := "") {
-    using context.state;
+console_set_sandbox_tick_rate_SANDBOX_GAME :: (seconds: float64) -> bool, string {
+    context.state.sandbox.tick_rate_seconds = seconds;
 
-    sandbox.tick_rate_seconds = seconds;
-
-    return;
+    return true, "";
 }
 
 console_set_can_mutate_after_ticks :: (ticks: int) -> (ok := true, error_message := "") {
