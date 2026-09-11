@@ -44,24 +44,29 @@ FLUID_State :: struct {
     speed_y_next: [] float;
 
     smoke_next: [] float;
+    fixed_smoke: [..] Position_Value;
 
     input_speed: [..] Position_Velocity;
     fixed_speed: [..] Position_Velocity;
 
-    delta_time: float = 0.01;
+    // dt = 0.1 -> Move 1/10 of the cell per tick
+    delta_time: float = 0.1;
+    // claude says I'm doing the Jacobi method, because I don't update value in
+    // place. In this case overrelaxation doesn't work, and instead you should
+    // do underrelaxation.
     overrelaxation := 0.99;
     divergence_solver_max_steps := 100;
 
     window_size_x: int = -1;
     window_size_y: int = -1;
 
-    half_scale := false;
+    half_scale := true;
 
     tick_rate_seconds: float64 = .1;
     next_tick_time: float64 = -1.0;
     tick: int = 0;
     sleeping := false;
-    paused := true;
+    paused := false;
     step_once := false;
 
     mouse_down := false;
@@ -141,14 +146,17 @@ init_FLUID :: () {
         // array_add(*fluid.input_speed, .{.{0    , H-1.0}, .{ 0.0, -1.0}});
 
 
-        array_add(*fluid.input_speed, .{.{10, xx(H / 2)}, .{1.0,  0.0}});
+        array_add(*fluid.input_speed, .{.{0, xx(H / 2 - 1)}, .{10.0,  0.0}});
+        array_add(*fluid.input_speed, .{.{0, xx(H / 2    )}, .{10.0,  0.0}});
+        array_add(*fluid.input_speed, .{.{0, xx(H / 2 + 1)}, .{10.0,  0.0}});
 
         // for Vector2.[.{0, 0}, .{W-1.0, 0}, .{W-1.0, H-1.0}, .{0, H-1.0}] {
         //     fluid.smoke[xx (it.x + it.y * W)] = 10.0;
         // }
 
-        for x: 1..4 for y: (H/2)-1..(H/2)+2 {
-            fluid.smoke[x + y * W] = 10.0;
+        for x: 1..1 for y: (H/2)..(H/2) {
+            array_add(*fluid.fixed_smoke, .{Vector2.{xx x, xx y}, 10.0});
+            // fluid.fixed_smoke[x + y * W] = 10.0;
         }
     }
 
@@ -577,6 +585,8 @@ update_FLUID :: () {
             fluid.input_speed.count = 0;
         }
 
+        apply_smoke(*fluid, fluid.fixed_smoke);
+
         if do_tick tick_FLUID(*fluid);
 
         fluid.next_tick_time = min(fluid.next_tick_time, now) + fluid.tick_rate_seconds;
@@ -594,6 +604,16 @@ apply_speeds :: (fluid: *FLUID_State, inputs: [] Position_Velocity) {
         y := it.position.y.(int);
         fluid.speed_x[x + y * (W + 1)] = it.velocity.x;
         fluid.speed_y[x + y * (W    )] = it.velocity.y;
+    }
+}
+
+Position_Value :: struct { p: Vector2; v: float; }
+
+apply_smoke :: (fluid: *FLUID_State, inputs: [] Position_Value) {
+    W := fluid.world_size_x;
+    for inputs {
+        x, y := it.p.x.(int), it.p.y.(int);
+        fluid.smoke[x + y * W] = it.v;
     }
 }
 
@@ -622,6 +642,8 @@ minimize_divergence :: (fluid: *FLUID_State) {
 
         for y: 0..H - 1
         for x: 0..W - 1 {
+            if !fluid.boundary[x + y * W] continue;
+
             i_u0 := (x    ) + (y    ) * (W + 1);
             i_u1 := (x + 1) + (y    ) * (W + 1);
             i_v0 := (x    ) + (y    ) * (W    );
@@ -647,10 +669,10 @@ minimize_divergence :: (fluid: *FLUID_State) {
 
             dd := d / s;
 
-            if (x > 0    ) fluid.speed_x_next[i_u0] += -dd;
-            if (x < W - 1) fluid.speed_x_next[i_u1] +=  dd;
-            if (y > 0    ) fluid.speed_y_next[i_v0] += -dd;
-            if (y < H - 1) fluid.speed_y_next[i_v1] +=  dd;
+            if s_west  fluid.speed_x_next[i_u0] += -dd;
+            if s_east  fluid.speed_x_next[i_u1] +=  dd;
+            if s_north fluid.speed_y_next[i_v0] += -dd;
+            if s_south fluid.speed_y_next[i_v1] +=  dd;
         }
 
         for fluid.speed_x_next  fluid.speed_x[it_index] = it;
@@ -776,6 +798,8 @@ propagate_smoke :: (fluid: *FLUID_State) {
     // speed_x
     for y: 0 .. H - 1
     for x: 0 .. W - 1 {
+        if !fluid.boundary[x + y * W] continue;
+
         p := Vector2.{x + .5, y + .5};
 
         velocity := interpolate_speed_mid(fluid, p);
@@ -787,8 +811,9 @@ propagate_smoke :: (fluid: *FLUID_State) {
         // Without it the smoke is moving with 0 speeds everywhere
         old_p -= .{.5, .5};
 
-        old_i0, old_j0 := old_p.x.(int), old_p.y.(int);
-        old_i1, old_j1 := old_i0 + 1   , old_j0 + 1;
+        // Don't forget to do floor, so that negative values are handled correctly
+        old_i0, old_j0 := floor(old_p.x).(int), floor(old_p.y).(int);
+        old_i1, old_j1 := old_i0 + 1          , old_j0 + 1;
 
         old_i0_ok := (old_i0 >= 0) && (old_i0 < W);
         old_i1_ok := (old_i1 >= 0) && (old_i1 < W);
@@ -838,17 +863,11 @@ interpolate_speed_x :: (fluid: *FLUID_State, using position: Vector2) -> float {
     uH := fluid.world_size_y;
     us := fluid.speed_x;
 
-    // Coordinates in the grid
-    column_0, row_0 := x.(int), y.(int);
+    // I don't like how there's no .5 anywhere in here even though the grid is
+    // staggered. Them .5's are on the caller side, which makes me a bit anxious.
 
-    // Coordinates in the `speed_x` array.
-    // *row* is temporary because the grid is staggered!
-    ui0 := column_0;      uj0 := row_0 - 1;
-    ui1 := column_0 + 1;  uj1 := row_0;
-
-    // The speed grid is staggered, looking for the closest *row*
-    if (y - row_0) > .5 { uj0 = row_0;
-                          uj1 = row_0 + 1; }
+    ui0, uj0 := floor(x).(int),  floor(y).(int);
+    ui1, uj1 := ui0 + 1,         uj0 + 1;
 
     // TODO: If I store extra rows and columns on the edges,
     // I won't have to do these checks everywhere
@@ -862,10 +881,8 @@ interpolate_speed_x :: (fluid: *FLUID_State, using position: Vector2) -> float {
     u10 := ifx (ui1_ok && uj0_ok) us[ui1 + uj0 * uW];
     u11 := ifx (ui1_ok && uj1_ok) us[ui1 + uj1 * uW];
 
-    tx := x - column_0;
-    // Look at this fucking `.5` just sitting there. You know why it's there!
-    // It's the fucking staggered grid!
-    ty := y - (row_0 + .5);
+    tx := x - ui0;
+    ty := y - uj0;
 
     u := lerp( lerp(u00, u10, tx),
                lerp(u01, u11, tx), ty );
@@ -878,17 +895,11 @@ interpolate_speed_y :: (fluid: *FLUID_State, using position: Vector2) -> float {
     vH := fluid.world_size_y + 1;
     vs := fluid.speed_y;
 
-    // Coordinates in the grid
-    column_0, row_0 := x.(int), y.(int);
+    // I don't like how there's no .5 anywhere in here even though the grid is
+    // staggered. Them .5's are on the caller side, which makes me a bit anxious.
 
-    // Coordinates in the `speed_y` array.
-    // *column* is temporary because the grid is staggered!
-    vi0 := column_0 - 1;  vj0 := row_0;
-    vi1 := column_0;      vj1 := row_0 + 1;
-
-    // The speed grid is staggered, looking for the closest *column*
-    if (y - column_0) > .5 { vi0 = column_0;
-                             vi1 = column_0 + 1; }
+    vi0, vj0 := floor(x).(int), floor(y).(int);
+    vi1, vj1 := vi0 + 1,        vj0 + 1;
 
     // TODO: If I store extra rows and columns on the edges,
     // I won't have to do these checks everywhere
@@ -902,15 +913,12 @@ interpolate_speed_y :: (fluid: *FLUID_State, using position: Vector2) -> float {
     v10 := ifx (vi1_ok && vj0_ok) vs[vi1 + vj0 * vW];
     v11 := ifx (vi1_ok && vj1_ok) vs[vi1 + vj1 * vW];
 
-    // Look at this fucking `.5` just sitting there. You know why it's there!
-    // It's the fucking staggered grid!
-    tx := x - (column_0 + .5);
-    ty := y - row_0;
+    tx := x - vi0;
+    ty := y - vj0;
 
     v := lerp( lerp(v00, v10, tx),
                lerp(v01, v11, tx), ty );
 
-    // if v < 0 then v -= .5; else v += .5;
     return v;
 }
 
@@ -926,61 +934,6 @@ interpolate_speed_mid :: (fluid: *FLUID_State, position: Vector2) -> Vector2 {
     v := (v0 + v1) / 2;
 
     return .{u, v};
-}
-
-/*
-      |      v0   |       v1  |       v2  |
-    --+-----*-----+-----*-----+-----*-----+--
-      |           |           |           |
-      |           |           |           |
-      *     0     *     1     *     2     *
-      |u0         |u1         |u2         |u3
-      |      v3   |       v4  |       v5  |
-    --+-----*-----+-----*-----+-----*-----+--
-      |           |           |           |
-      |           |           |           |
-      *     3     *     4     *     5     *
-      |u4         |u5         |u6         |u7
-      |      v6   |       v7  |       v8  |
-    --+-----*-----+-----*-----+-----*-----+--
-      |           |           |           |
-      |           |           |           |
-      *     6     *     7     *     8     *
-      |u8         |u9         |u10        |u11
-      |      v9   |       v10 |       v11 |
-    --+-----*-----+-----*-----+-----*-----+--
-      |           |           |           |
-*/
-get_velocity :: inline (fluid: *FLUID_State, position: Vector2) -> velocity: Vector2 {
-    W := fluid.world_size_x;
-    H := fluid.world_size_y;
-    us := fluid.speed_x;
-    vs := fluid.speed_y;
-
-    if position.x < -1   || position.y < -1   return .{};
-    if position.x > xx W || position.y > xx H return .{};
-
-    x  := floor(position.x).(int);
-    dx := position.x - x;
-    y  := floor(position.y).(int);
-    dy := position.y - y;
-
-    velocity: Vector2;
-
-    u00 := ifx (x > 0) && (y > 0    ) then us[(x    ) + (y    ) * W];
-    u10 := ifx (x < W) && (y > 0    ) then us[(x + 1) + (y    ) * W];
-    u01 := ifx (x > 0) && (y < H - 1) then us[(x    ) + (y + 1) * W];
-    u11 := ifx (x < W) && (y < H - 1) then us[(x + 1) + (y + 1) * W];
-
-    velocity.x = lerp(lerp(u00, u10, dx),
-                      lerp(u01, u11, dx), dy);
-
-    v00 := ifx (x > 0    ) && (y > 0) then vs[(x    ) + (y    ) * W];
-    v10 := ifx (x < W - 1) && (y > 0) then vs[(x + 1) + (y    ) * W];
-    v01 := ifx (x > 0    ) && (y < H) then vs[(x    ) + (y + 1) * W];
-    v11 := ifx (x < W - 1) && (y < H) then vs[(x + 1) + (y + 1) * W];
-
-    return velocity;
 }
 
 #run {
@@ -1131,6 +1084,8 @@ get_cell_color :: (fluid: *FLUID_State, screen_x: int, screen_y: int) -> Pixel_V
 
     if fluid.DEBUG return fluid.debug_pixels[index];
 
+    if !fluid.boundary[index] return Pixel_Value.id(.GRAY_2);
+
     if fluid.debug_divergence {
         d := divergence(fluid, world_x, world_y);
         v := 1 / (1 + exp(-d));
@@ -1150,8 +1105,8 @@ color_from_velocity :: (fluid: *FLUID_State, world_x: int, world_y: int) -> Pixe
     if !fluid.debug_interpolation {
         velocity = interpolate_speed_mid(fluid, .{xx world_x + .5, xx world_y + .5});
     } else {
-        velocity.x = interpolate_speed_x(fluid, .{xx world_x + .5, xx world_y + .5});
-        velocity.y = interpolate_speed_y(fluid, .{xx world_x + .5, xx world_y + .5});
+        velocity.x = interpolate_speed_x(fluid, .{xx world_x     , xx world_y + .5});
+        velocity.y = interpolate_speed_y(fluid, .{xx world_x + .5, xx world_y     });
     }
 
     // velocity := Vector2.{fluid.speed_x[(world_x    ) + (world_y    ) * (W + 1)] +
@@ -1241,6 +1196,8 @@ console_commands_FLUID :: (console_commands: *[..] Command) {
     array_add(console_commands, make_command("debug_interpolation",  #bake_arguments console_toggle_fluid(field="debug_interpolation")));
     array_add(console_commands, make_command("show_smoke",           #bake_arguments console_toggle_fluid(field="show_smoke")));
     array_add(console_commands, make_command("max_smoke",            #bake_arguments console_set_fluid(field="max_smoke", T=float)));
+    array_add(console_commands, make_command("delta_time",           #bake_arguments console_set_fluid(field="delta_time", T=float)));
+    array_add(console_commands, make_command("overrelaxation",       #bake_arguments console_set_fluid(field="overrelaxation", T=float)));
 }
 
 console_toggle_fluid :: (field: string) -> bool, string {
