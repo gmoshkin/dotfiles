@@ -5122,6 +5122,20 @@ handle_input_event_in_input_command_mode :: (event: Input_Event) {
                 deactivate_completion_menu();
             }
 
+        case #char "\x14"; /* CTRL+T */
+            if command_line.count > 0
+                && input_cursor > 0
+                && input_cursor < command_line.count
+            {
+                char_before := command_line[input_cursor - 1];
+                char_after  := command_line[input_cursor];
+                array_ordered_remove_range(*command_line, input_cursor - 1, input_cursor + 1);
+                array_insert_at(*command_line, char_after, input_cursor - 1);
+                array_insert_at(*command_line, char_before, input_cursor);
+                input_cursor += 1;
+                deactivate_completion_menu();
+            }
+
         case #char "\x0b"; /* CTRL+K */
             if command_line.count > 0 && input_cursor < command_line.count {
                 array_ordered_remove_range(*command_line, input_cursor, command_line.count);
