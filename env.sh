@@ -29,3 +29,8 @@ fi
 export CLICOLOR=YES
 export RUST_BACKTRACE=1
 export CLAUDE_CODE_DISABLE_MOUSE_CLICKS=1
+
+# Need this for `mosh`, which refuses to work with the `LC_CTYPE=UTF-8` which
+# gets set when connecting via ssh from mac
+[ -z "$LANG" ] && export LANG=en_US.UTF-8
+[ "$LC_CTYPE" = "UTF-8" ] && export LC_CTYPE=en_US.UTF-8
