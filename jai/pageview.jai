@@ -713,7 +713,13 @@ main :: () {
             case "--no-new-interp"; state.fluid.debug_interpolation = false;
             case "--show-smoke";    state.fluid.show_smoke = true;
             case "--no-show-smoke"; state.fluid.show_smoke = false;
+            case "--color-smoke";    state.fluid.color_smoke = true;
+            case "--no-color-smoke"; state.fluid.color_smoke = false;
             case "--max-smoke"; Get_Arg(*state.fluid.max_smoke);
+            case "--gravity-y"; #through;
+            case "--gravity"; Get_Arg(*state.fluid.gravity.y);
+            case "--gravity-x"; Get_Arg(*state.fluid.gravity.x);
+            case "--smoke-mult"; Get_Arg(*state.fluid.smoke_mult);
 
             case "--overrelaxation"; Get_Arg(*state.fluid.overrelaxation);
             case "--pause"; state.fluid.paused = true;
@@ -1336,7 +1342,6 @@ main :: () {
                 // Display window
                 //
                 time_last_shown = frame_time;
-                redraw_once = false;
 
                 // "\e[0J": erase from cursor to end of screen
                 // write_string("\e[0J");
@@ -1371,6 +1376,8 @@ main :: () {
                         }
                     }
                 }
+
+                redraw_once = false;
 
                 // Save last shown line buffer
                 memory_pool_allocator: Allocator;
@@ -3536,6 +3543,10 @@ render_status_line_1_right_side :: (outer_builder: *String_Builder) {
         {
             buffer_number_in_history = status_line_1_buffer_number_SANDBOX_GAME();
         }
+        else if main_window_source == .FLUID
+        {
+            buffer_number_in_history = status_line_1_buffer_number_FLUID();
+        }
         else
         {
             builder: String_Builder;
@@ -3582,6 +3593,10 @@ render_status_line_1_right_side :: (outer_builder: *String_Builder) {
 
     // TODO @Robustness not handling left side being over terminal width...
     right_side_budget := terminal_size.cols - count_visible_characters(left_side);
+
+    // FIXME: what the fuck is this bug????
+    if main_window_source == .FLUID
+        right_side_budget -= 2;
 
     maybe_do_parts :: (builder: *String_Builder, max_length: s64, parts_to_show: [] string) -> bool {
         assert(parts_to_show.count > 0);
