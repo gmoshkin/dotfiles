@@ -3,8 +3,8 @@ FLUID_State :: struct {
     offset_x: int = 0;
     offset_y: int = 0;
 
-    world_size_x: int = 50; // AKA width
-    world_size_y: int = 40; // AKA height
+    world_size_x: int = 100; // AKA width
+    world_size_y: int = 100; // AKA height
 
     cell_size: float = 1;
 
@@ -40,7 +40,7 @@ FLUID_State :: struct {
     boundary: [/* W x H */] bool;
     smoke: [/* W x H */] float;
     smoke_sum: float;
-    smoke_mult := 1.01;
+    smoke_mult := 1.00;
 
     speed_x_next: [] float;
     speed_y_next: [] float;
@@ -51,7 +51,7 @@ FLUID_State :: struct {
     input_speed: [..] Position_Velocity;
     fixed_speed: [..] Position_Velocity;
 
-    gravity := Vector2.{0.0, 1.0};
+    gravity := Vector2.{0.0, 0.0};
 
     // dt = 0.1 -> Move 1/10 of the cell per tick
     delta_time: float = 0.1;
@@ -66,7 +66,7 @@ FLUID_State :: struct {
 
     half_scale := true;
 
-    tick_rate_seconds: float64 = .1;
+    tick_rate_seconds: float64 = .01;
     next_tick_time: float64 = -1.0;
     tick: int = 0;
     sleeping := false;
