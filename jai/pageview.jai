@@ -8284,6 +8284,14 @@ print_human_readable_memory_size :: (builder: *String_Builder, size_in_bytes: s6
 parse_human_readable_memory_size :: (input: string) -> (ok: bool, size_in_bytes: s64) {
     ok, size, tail := string_to_float64_new(input);
     if !ok return false, -1;
+
+    // Dude, the fucking `du -h` on linux spits out `12,3M`, WTF?
+    // FIXME: I just throw out the fractional part, so 1.1G is same as 1.9G, which sucks!
+    if tail && tail[0] == "," {
+        advance(*tail);
+        while tail && (inline is_digit(tail[0])) advance(*tail);
+    }
+
     if !tail return true, to_s64_saturating(size);
 
     c := tail[0];
