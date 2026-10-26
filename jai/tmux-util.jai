@@ -469,6 +469,7 @@ capture_last_command_output_subcommand :: (args: [] string) -> (ok: bool, error:
     target_pane: string;
 
     num_matches_to_skip := 1;
+    strip_escape_codes := true;
 
     cursor := 0;
     while cursor < args.count {
@@ -479,6 +480,8 @@ capture_last_command_output_subcommand :: (args: [] string) -> (ok: bool, error:
             if cursor >= args.count return false, sprint("expected argument after `%`", arg);
             target_pane = args[cursor];
             cursor += 1;
+        case "-e";
+            strip_escape_codes = false;
         case "--skip";
             if cursor >= args.count return false, sprint("expected argument after `%`", arg);
             value := args[cursor];
@@ -486,12 +489,17 @@ capture_last_command_output_subcommand :: (args: [] string) -> (ok: bool, error:
 
             num_matches_to_skip=, tail := parse_positive_number(value);
             if tail == value || trim(tail) != "" return false, sprint("expected a positive number after `%`, got `%`", arg, value);
+        case;
+            if starts_with(arg, "-") {
+                return false, sprint("unexpected flag `%`", arg);
+            }
         }
     }
 
     cmd: [..] string;
     cmd.allocator = temp;
-    array_add(*cmd, "tmux", "capture-pane", "-epJS-");
+    array_add(*cmd, "tmux", "capture-pane", "-pJS-");
+    if !strip_escape_codes array_add(*cmd, "-e");
     if target_pane then array_add(*cmd, "-t", target_pane);
 
     ok, output := command(..cmd);
